@@ -27,24 +27,60 @@
         ]
       },
       {
-        "matcher": "*",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/repo-hooks.mjs",
-            "timeout": 120
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/spec-gate-guard.mjs",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/bash-guard.mjs",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/commit-gates.mjs",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Write|Edit|MultiEdit|WebFetch|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/injection-gate-guard.mjs",
+            "timeout": 10
           }
         ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "*",
+        "matcher": "Bash|WebFetch|mcp__.*",
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/repo-hooks.mjs",
-            "timeout": 120
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/injection-scan-guard.mjs",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/canary-seed.mjs",
+            "timeout": 10
           }
         ]
       }

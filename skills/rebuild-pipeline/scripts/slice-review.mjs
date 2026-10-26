@@ -302,18 +302,21 @@ md.shipped = sliceFeatures.map((id) =>
 
 // --- 2b. lane plans ------------------------------------------------------
 // Each lane worked under a PLAN.md that lane-plan.mjs wrote from the approved specs (E17b). The
-// harness's spec gate cannot stop a lane rewriting its own approved spec — `*.md` is exempt from
-// it — so this is where that edit becomes visible: the `## Spec` section is re-hashed against
+// spec gate cannot stop a lane rewriting its own approved spec — `*.md` is exempt from it — so
+// this is where that edit becomes visible: the `## Spec` section is re-hashed against
 // what lane-plan.mjs recorded. Advisory like everything here, but named, because a lane that
 // rewrote the spec it was approved against is the failure the plan exists to prevent.
 const lanePlanMd = [];
 const lanePlans = planLib?.readLanePlans(sliceId);
 if (lanePlans) {
   for (const [lane, rec] of Object.entries(lanePlans.lanes || {})) {
-    const planPath = join(rec.worktree, "PLAN.md");
+    // A finished lane's plan was moved to the workbench by `lane-plan.mjs archive`; the copy is
+    // checked exactly as the live one would have been, so archiving cannot hide an edited spec.
+    const live = join(rec.worktree, "PLAN.md");
+    const planPath = !existsSync(live) && rec.archived?.path && existsSync(rec.archived.path) ? rec.archived.path : live;
     if (!existsSync(planPath)) {
-      lanePlanMd.push(`- ${lane}: no PLAN.md in \`${rec.worktree}\` — archived by task-workflow's cleanup, ` +
-        `or removed. Approved @ workbench ${rec.workbench_commit} by ${rec.approved_by}.`);
+      lanePlanMd.push(`- ${lane}: no PLAN.md in \`${rec.worktree}\` and no archive recorded, so it was removed ` +
+        `by hand. Approved @ workbench ${rec.workbench_commit} by ${rec.approved_by}.`);
       continue;
     }
     const plan = readText(planPath);

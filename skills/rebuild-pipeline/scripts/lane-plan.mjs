@@ -7,10 +7,12 @@
 //        --specs plan/specs/S3/billing.md,plan/specs/S3/invoicing.md
 //   node scripts/lane-plan.mjs S3 billing-backend --worktree ../app-S3-billing \
 //        --specs plan/specs/S3/billing.md --amend --reason "AC 4 contradicted R-BILL-002"
+//   node scripts/lane-plan.mjs record-verify S3 billing-backend --verdict PASS --round 1
+//   node scripts/lane-plan.mjs archive S3 billing-backend     # slice end: plan leaves the worktree
 //
-// WHY THIS EXISTS. Every code repo carries bigin-harness-setup's spec-gate-guard: no edit over
-// ~20 lines until PLAN.md at the worktree root says `Status: approved`. Since E17a forwards that
-// guard to pipeline sessions, a lane with no plan is blocked on its first real edit. The human
+// WHY THIS EXISTS. The plugin's spec-gate-guard blocks any edit over ~20 lines in a code repo
+// until PLAN.md at the worktree root says `Status: approved`, so a lane with no plan is blocked
+// on its first real edit. The human
 // approval the gate wants already exists — you approve a slice's specs before any code
 // (g5-build.md; autopilot halts for it) — but it lived in the workbench and never reached the
 // file the gate reads. A lane told to write its own plan would be approving itself: `*.md` is on
@@ -18,20 +20,22 @@
 // no person gave. So the plan is written here, by script, at the approval moment, and carries
 // where the approval came from (`Approved:` — spec paths, workbench commit, approver).
 //
-// THE FORMAT IS task-workflow's PLAN.md, deliberately: `Status:` and `Branch:` are what the guard
-// reads (`^Status:\s*(\S+)`, `^Branch:\s*(\S+)` — eval/lane-plan.mjs copies both patterns; if
-// bigin changes them, change it), and task-workflow's verifier and its cleanup step read the rest.
+// THE FORMAT: `Status:` and `Branch:` are what the guard reads (`^Status:\s*(\S+)`,
+// `^Branch:\s*(\S+)` — hooks/scripts/lib.mjs PLAN_STATUS and PLAN_BRANCH). This script is
+// vendored into each workbench and runs alone, so it cannot import them; eval/lane-plan.mjs
+// imports both sides and fails if they stop agreeing. If you change one, change both. The
+// lane-verifier and `archive` read the rest.
 // Tasks are one row per acceptance criterion, so `Done` means the same thing in the plan, in the
 // AC→test mapping and in the per-rule parity report.
 //
 // It refuses rather than guesses: specs with uncommitted changes (the approval would point at
 // text no commit holds), a worktree on a branch other than slice/<Sn>-<lane>, and an existing
-// PLAN.md with unfinished rows (task-workflow's own never-overwrite rule). Every write is recorded
+// PLAN.md with unfinished rows (a plan with work in it is never overwritten). Every write is recorded
 // in plan/lane-plans/<Sn>.yaml with a sha256 of the plan's `## Spec` section, which
 // slice-review.mjs re-checks: the guard cannot stop a lane editing its own approved spec, since
 // `*.md` is exempt, so the slice boundary is where that edit becomes visible.
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { join, resolve, relative } from "node:path";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -79,8 +83,9 @@ const acceptanceCriteria = (text) => {
 
 // `record-verify` (E18, 0.30.0): the orchestrator records each lane-verifier round here, so the
 // slice boundary can say whether every lane was audited and how it ended, instead of the claim
-// living in a conversation nobody re-reads. The cap of 3 is task-workflow's: every verifier
-// dispatch on a plan is a round, and the third FAIL ends the loop with a halt for the user.
+// living in a conversation nobody re-reads. The cap of 3 is this pipeline's (g5-build.md step 4b):
+// every verifier dispatch on a plan is a round, and the third FAIL ends the loop with a halt for
+// the user.
 export const VERIFY_CAP = 3;
 // Split on either separator: on Windows argv[1] arrives with backslashes, a "/" split returned the
 // whole path, and the CLI exited 0 having done nothing. Same line in equiv, flows, lane-plan and
@@ -110,6 +115,58 @@ if (isMain && process.argv[2] === "record-verify") {
   const capHit = verdict === "FAIL" && round === VERIFY_CAP;
   console.log(`${sliceId} ${lane}: verifier round ${round}/${VERIFY_CAP} ${verdict}` +
     (capHit ? ` — cap reached. HALT: show the user the issues and ask whether to amend the plan, raise the cap, or take over.` : ""));
+  process.exit(0);
+}
+// `archive` (1.0.0): the slice-end half of a plan's life. Until 1.0.0 a finished PLAN.md left the
+// worktree through another plugin's cleanup step. Nothing does that now, and a plan left in the
+// worktree is merged into the code repo with the lane's last commit, carrying a stale
+// `Status: approved` that the spec gate would honour for the next lane cut from that tree. So the
+// plan moves to the workbench, which is where the record of what was approved belongs anyway, and
+// the code repo's tree carries no PLAN.md after the slice.
+//
+// It refuses a plan with unfinished rows or `Status: amending`: archiving is the claim that the
+// lane is done. An edited `## Spec` does NOT stop it — the copy is the evidence — but it is
+// recorded, and slice-review.mjs names it.
+if (isMain && process.argv[2] === "archive") {
+  const args = process.argv.slice(3);
+  const [sliceId, lane] = args.filter((a) => !a.startsWith("--"));
+  const die = (msg) => { console.error(`lane-plan archive: ${msg}`); process.exit(1); };
+  if (!existsSync(join("locks", "pipeline.yaml"))) die("no locks/pipeline.yaml here — run from the workbench root.");
+  if (!sliceId || !lane) die("usage: lane-plan.mjs archive <Sn> <lane>");
+  const rec = readLanePlans(sliceId);
+  const lrec = rec?.lanes?.[lane];
+  if (!lrec) die(`no plan recorded for ${sliceId} ${lane}.`);
+  if (lrec.archived) die(`${sliceId} ${lane} was already archived to ${lrec.archived.path}.`);
+  const planPath = join(lrec.worktree, "PLAN.md");
+  if (!existsSync(planPath)) die(`no PLAN.md in ${lrec.worktree}.`);
+  const plan = readText(planPath);
+  const status = plan.match(/^Status:\s*(\S+)/m)?.[1] || "(none)";
+  if (status !== "approved") die(`${planPath} is Status: ${status}. Only an approved plan with every row Done is archived.`);
+  const rows = taskRows(plan);
+  const open = rows.filter((r) => r.status !== "Done");
+  if (open.length) die(`${open.length} of ${rows.length} task row(s) are not Done (first: row ${open[0].n}).`);
+  const dest = join("plan", "lane-plans", "archive", `${sliceId}-${lane}.md`);
+  mkdirSync(join("plan", "lane-plans", "archive"), { recursive: true });
+  writeFileSync(dest, plan);
+  unlinkSync(planPath);
+  // A plan the lane committed is tracked: removing the file alone leaves the deletion unstaged,
+  // and the next `git add -p` would miss it.
+  let staged = false;
+  try {
+    execFileSync("git", ["-C", lrec.worktree, "ls-files", "--error-unmatch", "PLAN.md"], { stdio: "ignore" });
+    execFileSync("git", ["-C", lrec.worktree, "rm", "-q", "--cached", "PLAN.md"], { stdio: "ignore" });
+    staged = true;
+  } catch { /* untracked: the unlink was the whole removal */ }
+  lrec.archived = {
+    path: dest.replace(/\\/g, "/"), at: new Date().toISOString(), rows: rows.length,
+    sha256: createHash("sha256").update(plan).digest("hex"),
+    spec_edited: specHash(plan) !== lrec.spec_sha256,
+  };
+  writeFileSync(join("plan", "lane-plans", `${sliceId}.yaml`),
+    "# Written by scripts/lane-plan.mjs; read by slice-review.mjs. Do not hand-edit.\n" + JSON.stringify(rec, null, 2) + "\n");
+  console.log(`${sliceId} ${lane}: ${rows.length} row(s) Done, archived to ${dest}` +
+    (lrec.archived.spec_edited ? " — WARNING: the plan's ## Spec differs from what was approved; slice-review will name it." : "") +
+    (staged ? `\nPLAN.md was tracked: its removal is staged in ${lrec.worktree}. Commit it with the lane's last commit.` : ""));
   process.exit(0);
 }
 if (isMain) {
@@ -220,8 +277,8 @@ if (isMain) {
   const rec = readLanePlans(sliceId) || { slice: sliceId, lanes: {} };
   const prior = rec.lanes[lane] || {};
   rec.lanes[lane] = {
-    // A new or amended plan restarts the verifier count, as task-workflow resets it: earlier
-    // rounds audited a plan that no longer exists. They are kept, not dropped, as history.
+    // A new or amended plan restarts the verifier count: earlier rounds audited a plan that no
+    // longer exists. They are kept, not dropped, as history.
     verify: [],
     ...(amend && (prior.verify?.length || prior.verify_prior?.length)
       ? { verify_prior: [...(prior.verify_prior || []), ...(prior.verify || [])] } : {}),

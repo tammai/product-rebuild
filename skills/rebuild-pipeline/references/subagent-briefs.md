@@ -143,25 +143,15 @@ pass on rerun report as unverified, because no commit names the code that ran.
 - The joint run starts from a clean `reset` of the shared stack, with every lane's migrations
   merged, so they apply in number order.
 
-**The plan and the repo's guards** (part 4, verbatim):
+**The plan and the guards** (part 4). `lane-worker`'s agent file carries the standing rules: work the
+task rows of the `PLAN.md` at the worktree root, edit only their Status and Notes, set `Status:
+amending` if the spec is wrong, follow a guard's block, and start every shell command with `cd
+<worktree> &&`. They are not pasted into each brief, because a rule that lives in every brief
+drifts between them. The brief carries what is true of this dispatch, as written:
 
-- You work in `<worktree>` on branch `slice/<Sn>-<lane>`, under the `PLAN.md` at its root. The rebuild
-  pipeline wrote that plan from the slice specs the user approved. Its `Status: approved` is what the
-  repo's spec gate reads before it allows any edit over ~20 lines.
-- This repo's `CLAUDE.md` sends non-trivial work to `/task-workflow`. For this lane, steps 1–3 are
-  already done: the spec was approved in the rebuild workbench and `PLAN.md` was written from it. Do
-  not start `task-workflow`, do not write a spec, and do not ask for approval. Work the task rows in
-  `PLAN.md`, one per acceptance criterion, and set each to `Done` when its test passes.
-- Edit only the task rows' Status and Notes. Never edit `Status:`, `Branch:`, `Approved:` or `## Spec`,
-  and never write a new `PLAN.md`. If the spec is wrong or contradicts a Rule Card or a contract,
-  set `Status: amending`, which blocks your own non-trivial edits, and report what is wrong. That is
-  the only `Status:` edit you may make.
-- The repo's own guards (spec gate, bash guard, bugfix-test, commit-msg, injection gate) run for
-  you. A block from one of them is the repo's rule: follow its message, and never edit
-  `.claude/guards/` or `.claude/settings*.json`.
-- Start every shell command that acts on the repo with `cd <worktree> && …`, in the same call. The
-  guards can only see which repo a command acts on when the command says so. Use `cd`, not
-  `git -C`: the repo's commit-message guard does not read a message behind `git -C <dir> commit`.
+- You work in `<worktree>` on branch `slice/<Sn>-<lane>`, under the `PLAN.md` at its root. The
+  rebuild pipeline wrote that plan from the slice specs the user approved. Your standing rules for
+  it, and for the guards that run on this repo, are in your agent file.
 
 **Helpers** (part 4). A lane may run helper agents only in their own worktrees, with disjoint file
 ownership, unique test database and role prefixes, and test pools capped and closed in cleanup —
@@ -177,15 +167,16 @@ run that could have produced it.
 
 **Dispatch** (part 6): a build lane runs as the `build-lane` role, on the agent *and* model
 `scripts/routing.mjs --role build-lane` resolves, passed as `subagent_type` and `model` on the
-Agent call. It is a `bigin-skills` agent, never `general-purpose`: `task-workflow`'s loop requires
-its implementer to be one, and the lane-verifier round below assumes it was.
+Agent call. It is `lane-worker`, never `general-purpose`: the standing rules live in the agent
+file, and a hand-written stand-in prompt silently drops them. The lane-verifier round below
+assumes the lane carried them.
 
 ## The lane-verifier brief (`lane-verifier`, after each build lane — G5 step 4b)
 
 A fresh dispatch per round. Never resume one, and never show it the lane's own report: an audit
 that reads the implementer's account of its work is the failure it exists to catch. It is
-`bigin-skills:verifier`, whose agent file carries its rules and its output contract. The brief
-is the handoff `task-workflow` gives it, with the paths filled in:
+`lane-verifier`, whose agent file carries its rules and its output contract. The brief is
+its handoff, with the paths filled in:
 
 ```
 PLAN: {absolute path to <worktree>/PLAN.md}

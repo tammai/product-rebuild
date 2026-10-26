@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 1.0.0 (in progress, branch `v1`) — phase 1: native guards and lane agents
+
+Part of the standalone pipeline in `specs/Spec Standalone pipeline without bigin-skills.md`. This
+is not released on its own: 1.0.0 ships as a new plugin, `product-rebuild`, once all three phases
+are done. A workbench on 0.x stays on 0.x.
+
+- **The code-repo guards are this plugin's own hooks (E21).** Bash guard, spec gate, injection
+  scan and gate with canary, and commit gates, ported from the retired bigin harness
+  (MIT, Copyright (c) 2026 BigIn; see `NOTICE.md`). Each judges only a repo listed in a workbench's
+  `repos.yaml`, per git invocation for Bash. A crash is a block inside a pipeline session and a
+  pass outside one. `repo-hooks.mjs`, which forwarded a repo's own hooks, is deleted. The canary
+  now actually seeds: a plugin hook is the session's own, which the forwarder's `SessionStart`
+  could not be. Dropped on purpose: the context-budget gate, session resume, the precompact
+  snapshot, the vendored-contract guard, and the Cursor adapter.
+- **`lane-worker` and `lane-verifier` are this plugin's agents (E20).** The lane's standing rules
+  (plan, guards, `cd <worktree> &&`) moved out of every brief into the agent file. The verifier is
+  read-only and does not run the suite, so the once-per-slice test cadence is untouched.
+  `routing.mjs` lost `BIGIN_AGENTS` and the `external` field; effort is now pinned in the agent
+  file for all six roles, and the plugin name comes from `plugin.json`.
+- **`lane-plan.mjs archive <Sn> <lane>`.** The slice-end move of a finished `PLAN.md` was another
+  plugin's cleanup step. It now goes to `plan/lane-plans/archive/` in the workbench, and
+  `slice-review.mjs` reads it from there.
+- **`eval/lane-guards.mjs`** replaces `eval/repo-hooks.mjs`: 70+ checks on what the guards block,
+  what they ignore, and that none runs twice.
+
 ## [0.33.0] - 2026-10-06
 
 Windows fixes for `repo-hooks.mjs`, the forwarder that runs a code repo's own guards. Issue #3.

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// lane-plan.mjs (eval) — E17b, 0.29.0: does lane-plan.mjs write a PLAN.md the harness's spec gate
+// lane-plan.mjs (eval) — E17b, 0.29.0: does lane-plan.mjs write a PLAN.md the plugin's spec gate
 // accepts, refuse what it must, amend without losing progress, and does slice-review notice a
 // lane editing its own approved spec?
 //
@@ -7,20 +7,19 @@
 //
 // Scaffolds a throwaway workbench with rebuild-init.mjs (plus `npm install`, for slice-review's
 // yaml dependency) and a code repo with a lane worktree, then runs the REAL scripts and asserts
-// on the files they write. The spec gate's two patterns are copied from bigin-skills'
-// spec-gate-guard.mjs (1.106.0) rather than the guard itself being run, since the guard ships in
-// another plugin: if bigin changes how it reads Status or Branch, change GUARD_* here, and
-// lane-plan.mjs's header, together.
+// on the files they write. The spec gate's two patterns are imported from hooks/scripts/lib.mjs
+// (PLAN_STATUS, PLAN_BRANCH), the same ones spec-gate-guard.mjs reads; lane-plan.mjs is vendored
+// into workbenches and cannot import them, so this eval is what fails if the two stop agreeing.
 
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync, spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SCRIPTS = join(dirname(fileURLToPath(import.meta.url)), "..", "scripts");
-const GUARD_STATUS = /^Status:\s*(\S+)/m;
-const GUARD_BRANCH = /^Branch:\s*(\S+)/m;
+const ROOT = join(SCRIPTS, "..", "..", "..");
+const { PLAN_STATUS: GUARD_STATUS, PLAN_BRANCH: GUARD_BRANCH } = await import(pathToFileURL(join(ROOT, "hooks", "scripts", "lib.mjs")).href);
 
 const base = mkdtempSync(join(tmpdir(), "lane-plan-eval-"));
 execFileSync("node", [join(SCRIPTS, "rebuild-init.mjs"), "lp", "--dir", base], { stdio: "ignore" });
@@ -77,6 +76,8 @@ check("nothing written by a refusal", !planText());
 r = lanePlan(...args);
 const plan1 = planText();
 check("writes PLAN.md", r.status === 0 && plan1, r.stderr);
+check("lane-plan.mjs documents the same Status:/Branch: patterns the gate reads (change both together)",
+  readFileSync(join(SCRIPTS, "lane-plan.mjs"), "utf8").includes(GUARD_STATUS.source) && readFileSync(join(SCRIPTS, "lane-plan.mjs"), "utf8").includes(GUARD_BRANCH.source));
 check("the spec gate reads Status: approved", GUARD_STATUS.exec(plan1)?.[1]?.toLowerCase() === "approved");
 check("the spec gate reads the lane's branch", GUARD_BRANCH.exec(plan1)?.[1] === "slice/S1-api");
 const head = sh(wb, "git", "rev-parse", "--short", "HEAD").trim();
@@ -140,18 +141,39 @@ check("an amended plan restarts the count and keeps prior rounds",
 check("round 1 after an amendment is accepted, and PASS clears the review",
   rv("--verdict", "PASS", "--round", "1").status === 0 && /verifier PASS at round 1\/3/.test(review()) && !/has no recorded verifier PASS/.test(review()));
 
-// --- E18: routing resolves build lanes to bigin's agents -----------------------------------------
+// --- archive: the plan leaves the worktree at slice end ------------------------------------------
+const arch = () => spawnSync("node", [join("scripts", "lane-plan.mjs"), "archive", "S1", "api"], { cwd: wb, encoding: "utf8" });
+const live = planText();
+writeFileSync(join(lanePath, "PLAN.md"), live.replace(/\| Done \|/g, "| Not started |").replace(/(\| 1 \|.*\|) Not started \|/m, "$1 Done |"));
+r = arch();
+check("archive refuses a plan with unfinished rows", r.status === 1 && /not Done/.test(r.stderr), r.stderr);
+writeFileSync(join(lanePath, "PLAN.md"), live.replace("rejected with 422", "rejected with 400").replace(/\| Not started \|/g, "| Done |"));
+r = arch();
+check("archive moves the plan to the workbench and warns about an edited spec",
+  r.status === 0 && !planText() && existsSync(join(wb, "plan/lane-plans/archive/S1-api.md")) && /WARNING: the plan's ## Spec differs/.test(r.stdout), r.stdout + r.stderr);
+const rec2 = JSON.parse(readFileSync(join(wb, "plan/lane-plans/S1.yaml"), "utf8").replace(/^#.*\n/gm, ""));
+check("the archive is recorded, with the edit flagged", rec2.lanes.api.archived?.path === "plan/lane-plans/archive/S1-api.md" && rec2.lanes.api.archived.spec_edited === true, JSON.stringify(rec2.lanes.api.archived));
+sr = review();
+check("slice-review still sees the lane from its archive, and names the edited spec",
+  /- api: 2\/2 task rows Done/.test(sr) && /no longer matches what lane-plan\.mjs wrote/.test(sr), sr.slice(0, 1400));
+r = arch();
+check("a lane is archived once", r.status === 1 && /already archived/.test(r.stderr), r.stderr);
+
+// --- routing resolves build lanes to this plugin's agents -----------------------------------------
 const route = (cfg) => {
   if (cfg) w(wb, ".claude/model-routing.json", JSON.stringify(cfg));
-  return JSON.parse(sh(wb, "node", join("scripts", "routing.mjs"))).roles;
+  return JSON.parse(sh(wb, "node", join("scripts", "routing.mjs"), "--agents", join(ROOT, "agents"))).roles;
 };
 let roles = route(null);
-check("balanced: build-lane is bigin-skills:worker on sonnet", roles["build-lane"]?.agent === "bigin-skills:worker" && roles["build-lane"].model === "sonnet", JSON.stringify(roles["build-lane"]));
-check("balanced: lane-verifier is bigin-skills:verifier", roles["lane-verifier"]?.agent === "bigin-skills:verifier");
+check("balanced: build-lane is the lane-worker agent on sonnet at high",
+  /^[\w-]+:lane-worker$/.test(roles["build-lane"]?.agent) && roles["build-lane"].model === "sonnet" && roles["build-lane"].effort === "high", JSON.stringify(roles["build-lane"]));
+check("balanced: lane-verifier is the lane-verifier agent", /^[\w-]+:lane-verifier$/.test(roles["lane-verifier"]?.agent) && roles["lane-verifier"].effort === "high");
+check("no role resolves to another plugin's agent", Object.values(roles).every((x) => /^[\w-]+:[\w-]+$/.test(x.agent) && !x.agent.startsWith("bigin")));
 roles = route({ profile: "frontier", models: { "lane-verifier": "opus" } });
-check("frontier: build-lane is worker-frontier on opus at medium",
-  roles["build-lane"].agent === "bigin-skills:worker-frontier" && roles["build-lane"].model === "opus" && roles["build-lane"].effort === "medium", JSON.stringify(roles["build-lane"]));
+check("frontier: build-lane runs on opus, and its effort stays at the agent file's pin", roles["build-lane"].model === "opus" && roles["build-lane"].effort === "high", JSON.stringify(roles["build-lane"]));
 check("a lane-verifier role override applies", roles["lane-verifier"].model === "opus" && roles["lane-verifier"].modelFrom === "override:role:lane-verifier");
+check("every agent a role names is a file in agents/",
+  Object.values(roles).every((x) => existsSync(join(ROOT, "agents", `${x.agent.split(":")[1]}.md`))));
 
 console.log(failures ? `\n${failures} failure(s). Workbench left at ${base}` : "\nall passed");
 process.exit(failures ? 1 : 0);

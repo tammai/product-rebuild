@@ -54,19 +54,17 @@ harness second in its `generic` profile. That is a version gap to state out loud
 standing arrangement — the procedure and what `generic` skips are in `references/g5-build.md`
 step 0. Confirm the plugin is installed at G0
 (it is needed at G5, and discovering it missing months in is the expensive way to find out).
-**The harness's guards apply to pipeline work.** Claude Code loads a repo's hooks only when the
-session started in that repo, and rebuild sessions start in the project's parent, so the plugin's
-`repo-hooks.mjs` runs each code repo's own guards for tool calls that target it. A block naming a
-repo guard is the harness, never something to edit around. Its spec gate is satisfied by the
-lane `PLAN.md` that `lane-plan.mjs` writes from the slice specs the user approved
-(`references/g5-build.md` step 1b). Build lanes run as `bigin-skills`' worker agent, and each
-lane's diff is audited by `bigin-skills`' verifier against that plan before the joint run
-(step 4b: `task-workflow`'s implement/verify loop, run by you, capped at 3 rounds). Both
-are resolved through `scripts/routing.mjs` (`build-lane`, `lane-verifier`), and they need
-`bigin-skills` ≥ 1.105.0. What the pipeline does *not* use from `bigin-skills` is its
-planning workflows. `discovery-workflow`, `epic-workflow` and `task-workflow`'s spec and plan
-steps are replaced by G0–G5's gates and spec review, and their state would be a second record
-of decisions the workbench already locks.
+
+**The plugin's guards apply to pipeline work.** Claude Code loads a repo's hooks only when the
+session started in that repo, and rebuild sessions start in the project's parent, so the guards
+are this plugin's own hooks (`hooks/scripts/`): a bash guard, a spec gate, the injection gate and
+canary, and the commit gates. Each judges only a repo listed in the workbench's `repos.yaml`. A
+block naming a guard is that guard's rule, never something to edit around. The spec gate is
+satisfied by the lane `PLAN.md` that `lane-plan.mjs` writes from the slice specs the user approved
+(`references/g5-build.md` step 1b). Build lanes run as this plugin's `lane-worker` agent, and each
+lane's diff is audited by its `lane-verifier` against that plan before the joint run (step 4b: an
+implement/verify loop run by you, capped at 3 rounds). Both are resolved through
+`scripts/routing.mjs` (`build-lane`, `lane-verifier`).
 
 ## Orchestration Protocol
 

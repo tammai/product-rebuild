@@ -291,10 +291,12 @@ skills/rebuild-pipeline/        THE skill you interact with
   scripts/pause-check.mjs       is it safe to pause the session? (advisory, not a gate)
   scripts/autopilot.mjs         unattended-run state: preflight / check / engage / log / disengage
   scripts/routing.mjs           which model each subagent role dispatches on (.claude/model-routing.json)
-agents/                         miner, adr-drafter, spec-writer, rubric-judge subagents
+agents/                         miner, adr-drafter, spec-writer, rubric-judge, lane-worker,
+                                lane-verifier subagents
 hooks/                          PreToolUse guards: locked artifacts, recorded AC flows, and
-                                the autopilot usage threshold; plus repo-hooks.mjs, which runs
-                                each code repo's own harness guards for pipeline sessions
+                                the autopilot usage threshold; plus the code-repo guards (bash,
+                                spec gate, injection gate and canary, commit gates), which judge
+                                only repos listed in a workbench's repos.yaml
 docs/PLAYBOOK.md                the full methodology
 ```
 
