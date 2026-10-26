@@ -208,12 +208,12 @@ def main(argv=None):
             "Cannot find the plugin. This workbench has no `.rebuild-plugin` marker (it was scaffolded\n"
             "before 0.17.0) and CLAUDE_PLUGIN_ROOT is not set. Pass it explicitly, and write the marker\n"
             "so this is a one-time problem:\n"
-            "  python3 scripts/upgrade.py --plugin /path/to/product-rebuild-skills\n"
-            "  echo /path/to/product-rebuild-skills > .rebuild-plugin", file=sys.stderr)
+            "  python3 scripts/upgrade.py --plugin /path/to/product-rebuild\n"
+            "  echo /path/to/product-rebuild > .rebuild-plugin", file=sys.stderr)
         return 1
     SRC = _join(plugin_root, "skills", "rebuild-pipeline")
     if not os.path.exists(_join(SRC, "scripts")) or not os.path.exists(_join(SRC, "schemas")):
-        print(f"Not a product-rebuild-skills plugin root: {plugin_root}\n"
+        print(f"Not a product-rebuild plugin root: {plugin_root}\n"
               f"  Expected {_join(SRC, 'scripts')} and {_join(SRC, 'schemas')}.", file=sys.stderr)
         return 1
 
@@ -223,6 +223,30 @@ def main(argv=None):
             plugin_version = json.load(fh).get("version") or "unknown"
     except Exception:
         plugin_version = "unknown"
+
+    # --- the major fence -------------------------------------------------------------------
+    # 1.x never touches a workbench a 0.x release made. This runs at every session start through
+    # --auto, so a user who installed 1.x beside a rebuild still in flight would otherwise have
+    # 1.x's scripts copied over their 0.x ones: different scripts, different guards, no migration.
+    # `rebuild_major:` in locks/pipeline.yaml is what rebuild_init.py writes; its absence means 0.x
+    # by definition. Nothing is copied, committed or rewritten, and --auto prints its one line and
+    # exits 0, because a session start must never fail on a workbench that is simply someone else's.
+    marker_major = None
+    try:
+        with open(_join("locks", "pipeline.yaml"), encoding="utf-8") as fh:
+            mm = re.search(r"^rebuild_major:\s*([0-9]+)", fh.read().replace("\r\n", "\n"), re.M)
+        marker_major = int(mm.group(1)) if mm else None
+    except OSError:
+        pass
+    if marker_major is None or marker_major < 1:
+        fence = (f"This workbench was made by a 0.x release of the pipeline (locks/pipeline.yaml has no `rebuild_major`), "
+                 f"and plugin {plugin_version} (1.x) will not touch it: the scripts, the guards and the way repos are "
+                 f"created all differ, and there is no migration. Finish it on the 0.x line.")
+        if has("--auto"):
+            print(f"TOOLING  skipped: {fence}")
+            return 0
+        print(fence, file=sys.stderr)
+        return 1
 
     # --- what is vendored ------------------------------------------------------------------
     # Everything the plugin ships under scripts/ and schemas/, minus rebuild_init.py — that one

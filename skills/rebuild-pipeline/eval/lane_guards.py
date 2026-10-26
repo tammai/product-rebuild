@@ -70,7 +70,7 @@ wb = os.path.join(proj, "p-workbench")
 app = os.path.join(proj, "app")
 other = os.path.join(proj, "other")
 lane = os.path.join(proj, "app-lane")
-w(wb, "locks/pipeline.yaml", "gates: {}\n")
+w(wb, "locks/pipeline.yaml", "rebuild_major: 1\n")
 w(wb, "repos.yaml", "repos:\n  - name: app\n    path: ../app\n")
 init_repo(app)
 init_repo(other)
@@ -82,7 +82,7 @@ init_repo(os.path.join(lone, "repo"))
 
 # A project whose repos.yaml cannot be read, to make a guard crash.
 broken = os.path.join(base, "broken")
-w(broken, "wb/locks/pipeline.yaml", "gates: {}\n")
+w(broken, "wb/locks/pipeline.yaml", "rebuild_major: 1\n")
 os.makedirs(os.path.join(broken, "wb", "repos.yaml"), exist_ok=True)
 init_repo(os.path.join(broken, "app"))
 

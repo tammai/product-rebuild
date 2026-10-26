@@ -397,6 +397,11 @@ project: @@NAME@@
 # (that version or newer) or a warning (older workbenches, which cannot be retro-enforced).
 # Bump it by hand after backfilling.
 schema_version: "0.4.0"
+# Which major release of this plugin made the workbench. The 1.x guards and scripts act ONLY on a
+# workbench that says 1 here, and refuse (or fail open) on one that says nothing, because a 0.x
+# workbench was built under different scripts, different guards and a different way of creating
+# repos, and there is no migration between them. Do not edit.
+rebuild_major: 1
 created: @@NOW@@
 '''
 
@@ -422,7 +427,7 @@ README = '''
 # @@NAME@@ — rebuild workbench
 
 Pipeline state store for the @@NAME@@ rebuild. Describes the product; never contains
-product code. Managed by the `rebuild-pipeline` skill (product-rebuild-skills plugin).
+product code. Managed by the `rebuild-pipeline` skill (product-rebuild plugin).
 
 - `python3 scripts/preflight.py` — does the reference actually build and run? Written as
   `PREFLIGHT.md` + `preflight.json`; the last G0 action, and G1 refuses to dispatch

@@ -92,6 +92,9 @@ def manifest(**over) -> dict:
 def workbench(name: str, m: dict) -> str:
     wb = os.path.join(base, name)
     os.makedirs(os.path.join(wb, "adr"))
+    os.makedirs(os.path.join(wb, "locks"))
+    with open(os.path.join(wb, "locks", "pipeline.yaml"), "w") as f:
+        f.write("rebuild_major: 1\n")  # the 1.x marker scaffold.py checks for
     with open(os.path.join(wb, "adr", "scaffold.json"), "w") as f:
         json.dump(m, f)
     return wb

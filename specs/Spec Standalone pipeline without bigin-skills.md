@@ -107,6 +107,27 @@ once-per-slice cadence instead of sdlc's "run the full suite before claiming any
 clones: `scaffold.py install-hooks`, no `Setup` hook. Where it runs: from the plugin, never vendored.
 Upgrading a scaffolded repo: `status --drift` reports, there is no applier.
 
+**7. Phase 3, as built (2026-10-27).** The workbench marker is `rebuild_major: 1` in
+`locks/pipeline.yaml`, written by `rebuild_init.py`. 1.x acts only on a workbench that carries it:
+`hooklib.is_v1_workbench` gates every guard (`workbenches_near` for the repo guards, `locate` for the
+gate/flows/autopilot/runbook guards); `upgrade.py` refuses a workbench without it (and `--auto`, the
+session-start path, prints one `TOOLING  skipped:` line and exits 0, so a session start never fails on
+someone else's workbench); `scaffold.py` refuses it; and SKILL.md Step 1 and `/rebuild` tell the user
+to finish it on 0.x and stop. `eval/v0_fence.py` covers all of it in both directions, and
+`eval/no_bigin.py` fails on any new mention of the retired plugin or this plugin's old name (two
+pointer lines excepted). The plugin is renamed `product-rebuild` at 1.0.0; the old name appears only
+in history and in two lines that send a 0.x user to the old plugin. 0.33.1 is built on a local branch
+of the old repo (`release/0.33.1`, cut from the `v0.33.0` tag): the four workbench guards and the
+repo-hooks forwarder skip a `rebuild_major: 1` workbench, with its own eval. Not yet published.
+A root `LICENSE` (MIT) was added; this repo had none.
+
+**Run for real.** A headless Claude Code session with the plugin loaded through `--plugin-dir`, in a
+project with a workbench and a listed repo, confirmed the whole chain (launcher, hook registration,
+scoping): a 40-line `Write` with no approved plan was blocked by the spec gate with its message; a
+`git commit --no-verify` and a `git push --force` were blocked by the bash guard; a 3-line `Write`
+went through; and in an unrelated directory the same `git push --force` was left to git. This is a
+smoke test of loading and scoping, not a substitute for the by-hand lane run on real repos.
+
 ## Goals and non-goals
 
 **Goals**
@@ -364,3 +385,9 @@ Any phase can be backed out alone before release. Phase 1 is the riskiest becaus
 5. **A Nuxt/Next scaffold on pnpm.** The templates pin pnpm; the scaffold strips that and uses npm
    because a stock corepack could not run the pinned pnpm 12. Recommendation: npm until a project
    asks, then a second option in the manifest.
+6. **Publishing.** Nothing is released. The steps that remain are yours: push `release/0.33.1` to the
+   public `tammai/product-rebuild-skills` and tag it; merge `v1` to `main` of `tammai/product-rebuild`
+   and tag 1.0.0; decide whether that repo goes public (it is private now); then a Windows pass.
+   Recommendation: 0.33.1 first, then 1.0.0, so the two-plugin case is covered from day one.
+7. **The LICENSE holder.** `LICENSE` names "Tam Mai", matching `plugin.json`'s author. If the copyright
+   belongs to BigIn, as it does for bigin-skills, change one line.

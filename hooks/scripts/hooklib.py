@@ -112,8 +112,8 @@ def locate():
         if os.path.exists(os.path.join(root, "locks", "pipeline.yaml")):
             break
         root = os.path.dirname(root)
-    if not os.path.exists(os.path.join(root, "locks", "pipeline.yaml")):
-        sys.exit(0)  # not in a workbench
+    if not is_v1_workbench(root):
+        sys.exit(0)  # not in a workbench, or in one a 0.x release made
     return payload, abs_, root
 
 
@@ -186,8 +186,23 @@ def session_root(payload):
     return os.environ.get("CLAUDE_PROJECT_DIR") or get(payload, "cwd") or os.getcwd()
 
 
-def _is_workbench(d):
-    return os.path.exists(os.path.join(d, "locks", "pipeline.yaml"))
+def is_v1_workbench(d):
+    """True for a workbench made by a 1.x release: locks/pipeline.yaml says `rebuild_major: 1` or more.
+
+    The fence that keeps these guards off a 0.x workbench. A 0.x workbench has the same
+    locks/pipeline.yaml marker and none of what 1.x's guards assume (a listed repo made by
+    scaffold-repo, a lane PLAN.md written by lane_plan.py), so acting on it would block work the
+    0.x pipeline permits. Without the key this reads as "not ours" and the caller fails open, the
+    same rule every guard already follows for a missing workbench."""
+    try:
+        with open(os.path.join(d, "locks", "pipeline.yaml"), encoding="utf-8") as f:
+            m = re.search(r"^rebuild_major:\s*([0-9]+)", f.read().replace("\r\n", "\n"), re.M)
+    except OSError:
+        return False
+    return bool(m) and int(m.group(1)) >= 1
+
+
+_is_workbench = is_v1_workbench
 
 
 def _child_dirs(d):

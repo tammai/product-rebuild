@@ -143,6 +143,16 @@ def all_steps(lock: dict) -> list[str]:
 def resolve_manifest(workbench: str):
     """(manifest, manifest_path, playbook_name, templates_root) from the workbench's locked adr/."""
     adr = os.path.join(workbench, "adr")
+    # The same fence the guards and upgrade.py apply: a workbench no 1.x release made carries a
+    # playbook with no manifest, and the honest answer is that 1.x does not scaffold for it.
+    try:
+        with open(os.path.join(workbench, "locks", "pipeline.yaml"), encoding="utf-8") as f:
+            made_by_1x = re.search(r"^rebuild_major:\s*[1-9]", f.read(), re.M) is not None
+    except OSError:
+        made_by_1x = False
+    if not made_by_1x:
+        die(f"{workbench} was not made by a 1.x release (locks/pipeline.yaml has no `rebuild_major`). 1.x does not scaffold for "
+            f"a 0.x workbench: finish it on the 0.x line.")
     vendored = os.path.join(workbench, playbook.VENDORED_SCAFFOLD)
     local = os.path.join(workbench, playbook.SCAFFOLD_LOCAL)
     path = vendored if os.path.exists(vendored) else local

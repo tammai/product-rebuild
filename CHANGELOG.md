@@ -7,11 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### 1.0.0 (in progress, branch `v1`) — standalone, and Python
+### 1.0.0 (unreleased, branch `v1`) — standalone, and Python
 
-Part of the standalone pipeline in `specs/Spec Standalone pipeline without bigin-skills.md`. Not
-released on its own: 1.0.0 ships as a new plugin, `product-rebuild`, once phase 3 is done. A workbench
-on 0.x stays on 0.x.
+Part of the standalone pipeline in `specs/Spec Standalone pipeline without bigin-skills.md`.
+1.0.0 is a new plugin, `product-rebuild` (`tammai/product-rebuild`), not an update to
+`product-rebuild-skills`: an install of 0.x cannot be moved to it, and **it will not open a rebuild a
+0.x release started**. A workbench on 0.x stays on 0.x.
+
+**A new plugin name, and a fence.** The plugin is renamed `product-rebuild`; the old name remains
+only in history and in two lines pointing a 0.x user at the old plugin. New workbenches carry
+`rebuild_major: 1` in `locks/pipeline.yaml`, and 1.x acts only on those: every guard exits 0 on a
+workbench without the key; `upgrade.py` refuses one (its `--auto` session-start form prints one
+`TOOLING  skipped:` line and exits 0); `scaffold.py` refuses one; SKILL.md and `/rebuild` tell the user
+to finish it on 0.x. `eval/v0_fence.py` covers both directions and `eval/no_bigin.py` fails on any new
+mention of the retired plugin, so the dependency cannot creep back. A root `LICENSE` (MIT) is added.
+A headless Claude Code session with the plugin loaded confirmed the guards load, scope and block as
+designed.
 
 **Python, not Node.** Every script, hook, guard and eval is now Python 3.9+, standard library only,
 so there is nothing to install. About 11,000 lines were ported; each file was checked against its

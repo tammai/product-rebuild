@@ -1,4 +1,4 @@
-# product-rebuild-skills
+# product-rebuild
 
 ## Evals
 

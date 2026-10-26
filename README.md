@@ -1,4 +1,7 @@
-# product-rebuild-skills
+# product-rebuild
+
+> **1.x of the pipeline formerly published as `product-rebuild-skills`.** It is a different plugin: it does not
+> update from 0.x and it does not open a rebuild a 0.x release started. Finish those on the 0.x line.
 
 A Claude Code plugin for rebuilding an existing product end-to-end — to learn the full
 product development lifecycle by doing it. Point it at a reference product (usually OSS:
@@ -47,11 +50,11 @@ Two ideas carry everything:
 
 ```bash
 # add this repo as a marketplace, then install the plugin from it
-/plugin marketplace add tammai/product-rebuild-skills
-/plugin install product-rebuild-skills@product-rebuild-skills
+/plugin marketplace add tammai/product-rebuild
+/plugin install product-rebuild@product-rebuild
 
 # or for local development, point at your working copy instead:
-/plugin marketplace add /path/to/product-rebuild-skills
+/plugin marketplace add /path/to/product-rebuild
 ```
 
 Requires Python ≥ 3.9 (standard library only: there is nothing to `pip install`, and the YAML reader

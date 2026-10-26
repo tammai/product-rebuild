@@ -69,6 +69,14 @@ The workbench repo is the pipeline's state store. Look for `locks/pipeline.yaml`
 current directory, then in `./workbench/`. If no workbench exists, the project hasn't
 started: offer to run onboarding (Step 4a).
 
+**Then check which release made it.** Read `locks/pipeline.yaml`: a 1.x workbench says
+`rebuild_major: 1` (or higher). One with no `rebuild_major` was made by a 0.x release, and **this plugin
+will not open it**: its scripts, its guards and the way its repos were created all differ, and there is
+no migration. Say so in one message, tell the user to finish that rebuild on the 0.x line
+(`product-rebuild-skills`, the plugin this one replaced), and stop. Do not offer to convert it, copy
+scripts into it, or run any gate against it. The guards and `upgrade.py` already refuse it; this is the
+one place a person is told why.
+
 ### Step 2 — Detect state
 
 Run, with the workbench root as cwd: `python3 scripts/gate.py status`
