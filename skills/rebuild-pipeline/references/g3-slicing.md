@@ -47,12 +47,12 @@ with the user.
 - Rule after lock: new ideas and upstream changes enter the backlog at slice
   boundaries; they never reorder slices mid-flight.
 
-Lock only on explicit approval: `gate.mjs lock gate-2`.
+Lock only on explicit approval: `gate.py lock gate-2`.
 
 ## Right after the lock: record the sequence
 
 ```sh
-npm run sequence -- init      # writes plan/sequence.yaml, baseline = order = the locked plan
+python3 scripts/sequence.py init      # writes plan/sequence.yaml, baseline = order = the locked plan
 ```
 
 **What gate-2 locks and what it does not.** Gate 2 hashes `plan/slices.yaml` whole, so what is
@@ -64,7 +64,7 @@ pin for every code repo, all to say "build S6 before S4".
 
 The predictable outcome of that is not an order that never changes. It is an order that changes
 in someone's head and nowhere on disk. So the sequence moves to `plan/sequence.yaml`, ungated,
-where revising it is a *logged decision* — `npm run sequence -- reorder <Sn> --before <Sm>
+where revising it is a *logged decision* — `python3 scripts/sequence.py reorder <Sn> --before <Sm>
 --reason "..."`, appended to `plan/sequence-decisions.md`. Same register as a gate reopen: a
 human decides, the reason is written down. Cheap in mechanism, deliberately not cheap in ceremony.
 
@@ -79,7 +79,7 @@ Three things the script refuses, so "cheap" never means "unconstrained":
   machine-checkable; the learning-value tradeoff above is not, and the script does not pretend
   otherwise — that half stays yours.
 
-After a gate-2 reopen that adds or drops a slice, `npm run sequence -- sync` reconciles the two
-files. It needs no reason: the decision was the reopen. `validate.mjs` fails on an order that is
+After a gate-2 reopen that adds or drops a slice, `python3 scripts/sequence.py sync` reconciles the two
+files. It needs no reason: the decision was the reopen. `validate.py` fails on an order that is
 not a permutation of the slice plan, because a slice missing from the order is a slice that
 never runs.

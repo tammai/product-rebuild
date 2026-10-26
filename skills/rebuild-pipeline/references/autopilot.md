@@ -3,7 +3,7 @@
 Autopilot runs the mechanical work the user would otherwise advance by typing "continue":
 mining lanes, matrix and slice drafts, ADR and contract drafts, per-slice module builds,
 parity reports. It **halts at every gate**. Locking stays a human act (SKILL.md Step 5) —
-autopilot never runs `gate.mjs lock`, and `stop_at_gates` has no off switch.
+autopilot never runs `gate.py lock`, and `stop_at_gates` has no off switch.
 
 It is off unless the user asks for it, and asking for it is not the same as consenting to
 it. "Autopilot" earns a **brief**; only an explicit yes earns a run.
@@ -64,15 +64,15 @@ Two cases where it cannot work at all, and preflight says so rather than guessin
 means the status line has stopped rendering — **autopilot is interactive-session only**, so
 it cannot run headless or from a cron job.
 
-A workbench scaffolded before autopilot existed has no `scripts/autopilot.mjs`. Copy it and
+A workbench scaffolded before autopilot existed has no `scripts/autopilot.py`. Copy it and
 `schemas/autopilot.schema.json` from the plugin's `skills/rebuild-pipeline/`, same as the
-`erd.mjs` upgrade path — do not run the plugin's copy in place.
+`erd.py` upgrade path — do not run the plugin's copy in place.
 
 ## Engaging
 
-1. Steps 1–3 of the orchestration protocol as normal — locate, `gate.mjs status`, report.
-2. `node scripts/autopilot.mjs preflight` and `node scripts/validate.mjs`.
-   Preflight reuses `pause-check.mjs` wholesale, so a dirty tree, unpushed work in any
+1. Steps 1–3 of the orchestration protocol as normal — locate, `gate.py status`, report.
+2. `python3 scripts/autopilot.py preflight` and `python3 scripts/validate.py`.
+   Preflight reuses `pause_check.py` wholesale, so a dirty tree, unpushed work in any
    `repos.yaml` repo, a stash, a gate reopened but not re-locked, or a stray dev server all
    surface here. Do not engage on a partial pass.
 3. Present the **brief**:
@@ -84,42 +84,42 @@ A workbench scaffolded before autopilot existed has no `scripts/autopilot.mjs`. 
    - anything preflight noted, including a previous run's `next_action`
 4. **Get an explicit yes.** If the answer is qualified ("sure, but skip lane C"), fold that
    into the brief and re-confirm rather than interpreting it mid-run.
-5. `node scripts/autopilot.mjs engage` — optionally `--threshold N` if the user wants
+5. `python3 scripts/autopilot.py engage` — optionally `--threshold N` if the user wants
    headroom other than 80%, and `--context-tokens N` for a context limit other than 250k.
 
 ## The loop
 
 Per unit of work:
 
-1. `node scripts/autopilot.mjs check` — exit 3 means stop, whatever the reason. It is
+1. `python3 scripts/autopilot.py check` — exit 3 means stop, whatever the reason. It is
    read-only and cheap; run it *before* the unit, never only after. It stops on the 5-hour
    window and on the session's own context size.
 2. Do the unit. Delegate per `subagent-briefs.md`; run independent lanes in one turn. In G5 a
    unit's test evidence is the JUnit its lane wrote — never a suite you re-run after it to be
    sure (`g5-build.md`, "Test cadence within a slice"). While a lane has a long run open, the
-   `lanes-check.mjs` watchdog from that file's guardrails runs here too (every 10 minutes, every
+   `lanes_check.py` watchdog from that file's guardrails runs here too (every 10 minutes, every
    5 while the joint run is open).
 3. Write the output to disk and commit it.
-4. `node scripts/autopilot.mjs log --unit "..." --outcome done|failed|skipped [--note "..."]`
+4. `python3 scripts/autopilot.py log --unit "..." --outcome done|failed|skipped [--note "..."]`
 
 Step 3 is the point of the whole design. A unit that ends with its output still in the
 conversation is a unit that did not happen — an unattended run cannot be asked to
 re-explain itself. Each `log` also commits the state file, which keeps the tree clean for
-the `gate.mjs lock` the user will run at the halt.
+the `gate.py lock` the user will run at the halt.
 
 ## Halting
 
-**At a gate.** Run `validate.mjs`, then dispatch the **rubric judge** (SKILL.md Step 5.1b) —
+**At a gate.** Run `validate.py`, then dispatch the **rubric judge** (SKILL.md Step 5.1b) —
 an unattended run is exactly where a semantic read of the artifacts is worth most, because
 nobody has been looking over its shoulder for the last several hours. Then write the full gate
 review to `plan/gate-reviews/gate-N.md` — what is being locked, the key decisions inside it,
 open risks, what the rubric report flagged, what becomes immutable, and every point where the
 draft diverged from `adr/playbook.md` or from the reference. Commit both files,
-then `disengage --reason gate-review --next "..."`, run `pause-check.mjs`, and present the
+then `disengage --reason gate-review --next "..."`, run `pause_check.py`, and present the
 review. The user decides; the file is there so the decision does not depend on scrollback.
 
 **At a slice boundary.** Run the between-slices sequence in `g5-build.md` — record progress,
-parity, `slice-review.mjs`, commit all of it — *before* halting for the "marking a slice done"
+parity, `slice_review.py`, commit all of it — *before* halting for the "marking a slice done"
 decision. The review is the artifact that decision gets made against, and an unattended run that
 halts without writing one hands the user a question and none of the evidence for it.
 
@@ -129,8 +129,8 @@ halts without writing one hands the user a question and none of the evidence for
 |---|---|
 | 5h window hits the threshold | `usage-threshold` |
 | Session context hits its limit (`check` says so) | `context-threshold` |
-| `validate.mjs` fails and the fix is not mechanical | `validate-failed` |
-| `pause-check.mjs` goes ⚠️ | `pause-check-unsafe` |
+| `validate.py` fails and the fix is not mechanical | `validate-failed` |
+| `pause_check.py` goes ⚠️ | `pause-check-unsafe` |
 | A subagent fails twice, or returns nothing | `error` |
 | Intent is ambiguous (SKILL.md 4c), or a human decision is due | `needs-user-decision` |
 
@@ -155,9 +155,9 @@ scattered across the phase references; this is the whole list:
 - each ADR decision, in dependency order (G4a) — drafting is delegable, deciding is not
 - the G4b coherence and callee checks, including before a re-lock after a reopen
 - spec approval before any code is written (G5). Once the user approves, cutting each lane's
-  worktree and running `lane-plan.mjs` is autopilot's: the plan only carries the approval
+  worktree and running `lane_plan.py` is autopilot's: the plan only carries the approval
   just given to the file the repo's spec gate reads (`g5-build.md` step 1b). So is
-  `lane-plan.mjs --amend`, but only after the user has approved the corrected spec.
+  `lane_plan.py --amend`, but only after the user has approved the corrected spec.
 - **a lane that reports `Status: amending`**, meaning it found its approved spec wrong.
   Correcting the spec is a spec approval, so the halt is `needs-user-decision`, with the
   lane's report attached.
@@ -169,7 +169,7 @@ scattered across the phase references; this is the whole list:
   or its registration to get past it.
 - **marking a slice done** — the slice is not done until deployed and `done_means` is
   demonstrably true
-- **reordering the slice sequence** (`sequence.mjs reorder`). Generating the review that
+- **reordering the slice sequence** (`sequence.py reorder`). Generating the review that
   surfaces a reorder candidate is autopilot's; deciding to move a slice is not. It is a change
   to the plan, in the same register as a gate reopen, and `--reason` exists so that a human
   said why. `sync` after a gate-2 reopen *is* autopilot's — that is bookkeeping, and the
@@ -185,8 +185,8 @@ scattered across the phase references; this is the whole list:
    unblocks writing, and the run is over either way.
 2. Get in-flight work to disk as drafts (checkpoint discipline), commit, and **push** the
    workbench and every repo in `repos.yaml`.
-3. `node scripts/autopilot.mjs disengage --reason <r> --next "<what comes next>"`
-4. `node scripts/pause-check.mjs` — and resolve what it flags. Relaying the warning is not
+3. `python3 scripts/autopilot.py disengage --reason <r> --next "<what comes next>"`
+4. `python3 scripts/pause_check.py` — and resolve what it flags. Relaying the warning is not
    resolving it.
 5. Report and stop:
 
@@ -219,7 +219,7 @@ re-bills hundreds of thousands of tokens.
 Re-run Steps 1–3 and `preflight` from scratch — usage has moved, the tree may have changed,
 and a gate may have been locked while you were away. `engaged_phase` and
 `paused.next_action` in `plan/autopilot.yaml` are breadcrumbs for a human reading the file;
-`gate.mjs status` is the authority. Re-brief, re-confirm, re-engage. After a
+`gate.py status` is the authority. Re-brief, re-confirm, re-engage. After a
 `context-threshold` pause in a fresh session, the brief is the previous plan minus the units
 already logged; when nothing else changed (preflight clean, same phase), a one-line confirmation
 is enough. A run left `engaged` by
@@ -228,7 +228,7 @@ overwrites the state while preserving the log.
 
 ## The threshold is a limit, not a budget
 
-`hooks/scripts/autopilot-guard.mjs` blocks Write/Edit once an engaged run crosses its
+`hooks/scripts/autopilot_guard.py` blocks Write/Edit once an engaged run crosses its
 threshold, because a rule about stopping is at its weakest exactly when it matters — mid-unit,
 with the end apparently close.
 

@@ -1,4 +1,4 @@
-# The known answer for lane R on reference-src/. Read by eval/rules-recall.mjs; never shown to
+# The known answer for lane R on reference-src/. Read by eval/rules_recall.py; never shown to
 # the miner — a miner that has seen this file is being scored on copying, not mining.
 #
 # A card MATCHES a rule when one of its evidence entries points into one of the rule's

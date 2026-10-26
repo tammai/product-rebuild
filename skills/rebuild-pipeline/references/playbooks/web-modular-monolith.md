@@ -2,7 +2,7 @@
 playbook: web-modular-monolith
 stack: "Go + Nuxt modular monolith, API-first (alternate: Fastify + Next.js)"
 target-shape: fullstack
-scaffold-profile: "go|nodejs (backend) + nuxt|next (frontend), via bigin-skills:bigin-harness-setup"
+scaffold: web-modular-monolith/scaffold.json
 not-applicable-when:
   - "team under ~10 engineers"
   - "product-market fit not yet established"
@@ -49,7 +49,7 @@ decide-before:
 
 > Default architecture reference for enterprise-scale systems. **Go + Nuxt is the default stack**; **Fastify (Node.js) + Next.js** is the supported alternate when the default doesn't fit. Goal: clear role separation, parallel team development, and a system that stays maintainable for years without requiring an architectural rewrite.
 >
-> This playbook covers structural/architectural decisions only. For concrete scaffolding, versions, and CI wiring for either stack, see `bigin-skills` — entry point `bigin-harness-setup`, which runs the matching `*-scaffold` and then the governance harness — rather than duplicating that detail here.
+> This playbook covers structural/architectural decisions only. The repo skeleton for either stack comes from `web-modular-monolith/scaffold.json`, run by the `scaffold-repo` skill at G5, and is deliberately small (see section 17); concrete versions and CI wiring are whatever its generators and the CI file it writes say, rather than duplicated here.
 
 ---
 
@@ -211,7 +211,7 @@ billing.Register(r, deps)
 
 No module can see another's handlers, yet every route from the single contract gets mounted — the compiler-enforced boundary (this section) and the spec-first contract (section 6) compose instead of colliding.
 
-Accompanying stack for the default: **Gin** (router), **oapi-codegen** (per-module server interfaces + types, generated from `openapi.yaml` as above — see section 6.1), **GORM** on the **pgx/v5** driver (persistence), **golang-migrate** (section 8), **golang-jwt** (section 7). This is the same stack `bigin-skills`' `go-scaffold` generates, so a scaffolded repo and this playbook agree on library choices from the first commit; what the scaffold does *not* give you is this section's module decomposition — see the note at the end of 4.1.
+Accompanying stack for the default: **Gin** (router), **oapi-codegen** (per-module server interfaces + types, generated from `openapi.yaml` as above — see section 6.1), **GORM** on the **pgx/v5** driver (persistence), **golang-migrate** (section 8), **golang-jwt** (section 7). The scaffolded Go skeleton carries only Gin and one tested `/healthz` route; oapi-codegen, GORM, golang-migrate and golang-jwt arrive with the first lane that needs each, under the ADR and spec that name it. The scaffold also does not give you this section's module decomposition — see the note at the end of 4.1.
 
 **The one rule GORM makes load-bearing:** `domain/` must not import `infrastructure/` — and with a full ORM that stops being a stylistic preference. The failure mode is concrete and near-universal: GORM struct tags (`gorm:"primaryKey"`, `gorm:"index"`) get written onto the domain entity because it's the same struct shape, and the module's business rules are now coupled to its table layout. Keep GORM models in `infrastructure/` as their own types, mapped to and from domain entities at that boundary, and let the lint in the next paragraph enforce the import direction. Accept the mapping code; it is the price of the ORM, and it is cheaper than the alternative.
 
@@ -671,7 +671,7 @@ Mixing is allowed (e.g. Go backend + Next frontend) if the two choices above are
 
 Fastify (not NestJS, not Encore.ts) is the named alternate specifically because it matches BigIn's existing Node.js stack choices (TypeBox, Drizzle, Vitest, pino) and keeps the boundary-enforcement story simple: one lint rule (`eslint-plugin-boundaries`/`dependency-cruiser`), not a framework-specific DI system to reason about.
 
-Sections 1–15 apply unchanged regardless of which stack is chosen. For the actual scaffolding commands, dependency versions, and CI templates for whichever stack is picked, invoke `bigin-skills`' **`bigin-harness-setup`** — it delegates to the matching scaffold skill (`go-scaffold`, `nuxt-scaffold`, `nodejs-scaffold`, `next-scaffold`) and then installs the governance harness, so it is the one entry point rather than four. This playbook stays at the architecture level on purpose.
+Sections 1–15 apply unchanged regardless of which stack is chosen. The skeleton for whichever stack is picked comes from `scaffold-repo` and this playbook's manifest, which hold the generator commands, the toolchain pins and the CI wiring, so this playbook stays at the architecture level on purpose.
 
 ---
 
@@ -680,8 +680,8 @@ Sections 1–15 apply unchanged regardless of which stack is chosen. For the act
 - [ ] Confirm there's a real API-first driver (decoupled backend/frontend releases, or a second client on the roadmap) — not just "might need it later"
 - [ ] Repo setup decided: polyrepo (default) unless the monorepo alternate is justified — with the OpenAPI publish/pin mechanism in place if polyrepo
 - [ ] Set up module boundaries from the start: `internal/` (Go) or a boundary-lint rule (Fastify), enforced in CI
-- [ ] Repo created through `bigin-skills`' **`bigin-harness-setup`** (it runs the matching `*-scaffold` itself, then overlays the governance harness) — not by hand, and not by calling a scaffold skill directly
-- [ ] Go only: apply section 4.1's decomposition **before the second module exists** — the scaffold ships the right stack in a flat layout, and restructuring later is a migration
+- [ ] Repo created through the **`scaffold-repo`** skill from this playbook's manifest, with its five commands passing on day one — not by hand
+- [ ] Go only: apply section 4.1's decomposition **before the second module exists** — the scaffold ships the right stack in a flat layout (one `cmd/api` package), and restructuring later is a migration
 - [ ] Presentation layer scaffolded in, not deferred: `@nuxt/ui` from the first commit (`npm create nuxt@latest -- --template ui`), with a reference layout picked from `github.com/nuxt-ui-templates` where one fits (section 5.5) — hand-rolling a component layer is a decision that has to be justified, not the path of least resistance
 - [ ] Icon collection installed locally (e.g. `@iconify-json/lucide`) so `@nuxt/icon` never falls back to the Iconify HTTP API at render time (section 5.5)
 - [ ] Frontend feature boundaries enforced: core ESLint `no-restricted-imports` per feature folder in CI (no plugin, no resolver — section 5.3), route layer as the only cross-feature importer — not assumed automatic just because it's the frontend

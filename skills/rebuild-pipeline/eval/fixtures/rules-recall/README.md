@@ -10,7 +10,7 @@ reference-src/               ~250 lines of Rails billing code, written for this 
 inputs/features.yaml         the matrix lane R resolves features[] against
 inputs/reference-erd.mermaid lane D's ERD, which lane R resolves entities[] against
 gold.yaml                    the answer: 31 rules, their locations, kinds and test values
-../../rules-recall.mjs       the scorer
+../../rules_recall.py       the scorer
 ```
 
 The gold set covers all five current kinds, plus two `invariant` rules that the schema can't
@@ -28,8 +28,8 @@ and point the miner there. A miner that has read the answer is copying it, not m
 P=<plugin>/skills/rebuild-pipeline
 F=$P/eval/fixtures/rules-recall
 
-# a scratch workbench, for validate.mjs and the yaml dependency
-node $P/scripts/rebuild-init.mjs rr --dir /tmp && cd /tmp/rr-workbench && npm install
+# a scratch workbench, for validate.py and its YAML reader
+python3 $P/scripts/rebuild_init.py rr --dir /tmp && cd /tmp/rr-workbench
 cp $F/inputs/features.yaml matrix/features.yaml
 mkdir -p findings/ground-truth findings/rules && cp $F/inputs/reference-erd.mermaid findings/ground-truth/
 
@@ -40,14 +40,14 @@ cp -R $F/reference-src /tmp/billing-ref && (cd /tmp/billing-ref && git init -q &
 Then dispatch the `miner` agent with a lane R brief in the `subagent-briefs.md` format: the
 reference checkout and its commit, the two inputs above as fixed inputs, default basis
 `transcribed`, and `findings/rules/billing.yaml` as the output. The model is whatever
-`scripts/routing.mjs --role miner` resolves. Once `npm run validate` passes:
+`scripts/routing.py --role miner` resolves. Once `python3 scripts/validate.py` passes:
 
 ```sh
-node $P/eval/rules-recall.mjs findings/rules/billing.yaml --record --model <tier> --note "<what changed>"
+python3 $P/eval/rules_recall.py findings/rules/billing.yaml --record --model <tier> --note "<what changed>"
 ```
 
 `--record` appends the numbers to `eval/runs/<local-date>/rules-recall.json`. Check
-`node $P/eval/rules-recall.mjs --self-test` passes before trusting a run. It scores perfect
+`python3 $P/eval/rules_recall.py --self-test` passes before trusting a run. It scores perfect
 cards built from `gold.yaml`, an empty file, a card with the wrong kind, a card cited off its
 line, and a file-level citation, and asserts the known answer for each.
 

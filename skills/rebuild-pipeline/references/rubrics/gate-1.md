@@ -88,10 +88,10 @@ Read `findings/rules/*.yaml` against lane D's route and permission findings, and
   `state-transition` cards for an entity whose lane-D findings clearly describe a state
   machine, or a domain with routes and no rules at all. Also a 3 at most:
   - a domain whose lane-D routes document error responses (non-2xx statuses, error codes)
-    but which has no `path_kind: error` card. `validate.mjs` prints the split per domain;
+    but which has no `path_kind: error` card. `validate.py` prints the split per domain;
   - a property the reference keeps true in application code across several writers, carded
     only as per-operation rules and never as one `invariant`;
-  - a state machine in `validate.mjs`'s **state machines** block with an unreachable state
+  - a state machine in `validate.py`'s **state machines** block with an unreachable state
     or no creation edge that the reference's source does not explain. Open the source and
     decide before citing it: an orphaned legacy state is a fact about the reference, while a
     missing edge is a missing card. A listed dead end is usually a terminal state. Cite it
@@ -110,7 +110,7 @@ file) applies here with teeth: a card whose cited `path`/`commit`/`line` does no
 its `then` is named in this section **even when D6 otherwise scores 4 or 5**, because a
 wrong citation is not a coverage problem and would otherwise have nowhere to appear.
 Say which, and what the line actually says. Set `verification: re-derived` on the cards
-that check out — you are the only agent that writes that field, and `validate.mjs` reports
+that check out — you are the only agent that writes that field, and `validate.py` reports
 how many are still `pending` for exactly this reason.
 
 **Clean-room posture changes what good looks like.** Where `license-posture.md` restricts

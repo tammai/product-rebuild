@@ -63,7 +63,7 @@ Goal: pick the reference and record the legal posture BEFORE any agent reads any
    an instruction that exists nowhere an agent will see it.
 
 ## Actions
-- Scaffold: `node ${CLAUDE_PLUGIN_ROOT}/skills/rebuild-pipeline/scripts/rebuild-init.mjs <name>`
+- Scaffold: `python3 ${CLAUDE_PLUGIN_ROOT}/skills/rebuild-pipeline/scripts/rebuild_init.py <name>`
 - Fill `sources.yaml`: exactly what agents may fetch/clone, derived from the posture.
   If clean-room: the reference repo goes on the deny list.
 - **Give the workbench a remote now, before mining starts.** Everything the pipeline is
@@ -76,9 +76,9 @@ Goal: pick the reference and record the legal posture BEFORE any agent reads any
   # Durability-only remote? Turn the host's CI off so pushes stay silent:
   gh api -X PUT repos/<owner>/<name>-workbench/actions/permissions -F enabled=false
   ```
-  Pushing stays manual and stays your job: `npm run pause-check` flags anything that has not
+  Pushing stays manual and stays your job: `python3 scripts/pause_check.py` flags anything that has not
   left the machine before a session ends, but nothing pushes on your behalf. That includes
-  **gate tags** — every `gate.mjs lock` mints a `gate-N/vN` tag that code repos consume as a
+  **gate tags** — every `gate.py lock` mints a `gate-N/vN` tag that code repos consume as a
   submodule pin, and `git push` sends no tags (nor does `--follow-tags`: these are
   lightweight). After every lock: `git push && git push --tags`.
   Ask which the remote is for — durability only, or durability *and* hosted CI — and record the
@@ -98,8 +98,8 @@ Goal: pick the reference and record the legal posture BEFORE any agent reads any
   install — see `g1-mining.md`). This becomes a hard G1 exit requirement.
 - **Run the preflight, last, once everything above is filled in.** From the workbench root:
   ```sh
-  npm run preflight                              # detect
-  npm run preflight -- --run-build --run-tests   # …and execute the reference's own build/test commands
+  python3 scripts/preflight.py                              # detect
+  python3 scripts/preflight.py --run-build --run-tests   # …and execute the reference's own build/test commands
   ```
   It writes `PREFLIGHT.md` and `preflight.json`, with a verdict of **Ready**,
   **Ready-with-gaps** or **Not-ready**, and a per-lane line saying which of A–D can
@@ -118,33 +118,20 @@ Goal: pick the reference and record the legal posture BEFORE any agent reads any
   treats as untrusted input. Detected-but-not-executed is recorded as a gap and named as
   unproven, never as a pass — so `Ready-with-gaps` is the right verdict for a reference
   whose build nobody has watched succeed.
-- **Confirm the `bigin-skills` plugin is installed**, and say why now rather than later: it
-  is this pipeline's baseline for creating code repos (`bigin-harness-setup` → scaffold +
-  governance harness, see `g5-build.md`), and it is not needed until G5 — which is weeks of
-  gates away. Checking costs one look at the available-skills list; not checking means
-  finding out on the day the first repo is due. If it is missing, tell the user to install
-  it (`/plugin marketplace add tammai/bigin-skills`, then
-  `/plugin install bigin-skills@bigin` — the marketplace is named `bigin`, not
-  `bigin-skills`) but do **not** block G0 on it — nothing before G5 touches it.
-  **Say what its harness will do at G5**, so the user hears it at the start: every code repo
-  gets guards, including a spec gate that blocks large edits until the worktree has an approved
-  `PLAN.md`. The pipeline runs those guards for its lanes and writes each lane's plan from the
-  slice specs the user approves. That approval is the one the gate checks, and no second
-  approval is asked for (`g5-build.md` step 1b).
-  **Check the installed version is at least 1.105.0**, whatever the playbook: G5 dispatches build
-  lanes as its `worker` agent and audits them with its `verifier`, and versions before 1.105.0
-  name those agents differently (`g5-build.md` step 4b).
-  **Check the installed version against the chosen playbook's `scaffold-profile:`.** The
-  Flutter client playbook needs `bigin-skills` >= 1.68.0 for its `flutter` profile; below that
-  there is no profile for the stack, and G5 must scaffold with the stack's own tool first and
-  overlay the harness in `generic` mode instead (`g5-build.md` step 0). Both are documented
-  paths, but they are not the same amount of work — `generic` writes no CI — so knowing which
-  one applies is worth the thirty seconds at G0 rather than at repo-creation time.
+- **Say what G5 will do to a code repo**, so the user hears it at the start rather than at the
+  first lane: the repo is created by this plugin's `scaffold-repo` skill from the locked
+  playbook's scaffold manifest (nothing else needs to be installed, and no stack is invented
+  at G5: Gate 3 refuses a playbook with no manifest). The plugin's own guards then run for every
+  lane, including a spec gate that blocks large edits until the worktree has an approved
+  `PLAN.md`. The pipeline writes each lane's plan from the slice specs the user approves. That
+  approval is the one the gate checks, and no second approval is asked for (`g5-build.md` step
+  1b). Say too that the scaffold is a skeleton whose five commands pass on day one, not a
+  feature kit: the first slice builds the first real module.
 
 ## Exit criteria
 Reference chosen with recorded rationale; `license-posture.md` complete;
 `sources.yaml` reviewed by the user, including `reference.kind`, `reference.upstream`, and
 the `architecture:` block (playbook + target shape); workbench scaffolded and CI green on empty state;
 workbench pushed to a remote whose visibility matches the recorded posture
-(`npm run pause-check` confirms nothing is still local-only); **`PREFLIGHT.md` reads Ready
-or Ready-with-gaps** (`npm run preflight` — Not-ready holds G1 dispatch, and only that).
+(`python3 scripts/pause_check.py` confirms nothing is still local-only); **`PREFLIGHT.md` reads Ready
+or Ready-with-gaps** (`python3 scripts/preflight.py` — Not-ready holds G1 dispatch, and only that).

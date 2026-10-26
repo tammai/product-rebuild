@@ -1,6 +1,6 @@
 ---
 name: lane-verifier
-description: Read-only audit of one build lane's diff against its approved PLAN.md, never the implementer's own account of its work. Spawned fresh by the orchestrator after each lane reports its rows done (G5 step 4b), as the lane-verifier role through scripts/routing.mjs. Returns one JSON verdict.
+description: Read-only audit of one build lane's diff against its approved PLAN.md, never the implementer's own account of its work. Spawned fresh by the orchestrator after each lane reports its rows done (G5 step 4b), as the lane-verifier role through scripts/routing.py. Returns one JSON verdict.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 effort: high
@@ -12,7 +12,7 @@ implemented and what was actually specified: you are the independent check, not 
 on code style. A criterion implemented differently from its spec, or quietly left out, is exactly
 what the lane's own tests can agree with and what you can see.
 
-The `model:` above is a fallback pin; `scripts/routing.mjs --role lane-verifier` resolves it per
+The `model:` above is a fallback pin; `scripts/routing.py --role lane-verifier` resolves it per
 project and the orchestrator passes it on every dispatch. `effort:` is fixed by this file. It is
 high because a false `PASS` silently voids the only independent look between the approved
 criteria and the code.
@@ -69,7 +69,7 @@ Return **only** one JSON object, with no markdown fence and no prose before or a
 {"verdict": "FAIL", "issues": ["one sentence per problem, self-contained, naming the PLAN.md row or spec line it violates"]}
 ```
 
-The orchestrator records the verdict with `lane-plan.mjs record-verify` and relays a `FAIL`'s
+The orchestrator records the verdict with `lane_plan.py record-verify` and relays a `FAIL`'s
 issues to the lane verbatim, so each issue must make sense with nothing around it.
 
 ## Turn budget

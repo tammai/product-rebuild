@@ -97,8 +97,8 @@ Two fields in `sources.yaml`'s `architecture:` block, decided here because four 
 The last G0 action, and the one that turns "confirm the user can run the reference locally" from a promise into a check:
 
 ```sh
-npm run preflight                              # detect
-npm run preflight -- --run-build --run-tests   # …and execute the reference's own build/test commands
+python3 scripts/preflight.py                              # detect
+python3 scripts/preflight.py --run-build --run-tests   # …and execute the reference's own build/test commands
 ```
 
 It writes `PREFLIGHT.md` and `preflight.json`, verdict **Ready** / **Ready-with-gaps** / **Not-ready**, plus a per-lane verdict for A–D. What it checks: the checkout's HEAD against `sources.yaml`'s `pinned_commit`; a build definition (`.github/workflows`, `Dockerfile`, `Makefile`, in that order); an HTTP probe of the instance URL; a test target; whether the mined path is a subdirectory of a larger monorepo and which siblings mention it; whether the two G0 questions below were answered; and whether `scc`/`cloc` and `graphify` are on PATH.
@@ -264,7 +264,7 @@ contract exists.
 **G4a vendors the chosen playbook to `adr/playbook.md`**, which sits inside gate-3's
 `protects:` and is therefore hashed into the lock. Without that copy, an accepted ADR's
 "cites §7" points at whatever the plugin's registry says months later — and §7 means the
-auth engine in one playbook and the API client in another. `gate.mjs lock gate-3` refuses to
+auth engine in one playbook and the API client in another. `gate.py lock gate-3` refuses to
 lock while a selected playbook has not been vendored.
 
 Inputs: locked taxonomy (Gate 1), locked slice plan (Gate 2), `nfr-profile.yaml`, the
@@ -283,7 +283,7 @@ reference's observed architecture from lane D, and `adr/playbook.md`.
 2. **Decomposition:** the playbook's default (modular monolith, for the org default; feature-first three-layer modules, for the Flutter one). Before drafting this ADR, ask the human directly whether any team-composition fact (stack familiarity, existing investment in a framework) favors the playbook's **alternate** column — this is the one fact the pipeline never persists elsewhere, so it's asked here every time, and recorded inline in this ADR's rationale. Otherwise propose the default; diverging requires a concrete reason from this product's NFR profile or shape — e.g. a hard scaling/isolation requirement, or an architectural-shape mismatch (the reference is fundamentally event-sourced with no queryable current-state table) — not just "the reference did it differently." Note the reference's own choice for the record; it's evidence about the *product domain*, not a vote on the rebuild's architecture.
 3. **Mirror-or-diverge, two axes per concern with a default:** every such ADR states (a) mirror-or-diverge **the playbook** — the actionable axis, gated — and (b) mirror-or-diverge **the reference's own approach** — informational, for the learning record and for tracking which lane-D ground-truth facts a *behavioral* reference-divergence invalidates (a pure tech-stack/language swap forced by the playbook's fixed stack doesn't count: React Native → Flutter is not a divergence event). These are independent: an ADR can mirror the playbook while diverging from the reference (the common case), or diverge from the playbook for a documented reason. Undocumented divergence from the playbook is the primary failure mode this gate enforces against, for the concerns that have an answer.
 4. **One ADR per concern in the playbook's `concerns:` map**, each declaring `concern:` (the key, verbatim) and `org-default:` (the section(s) the map names, or `N/A`). Pass the map's value to the drafter — never let it infer a section, because numbering is per-playbook. Honour `decide-before:` (the org default: background workers before events/queues, so the latter can cite the job-queue substrate its outbox relay runs on; the Flutter playbook: persistence and API client before offline/sync, persistence and session before on-device migration). Concerns mapped `N/A` are decided the original way: mirror-or-diverge against the reference only.
-   Tooling enforces the arithmetic: `npm run validate` rejects an ADR with no `concern:`, an unknown key, or a `§` citation the map never points at; `gate.mjs lock gate-3` refuses to lock while any mapped concern has no ADR. "Every cross-cutting concern decided" stops being a prose exit criterion and becomes a list.
+   Tooling enforces the arithmetic: `python3 scripts/validate.py` rejects an ADR with no `concern:`, an unknown key, or a `§` citation the map never points at; `gate.py lock gate-3` refuses to lock while any mapped concern has no ADR. "Every cross-cutting concern decided" stops being a prose exit criterion and becomes a list.
 5. **Infra topology:** deployment units, environments, CI/CD shape — derived from the decomposition. For a `client-only` target shape, that is build flavors, signing identities and release channels rather than services and datastores.
 
 ### 6.2 ADR format
@@ -310,7 +310,7 @@ Agents draft ADRs in parallel (except where `decide-before:` serializes them) �
 
 Locks the playbook copy itself, the applicability-check outcome, context map, decomposition, all cross-cutting ADRs, and topology. No new service, datastore, queue, deployment target or top-level module downstream without reopening.
 
-**Exit criteria:** playbook vendored to `adr/playbook.md`; applicability check recorded; every context has a decomposition ADR; every concern in the playbook's map has an ADR (`gate.mjs` checks this); every ADR with an answer states mirror/diverge/silent-default against it with evidence; every `N/A` concern states mirror/diverge against the reference; topology diagram exists.
+**Exit criteria:** playbook vendored to `adr/playbook.md`; applicability check recorded; every context has a decomposition ADR; every concern in the playbook's map has an ADR (`gate.py` checks this); every ADR with an answer states mirror/diverge/silent-default against it with evidence; every `N/A` concern states mirror/diverge against the reference; topology diagram exists.
 
 ---
 
@@ -360,7 +360,7 @@ Mermaid because it diffs, renders in review, and states cardinality in notation 
 - CI on every lane: lint, tests, security scan, license scan, AC-coverage check (every AC has a test).
 - Cross-lane shared changes go through one serialized review path.
 - **Every slice ends deployed.** The deploy is part of the slice, not an afterthought — it's half the curriculum. For a client app, "deployed" means a build a real person can install (internal TestFlight / Play internal track, on a device that is not the build machine) — not a simulator run, not a CI artifact.
-- **Repo creation follows the locked playbook's `scaffold-profile:`.** `bigin-harness-setup` creates the repo from an empty directory and its Phase 0.5 delegates to that profile's scaffolder — `flutter` included, from `bigin-skills` 1.68.0. Only when the *installed* plugin has no profile for the playbook's stack does the order invert: the stack's own scaffolder first, then the harness in its stack-neutral `generic` profile, which installs no CI, so the playbook's own CI section is what the first slice writes by hand.
+- **Repo creation follows the locked playbook's scaffold manifest.** The `scaffold-repo` skill reads `adr/playbook.scaffold.json` (the manifest the playbook's `scaffold:` frontmatter names, vendored at G4a and locked at Gate 3), takes the stack from the ADRs, asks only what they leave open, and runs the stack's own generator in an empty directory. A playbook with no manifest fails Gate 3, so G5 never meets a stack it cannot create. The result is a skeleton whose five commands pass on day one, not a feature kit.
 
 **Exit criteria (per slice):** all specs approved; all ACs green; contract conformance passes; slice deployed and its `done_means` demonstrably true.
 
@@ -415,13 +415,13 @@ Serialization points, by design: the five gates, the data model draft, the migra
 
 ## 12. Upgrading a workbench
 
-`rebuild-init.mjs` vendors the schemas and scripts into each workbench **at scaffold time**, on purpose — a workbench is a self-contained, versioned copy, and a project mid-G4 is not improved by its tooling changing underneath it. The cost is that a workbench scaffolded before a release does not get that release's new files, and a reference doc telling you to run `npm run <thing>` then names a path that does not exist.
+`rebuild_init.py` vendors the schemas and scripts into each workbench **at scaffold time**, on purpose — a workbench is a self-contained, versioned copy, and a project mid-G4 is not improved by its tooling changing underneath it. The cost is that a workbench scaffolded before a release does not get that release's new files, and a reference doc telling you to run `python3 scripts/<thing>.py` then names a path that does not exist.
 
 **From 0.17.0 there is a script for it.** Dry run first — it is the default and it copies nothing:
 
 ```sh
-node scripts/upgrade.mjs
-node scripts/upgrade.mjs --apply
+python3 scripts/upgrade.py
+python3 scripts/upgrade.py --apply
 ```
 
 It classifies every vendored file against `locks/tooling.json`, the provenance manifest written at scaffold time:
@@ -433,71 +433,66 @@ It classifies every vendored file against `locks/tooling.json`, the provenance m
 | `modified` | differs from the plugin **and** from its recorded hash — someone edited it here | **refuses** |
 | `unknown` | differs from the plugin, no recorded hash to compare (scaffolded before 0.17.0) | **refuses** |
 | `kept` | a local version a human chose to hold, on the record | never copies |
-| `held` | safe to copy, but its script/schema pair is refused (e.g. `autopilot.mjs` with a locally edited `autopilot.schema.json`) | waits for the pair |
+| `held` | safe to copy, but its script/schema pair is refused (e.g. `autopilot.py` with a locally edited `autopilot.schema.json`) | waits for the pair |
 | `current` | identical to the plugin | nothing |
 
 **From 0.27.0 it runs itself.** At the start of every pipeline session the skill runs the *plugin's* copy with `--auto`, so a plugin update reaches the workbench without anyone remembering to. `--auto` copies only `new` and `stale` files, only when no slice is `in-progress`, no autopilot run is engaged and the tree is clean, commits the upgrade as one commit, runs `validate`, and prints one line. Otherwise it defers to a later session start. It never forces and never keeps; refused files are named for a human to settle as below.
 
-A refused file stays refused on every later run. That is deliberate: an earlier draft recorded the refused file's current hash as its new baseline, which made the next run classify it `stale` and `--apply` overwrite the edit that had just been protected. Settle one of three ways — port your change onto the plugin's version and re-run, take the plugin's with `--apply --force <path>`, or hold yours on the record with `--keep <path>`. Read the diff first: `node scripts/upgrade.mjs --diff <path>`.
+A refused file stays refused on every later run. That is deliberate: an earlier draft recorded the refused file's current hash as its new baseline, which made the next run classify it `stale` and `--apply` overwrite the edit that had just been protected. Settle one of three ways — port your change onto the plugin's version and re-run, take the plugin's with `--apply --force <path>`, or hold yours on the record with `--keep <path>`. Read the diff first: `python3 scripts/upgrade.py --diff <path>`.
 
 The script finds the plugin through `--plugin <path>`, then `.rebuild-plugin` at the workbench root (an absolute path, written at scaffold time), then `$CLAUDE_PLUGIN_ROOT`. A marker or env path inside the installed-plugin cache (`…/plugins/cache/…/<version>/`) is followed to the newest version installed beside it: the marker names the version that scaffolded the workbench, and read literally it would pin every later upgrade to that version. A workbench scaffolded before 0.17.0 has neither the marker nor the manifest, so bootstrap it once:
 
 ```sh
-cp "$CLAUDE_PLUGIN_ROOT/skills/rebuild-pipeline/scripts/upgrade.mjs" scripts/
+cp "$CLAUDE_PLUGIN_ROOT/skills/rebuild-pipeline/scripts/upgrade.py" scripts/
 echo "$CLAUDE_PLUGIN_ROOT" > .rebuild-plugin
-node scripts/upgrade.mjs          # everything differing reads `unknown` — read the diffs
+python3 scripts/upgrade.py          # everything differing reads `unknown` — read the diffs
 ```
 
 With no manifest, every file that differs is `unknown` rather than `stale`, so the first run on an old workbench refuses almost everything and shows you why. That is the correct first answer: this script cannot tell an old vendored copy from your own edit, and guessing wrong deletes work. Walk the list with `--diff`, then `--apply --force` the ones you have checked.
 
-**The manual path still works** and is worth knowing, because `upgrade.mjs` itself has to arrive somehow. For **0.16.0** it was two files:
+**The manual path still works** and is worth knowing, because `upgrade.py` itself has to arrive somehow. For **0.16.0** it was two files:
 
 ```sh
-cp "$CLAUDE_PLUGIN_ROOT/skills/rebuild-pipeline/scripts/preflight.mjs" scripts/
+cp "$CLAUDE_PLUGIN_ROOT/skills/rebuild-pipeline/scripts/preflight.py" scripts/
 cp "$CLAUDE_PLUGIN_ROOT/skills/rebuild-pipeline/schemas/preflight.schema.json" schemas/
 ```
 
-Either way, add the new `package.json` scripts by hand — `upgrade.mjs` copies files, it does not edit your manifest:
-
-```json
-"preflight": "node scripts/preflight.mjs",
-"upgrade": "node scripts/upgrade.mjs"
-```
+Either way, run the new scripts directly (`python3 scripts/preflight.py`, `python3 scripts/upgrade.py`): a workbench has no manifest of shortcuts to keep in step.
 
 Three things worth knowing before you do it:
 
-- **It is safe to skip.** Nothing fails on a missing `preflight.json`. `autopilot -- preflight` records it as a note and carries on; `validate.mjs` checks the file only if it exists; SKILL.md's phase detection falls back to the user's word, as it was before. Upgrade because you want the check, not because something is broken.
+- **It is safe to skip.** Nothing fails on a missing `preflight.json`. `autopilot -- preflight` records it as a note and carries on; `validate.py` checks the file only if it exists; SKILL.md's phase detection falls back to the user's word, as it was before. Upgrade because you want the check, not because something is broken.
 - **A mid-project workbench will read Ready-with-gaps or Not-ready, and that is information, not a regression.** A project past G1 that gets `Not-ready` for a wrong `pinned_commit` has just learned that some of its lane-D citations do not resolve — worth knowing at G4 rather than never. It does not retroactively block anything: the verdict gates G1 dispatch, and G1 is behind you.
 - **`sources.yaml` gains an optional `reference.checkout:`** — the local path to the reference clone. Add it under `reference:`, or pass `--checkout <path>` each run. Without either, preflight looks in `./reference` and `../<reference name>` and reports Not-ready if it finds no git checkout, rather than guessing at a directory and comparing HEAD against an unrelated repo.
 
 The two new `license-posture.md` sections (`## Prior attempts`, `## Off-limits`) are in the scaffold for new workbenches only. Add them by hand to an existing one — preflight reports them as a gap until there is prose under each heading, and the headings alone do not count.
 
-`routing.mjs` (0.16.0) needs no copy either way: it takes `--root`, so the plugin's own copy resolves against any workbench. `SKILL.md` §4b has that command.
+`routing.py` (0.16.0) needs no copy either way: it takes `--root`, so the plugin's own copy resolves against any workbench. `SKILL.md` §4b has that command.
 
 ### What 0.18.0 adds to an existing workbench
 
-`equiv.mjs` and the equivalence lane. `npm run upgrade -- --apply` copies the script; two things
+`equiv.py` and the equivalence lane. `python3 scripts/upgrade.py --apply` copies the script; two things
 by hand:
 
 ```json
-"equiv": "node scripts/equiv.mjs"
+"equiv": "python3 scripts/equiv.py"
 ```
 
 ```sh
 echo "parity/equiv/.unlocked.yaml" >> .gitignore   # an active unlock must never be committed
 ```
 
-`flows-guard.mjs` is a plugin hook, not a vendored script, so its new `parity/equiv/**` coverage
+`flows_guard.py` is a plugin hook, not a vendored script, so its new `parity/equiv/**` coverage
 is live as soon as the plugin is. The lane itself applies only to `reference.kind: own-code` with
-a preflight that says the reference runs — everywhere else `npm run equiv -- status` says so and
+a preflight that says the reference runs — everywhere else `python3 scripts/equiv.py status` says so and
 nothing else changes.
 
 ### What 0.17.0 adds to an existing workbench
 
-`rule.schema.json` and `findings/rules/` (lane R), `plan/specs/` for the module specs the `rule_id` contract lives in, and `runbook-guard.mjs` — which is a **plugin** hook, not a vendored script, so it is live as soon as the plugin is. Two things need a hand:
+`rule.schema.json` and `findings/rules/` (lane R), `plan/specs/` for the module specs the `rule_id` contract lives in, and `runbook_guard.py` — which is a **plugin** hook, not a vendored script, so it is live as soon as the plugin is. Two things need a hand:
 
-- **`locks/gate-1.yaml`'s `protects:` list.** `gate.mjs lock` unions `findings/rules/` in at lock time and says so, so a gate-1 that is still open needs nothing. A gate-1 **already locked** does not retroactively protect the directory — reopen and re-lock if you are adding Rule Cards to a project past Gate 1.
-- **`.rebuild-workbench` in each code repo**, holding the live workbench path. Without it `runbook-guard.mjs` fails open and that repo is simply unguarded. One line: `echo "$(cd ../<name>-workbench && pwd)" > .rebuild-workbench`.
+- **`locks/gate-1.yaml`'s `protects:` list.** `gate.py lock` unions `findings/rules/` in at lock time and says so, so a gate-1 that is still open needs nothing. A gate-1 **already locked** does not retroactively protect the directory — reopen and re-lock if you are adding Rule Cards to a project past Gate 1.
+- **`.rebuild-workbench` in each code repo**, holding the live workbench path. Without it `runbook_guard.py` fails open and that repo is simply unguarded. One line: `echo "$(cd ../<name>-workbench && pwd)" > .rebuild-workbench`.
 
 ---
 

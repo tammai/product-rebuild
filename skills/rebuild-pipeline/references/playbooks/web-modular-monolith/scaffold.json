@@ -1,0 +1,186 @@
+{
+  "ask": [
+    {
+      "key": "org",
+      "prompt": "GitHub organisation or user that will own the repos (used in the Go module path)",
+      "suggest": "<your-github-org>"
+    }
+  ],
+  "rules": [
+    "code-style",
+    "tests",
+    "migrations",
+    "sensitive",
+    "ci"
+  ],
+  "ci": {
+    "os": [
+      "ubuntu-latest"
+    ]
+  },
+  "packages": [
+    {
+      "name": "api",
+      "path": ".",
+      "monorepoPath": "apps/api",
+      "options": {
+        "go": {
+          "generator": [
+            "go mod init github.com/{{org}}/{{repo}}{{subpath}}"
+          ],
+          "after": [
+            "go get github.com/gin-gonic/gin@latest",
+            "go mod tidy"
+          ],
+          "files": [
+            {
+              "from": "go/main.go",
+              "to": "cmd/api/main.go",
+              "class": "seeded"
+            },
+            {
+              "from": "go/main_test.go",
+              "to": "cmd/api/main_test.go",
+              "class": "seeded"
+            },
+            {
+              "from": "go/golangci.yml",
+              "to": ".golangci.yml",
+              "class": "seeded"
+            },
+            {
+              "content": "bin/\n.env\n",
+              "to": ".gitignore",
+              "class": "seeded"
+            }
+          ],
+          "commands": {
+            "install": "go mod download",
+            "build": "go build -o bin/ ./...",
+            "lint": "golangci-lint run ./...",
+            "typecheck": "go vet ./...",
+            "test": "go test ./...",
+            "test_fast": "go test -short ./..."
+          },
+          "ci": {
+            "setup": "go",
+            "pre": [
+              "go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"
+            ]
+          }
+        },
+        "nodejs": {
+          "generator": [
+            "npm init -y"
+          ],
+          "after": [
+            "npm pkg set type=module",
+            "npm install fastify @sinclair/typebox pino",
+            "npm install -D typescript vitest @types/node@^22 eslint @eslint/js typescript-eslint"
+          ],
+          "files": [
+            {
+              "content": "{\n  \"compilerOptions\": {\n    \"target\": \"ES2022\",\n    \"module\": \"NodeNext\",\n    \"moduleResolution\": \"NodeNext\",\n    \"strict\": true,\n    \"noUncheckedIndexedAccess\": true,\n    \"esModuleInterop\": true,\n    \"skipLibCheck\": true,\n    \"outDir\": \"dist\",\n    \"rootDir\": \"src\"\n  },\n  \"include\": [\"src\"]\n}\n",
+              "to": "tsconfig.json",
+              "class": "seeded"
+            },
+            {
+              "content": "import js from '@eslint/js'\nimport tseslint from 'typescript-eslint'\n\nexport default tseslint.config(js.configs.recommended, ...tseslint.configs.recommended, { ignores: ['dist'] })\n",
+              "to": "eslint.config.mjs",
+              "class": "seeded"
+            },
+            {
+              "content": "import Fastify from 'fastify'\n\nexport function buildApp() {\n  const app = Fastify({ logger: false })\n  app.get('/healthz', async () => ({ status: 'ok' }))\n  return app\n}\n",
+              "to": "src/app.ts",
+              "class": "seeded"
+            },
+            {
+              "content": "import { describe, expect, it } from 'vitest'\nimport { buildApp } from './app.js'\n\ndescribe('app', () => {\n  it('answers /healthz', async () => {\n    const res = await buildApp().inject({ method: 'GET', url: '/healthz' })\n    expect(res.statusCode).toBe(200)\n  })\n})\n",
+              "to": "src/app.test.ts",
+              "class": "seeded"
+            },
+            {
+              "content": "node_modules\ndist\n.env\n",
+              "to": ".gitignore",
+              "class": "seeded"
+            }
+          ],
+          "commands": {
+            "install": "npm ci",
+            "build": "npx tsc -p .",
+            "lint": "npx eslint .",
+            "typecheck": "npx tsc --noEmit",
+            "test": "npx vitest run"
+          },
+          "ci": {
+            "setup": "node",
+            "version": "22"
+          }
+        }
+      }
+    },
+    {
+      "name": "web",
+      "path": ".",
+      "monorepoPath": "apps/web",
+      "options": {
+        "nuxt": {
+          "generator": [
+            "npx --yes nuxi@latest init . --force --no-install --no-gitInit --packageManager npm --template ui"
+          ],
+          "after": [
+            "npm pkg delete packageManager",
+            "node -e \"for (const f of ['pnpm-lock.yaml','pnpm-workspace.yaml','.github']) require('fs').rmSync(f,{recursive:true,force:true})\"",
+            "npm install",
+            "npm install -D vitest"
+          ],
+          "files": [
+            {
+              "content": "import { describe, expect, it } from 'vitest'\n\ndescribe('smoke', () => {\n  it('runs the test runner', () => {\n    expect(1 + 1).toBe(2)\n  })\n})\n",
+              "to": "test/smoke.test.ts",
+              "class": "seeded"
+            }
+          ],
+          "commands": {
+            "install": "npm ci",
+            "build": "npm run build",
+            "lint": "npm run lint",
+            "typecheck": "npm run typecheck",
+            "test": "npx vitest run"
+          },
+          "ci": {
+            "setup": "node",
+            "version": "22"
+          }
+        },
+        "next": {
+          "generator": [
+            "npx --yes create-next-app@latest . --ts --eslint --app --src-dir --import-alias \"@/*\" --use-npm --skip-install --no-tailwind --disable-git --yes"
+          ],
+          "after": [
+            "npm install",
+            "npm install -D vitest @types/node@^22"
+          ],
+          "files": [
+            {
+              "content": "import { describe, expect, it } from 'vitest'\n\ndescribe('smoke', () => {\n  it('runs the test runner', () => {\n    expect(1 + 1).toBe(2)\n  })\n})\n",
+              "to": "test/smoke.test.ts",
+              "class": "seeded"
+            }
+          ],
+          "commands": {
+            "install": "npm ci",
+            "build": "npm run build",
+            "lint": "npm run lint",
+            "typecheck": "npx next typegen && npx tsc --noEmit",
+            "test": "npx vitest run"
+          },
+          "ci": {
+            "setup": "node",
+            "version": "22"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -20,12 +20,12 @@ Run after each slice and on schedule (monthly default).
    **After a slice build, this run already happened.** It is `g5-build.md`'s joint run (step 5),
    with its failures re-run (step 6). Do not run the suite again here; read what they wrote.
 
-   **How a rerun is counted.** When `parity/<date>-ac-rerun.xml` exists, `parity.mjs` and
-   `slice-review.mjs` count it through one function in `acsuite.mjs`, so they state the same
+   **How a rerun is counted.** When `parity/<date>-ac-rerun.xml` exists, `parity.py` and
+   `slice_review.py` count it through one function in `acsuite.py`, so they state the same
    pass rate: a criterion is PASS if it passed in the joint run, or failed there and passed in
    the rerun. The joint run's own totals stay beside that number, and every pass on rerun is
    labelled by comparing the two runs' records (`parity/<date>-ac.meta.json` and
-   `-ac-rerun.meta.json`, written by `lanes-check.mjs stamp`):
+   `-ac-rerun.meta.json`, written by `lanes_check.py stamp`):
 
    - **flaky** — the same commits ran both times. The test failed and then passed on the same
      code. Counted, and shown as "N of them flaky" in the headline; record each one in
@@ -36,8 +36,8 @@ Run after each slice and on schedule (monthly default).
    - **unverified** — a record is missing or unreadable, or a tree was dirty when stamped.
      Which code ran cannot be said; fix the stamping before the next rerun. Other shapes and
    playbooks run whatever their own AC suite is and record the result under a hand-written
-   `## AC suite` heading, which `parity.mjs` preserves.
-2. **Parity diff**: `node scripts/parity.mjs` from the workbench root — coverage vs `matrix/`:
+   `## AC suite` heading, which `parity.py` preserves.
+2. **Parity diff**: `python3 scripts/parity.py` from the workbench root — coverage vs `matrix/`:
    covered / partial / missing per feature, plus scope-creep detection (built but not
    in matrix). Report lands in `parity/<date>.md`.
 3. **Upstream re-mine**: re-run lane A (changelog) against the reference's latest
@@ -59,7 +59,7 @@ Run after each slice and on schedule (monthly default).
    pinned commit that still compiles, a device that still has it. Losing the ability to run
    it costs more than any single finding, and it always happens by accident.
 
-4. **Slice review**: `npm run slice-review -- <Sn>` — the standing report for the boundary,
+4. **Slice review**: `python3 scripts/slice_review.py <Sn>` — the standing report for the boundary,
    written to `plan/slice-reviews/<Sn>.md`. Run it after step 2 so it can cite that report.
 
 Present both reports briefly: coverage %, AC pass rate, upstream movements, creep items, and
@@ -69,7 +69,7 @@ an upstream feature into the backlog or ignore it with reason; reorder the tail 
 
 ## The slice review — advisory, generated, and not a sixth gate
 
-**What it adds that this phase does not.** `parity.mjs` answers *how much of the reference do
+**What it adds that this phase does not.** `parity.py` answers *how much of the reference do
 we cover* — a coverage diff against the matrix. Two questions it does not answer, and nothing
 else did either:
 
@@ -82,7 +82,7 @@ else did either:
   slices are orderable *right now* because their dependencies have shipped. That last one is the
   input to the reorder conversation this boundary exists for.
 
-**Its coverage figure differs from `parity.mjs`'s, on purpose.** The review counts only
+**Its coverage figure differs from `parity.py`'s, on purpose.** The review counts only
 explicit `plan/progress.yaml` entries; parity fills gaps with `matrix/features.yaml`'s
 `status:`. Both are right for their own question — parity's is about the reference, the
 review's is about the rebuild — and the review prints the gap rather than letting two reports
@@ -101,7 +101,7 @@ something. That is the bookkeeping-versus-decisions line `plan/progress.yaml` an
 `parity/flows/` each drew already. So the review blocks nothing — `pause-check` mentions a
 shipped slice that has none as a *note*, never as ⚠️, because a check that cries wolf about an
 optional report takes the real warnings down with it. The teeth in this design are on the
-**reorder**, not the review: `sequence.mjs` requires `--reason` and logs every move, so a plan
+**reorder**, not the review: `sequence.py` requires `--reason` and logs every move, so a plan
 that drifts leaves a record even when nobody read the review.
 
 ## The AC flows — `parity/flows/`, and the one rule with teeth
@@ -146,13 +146,13 @@ says "this is the recorded reference".
 To change one deliberately:
 
 ```sh
-npm run flows -- unlock --reason "..."   # logged to parity/flows/DECISIONS.md
+python3 scripts/flows.py unlock --reason "..."   # logged to parity/flows/DECISIONS.md
 # make the change
-npm run flows -- relock
+python3 scripts/flows.py relock
 ```
 
 `--reason` is required, exactly as it is for a gate reopen, and "the tests are failing" is not
-one — that is the situation the rule exists for. `npm run pause-check` reports a workbench left
+one — that is the situation the rule exists for. `python3 scripts/pause_check.py` reports a workbench left
 unlocked as unsafe to pause, because an unlock that outlives its change is a guard that is
 simply off.
 
@@ -167,7 +167,7 @@ project is actually about. Maestro answers *does the UI do what the old UI did*;
 **It applies only when `sources.yaml` has `reference.kind: own-code` and the E4 preflight says
 the reference runs.** There is no legal or practical way to replay traffic against a product you
 do not operate, and under clean-room posture reading the reference's responses is the thing the
-posture forbids. `equiv` refuses with the failing condition named, and `parity.mjs` prints *does
+posture forbids. `equiv` refuses with the failing condition named, and `parity.py` prints *does
 not apply* rather than an empty column — an absent section and an unchecked one read identically
 otherwise.
 
@@ -175,10 +175,10 @@ A `client-only` rebuild uses Maestro alone. A `fullstack` own-code rebuild uses 
 third-party reference uses neither.
 
 ```sh
-npm run equiv -- status                  # does the lane apply, and what is recorded
-npm run equiv -- record <feature-id>     # drive the LEGACY system, write traces  (G5 step 0)
-npm run equiv -- replay --all            # replay against the rebuild -> parity/<date>-equiv.xml
-npm run parity                           # reads that XML into the Equivalence section
+python3 scripts/equiv.py status                  # does the lane apply, and what is recorded
+python3 scripts/equiv.py record <feature-id>     # drive the LEGACY system, write traces  (G5 step 0)
+python3 scripts/equiv.py replay --all            # replay against the rebuild -> parity/<date>-equiv.xml
+python3 scripts/parity.py                           # reads that XML into the Equivalence section
 ```
 
 **A trace is authored, then recorded.** `equiv` drives the legacy system; it does not invent the
@@ -201,16 +201,16 @@ construction: the JUnit contains only what ran.
 is intended — and intended differences go on the record:
 
 ```sh
-npm run equiv -- accept "<trace name>" --reason "..."
+python3 scripts/equiv.py accept "<trace name>" --reason "..."
 ```
 
-That does not make the trace green and is not meant to; it makes it explained. `gate.mjs lock
+That does not make the trace green and is not meant to; it makes it explained. `gate.py lock
 gate-5` refuses while the newest run has a failing trace no decision names (`gp-production.md`'s
 service checklist carries the same line).
 
 **Traces are committed and then guarded**, same rule and same hook as `parity/flows/`: an
 assertion in a recorded artifact changes only with a logged human decision
-(`npm run equiv -- unlock --reason "..."` … `relock`). Editing a trace to match the rebuild does
+(`python3 scripts/equiv.py unlock --reason "..."` … `relock`). Editing a trace to match the rebuild does
 not make the two equivalent; it makes the evidence agree with the code, which is the one
 property this lane exists to have.
 
@@ -242,14 +242,14 @@ notes:    { S1: "one-line asterisk carried into the report" }
 feature_notes: { F-API-007: "ruled out by <who>, <date>: <why>" }
 ```
 
-`parity.mjs` overlays it onto `matrix/features.yaml` and `plan/slices.yaml` — an entry here
+`parity.py` overlays it onto `matrix/features.yaml` and `plan/slices.yaml` — an entry here
 wins, anything absent falls back to the locked `status:`.
 
 Do **not** edit the `status:` field inside those two files. They are hashed whole by gate-1
 and gate-2, so writing bookkeeping into them costs a formal reopen per slice and rewrites the
 hash that dependent submodule pins consume. Gates protect decisions — the taxonomy and the
 slice boundaries — not progress. (A workbench scaffolded before this file existed still works:
-`parity.mjs` warns and falls back to locked statuses.)
+`parity.py` warns and falls back to locked statuses.)
 
 Two behaviors worth knowing:
 
@@ -258,8 +258,8 @@ Two behaviors worth knowing:
   of going inert. Reserve `done` for a slice that meets its criteria outright.
 - **`descoped` is a user ruling, not a status the build reaches.** Use it only when the user
   decides this rebuild will not build a feature. It takes the feature out of the coverage
-  denominator in both `parity.mjs` and `slice-review.mjs`, and lists it under "Descoped" with its
-  `feature_notes:` line. `validate.mjs` fails a descoped feature that has no note: a feature
+  denominator in both `parity.py` and `slice_review.py`, and lists it under "Descoped" with its
+  `feature_notes:` line. `validate.py` fails a descoped feature that has no note: a feature
   that leaves every figure needs its reason on the record. Record it here, not in the matrix:
   `matrix/features.yaml` describes the reference, which still has the feature.
 - **Hand-written sections survive a re-run.** The script owns the coverage line and the Missing

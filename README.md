@@ -54,21 +54,11 @@ Two ideas carry everything:
 /plugin marketplace add /path/to/product-rebuild-skills
 ```
 
-Requires Node.js ≥ 20 (scaffold and gate scripts), git, and Docker (you will run the
-reference product locally — it's mandatory, not optional).
-
-**Also requires the [`bigin-skills`](https://github.com/tammai/bigin-skills) plugin** — the
-baseline this pipeline builds on. It owns app scaffolding and the AI-governance harness;
-from G5 onward every code repo is created by its `bigin-harness-setup` skill rather than by
-hand, so the rebuild lands on the same stack and the same guardrails as everything else in
-the org. Nothing before G5 touches it, but install it up front:
-
-```bash
-/plugin marketplace add tammai/bigin-skills
-/plugin install bigin-skills@bigin
-```
-
-Note it is licensed PolyForm-Strict-1.0.0, unlike this plugin's MIT.
+Requires Python ≥ 3.9 (standard library only: there is nothing to `pip install`, and the YAML reader
+ships inside the plugin), git, and Docker (you will run the reference product locally — it's
+mandatory, not optional). The code repos you scaffold at G5 need whatever their own stack needs
+(Go, Node, Flutter), and the scaffold tells you before it starts if a tool is missing. It never
+installs one for you. No other plugin is required.
 
 ## Walkthrough: start to finish
 
@@ -93,7 +83,8 @@ interviews you:
   means a month of mining the wrong things.
 
 It then scaffolds your **workbench** (`<name>-workbench/`): the directory tree, schemas,
-gate files (all open), validation scripts, and CI. Run `npm install` inside it once.
+gate files (all open), validation scripts, and CI. There is nothing to install: its scripts are Python and run with
+`python3 scripts/<name>.py`.
 
 ### 2. Mining (G1) — mostly hands-off
 
@@ -120,12 +111,12 @@ breaks on upgrade.
   want first (first deploy, first live migration, first background job...). Every slice
   ends deployed. The gate locks slice **boundaries**; the **sequence** lives in an ungated
   `plan/sequence.yaml`, so reordering the pending tail between slices is a logged decision
-  (`npm run sequence -- reorder S6 --before S4 --reason "..."`) rather than a gate reopen.
+  (`python3 scripts/sequence.py reorder S6 --before S4 --reason "..."`) rather than a gate reopen.
   Only the tail moves, dependencies are still enforced, and every move lands in
   `plan/sequence-decisions.md`.
 
 At every gate the skill presents a review — what locks, the judgment calls, the risks —
-and locks only on your explicit yes: `npm run gate -- lock gate-N` under the hood.
+and locks only on your explicit yes: `python3 scripts/gate.py lock gate-N` under the hood.
 
 ### 4. Gates 3–4: the learning core
 
@@ -154,9 +145,11 @@ observable behavior mapping to exactly one test) — you review specs before cod
 backend/frontend/infra lanes build in parallel against the locked contracts. The slice
 is done when it's **deployed** and its `done_means` is demonstrably true.
 
-Code repos are created by [`bigin-skills`](https://github.com/tammai/bigin-skills)
-(`bigin-harness-setup`), using the profile your locked playbook names — `go`/`nodejs` +
-`nuxt`/`next`, or `flutter` from bigin-skills 1.68.0. For a client-only rebuild this lane *is*
+Code repos are created by this plugin's `scaffold-repo` skill from the scaffold manifest your
+locked playbook ships: it takes the stack from the Gate 3 ADRs, asks only what they leave open,
+shows you a proposal, runs the stack's own generator, and proves the five commands pass on day one.
+The result is a skeleton, not a feature kit; the first slice builds the first real module. For a
+client-only rebuild this lane *is*
 the build, split per feature module, and "deployed" means a build a real person can install
 from an internal track — not a simulator run.
 
@@ -181,13 +174,13 @@ interrupted", and the kill switch gets flipped for real. Locking Gate 5 is the f
 Ask the skill "where are we?" anytime, or run in the workbench:
 
 ```bash
-npm run gate -- status     # gate states + current phase
-npm run validate           # artifacts vs schemas, contract $refs, lock integrity
-npm run parity             # coverage report into parity/<date>.md
-npm run slice-review -- S3 # the between-slices standing report (advisory)
-npm run sequence -- status # execution order: what's frozen, what's orderable now
-npm run pause-check        # safe to stop? (includes what hasn't been pushed off-machine)
-npm run autopilot -- preflight   # ready to run unattended between gates?
+python3 scripts/gate.py status     # gate states + current phase
+python3 scripts/validate.py           # artifacts vs schemas, contract $refs, lock integrity
+python3 scripts/parity.py             # coverage report into parity/<date>.md
+python3 scripts/slice_review.py S3 # the between-slices standing report (advisory)
+python3 scripts/sequence.py status # execution order: what's frozen, what's orderable now
+python3 scripts/pause_check.py        # safe to stop? (includes what hasn't been pushed off-machine)
+python3 scripts/autopilot.py preflight   # ready to run unattended between gates?
 ```
 
 ## The slice boundary
@@ -199,7 +192,7 @@ and look, which is where "the pipeline runs, but where are we?" comes from.
 So after each slice: record progress, run parity, then
 
 ```bash
-npm run slice-review -- S3
+python3 scripts/slice_review.py S3
 ```
 
 It generates `plan/slice-reviews/S3.md` from what is on disk — never composed — and answers
@@ -244,8 +237,8 @@ orchestrator passes 250k tokens it stops at the next unit boundary and asks you 
 and `/rebuild`. Everything is on disk by then, so a fresh session loses nothing.
 
 ```bash
-npm run autopilot -- preflight    # is this safe to start?
-npm run autopilot -- status       # what did the last run do, and where did it stop?
+python3 scripts/autopilot.py preflight    # is this safe to start?
+python3 scripts/autopilot.py status       # what did the last run do, and where did it stop?
 ```
 
 One-time setup: the 5-hour figure is piped by Claude Code to your **status line only**, so it
@@ -274,23 +267,23 @@ skills/rebuild-pipeline/        THE skill you interact with
                                 each declaring its own concerns → sections map; write your own
   references/rubrics/           one scoring rubric per gate, for the judge pass at Step 5.1b
   schemas/*.schema.json         finding / feature / slice / sequence / progress / lock schemas
-  scripts/rebuild-init.mjs      workbench scaffolder
-  scripts/gate.mjs              gate status / lock / reopen (hashes + tags)
-  scripts/validate.mjs          schema, contract-$ref and lock-integrity validation (also in CI)
-  scripts/playbook.mjs          playbook resolution + the ADR concern/citation checks
-  scripts/erd.mjs               data-model checks shared by validate and gate
-  scripts/basis.mjs             evidence-basis checks shared by validate and parity
-  scripts/flows.mjs             the logged-decision log for AC flow assertions (unlock/relock)
-  scripts/parity.mjs            G6 coverage report + AC pass rate from the suite's JUnit
-  scripts/acsuite.mjs           JUnit reader shared by parity and slice-review; counts a rerun once
-  scripts/lanes-check.mjs       is a build lane still working? + `stamp`: which commits a test run saw
-  scripts/run-phases.mjs        a several-phase test run as one tracked background process
-  scripts/lane-plan.mjs         a lane's PLAN.md, written from the slice specs you approved
-  scripts/sequence.mjs          slice execution order — the logged-decision reorder mechanism
-  scripts/slice-review.mjs      the between-slices standing report (generated, advisory)
-  scripts/pause-check.mjs       is it safe to pause the session? (advisory, not a gate)
-  scripts/autopilot.mjs         unattended-run state: preflight / check / engage / log / disengage
-  scripts/routing.mjs           which model each subagent role dispatches on (.claude/model-routing.json)
+  scripts/rebuild_init.py      workbench scaffolder
+  scripts/gate.py              gate status / lock / reopen (hashes + tags)
+  scripts/validate.py          schema, contract-$ref and lock-integrity validation (also in CI)
+  scripts/playbook.py          playbook resolution + the ADR concern/citation checks
+  scripts/erd.py               data-model checks shared by validate and gate
+  scripts/basis.py             evidence-basis checks shared by validate and parity
+  scripts/flows.py             the logged-decision log for AC flow assertions (unlock/relock)
+  scripts/parity.py            G6 coverage report + AC pass rate from the suite's JUnit
+  scripts/acsuite.py           JUnit reader shared by parity and slice-review; counts a rerun once
+  scripts/lanes_check.py       is a build lane still working? + `stamp`: which commits a test run saw
+  scripts/run_phases.py        a several-phase test run as one tracked background process
+  scripts/lane_plan.py         a lane's PLAN.md, written from the slice specs you approved
+  scripts/sequence.py          slice execution order — the logged-decision reorder mechanism
+  scripts/slice_review.py      the between-slices standing report (generated, advisory)
+  scripts/pause_check.py       is it safe to pause the session? (advisory, not a gate)
+  scripts/autopilot.py         unattended-run state: preflight / check / engage / log / disengage
+  scripts/routing.py           which model each subagent role dispatches on (.claude/model-routing.json)
 agents/                         miner, adr-drafter, spec-writer, rubric-judge, lane-worker,
                                 lane-verifier subagents
 hooks/                          PreToolUse guards: locked artifacts, recorded AC flows, and
@@ -304,7 +297,7 @@ docs/PLAYBOOK.md                the full methodology
 
 - **No evidence, no finding.** Agents cannot write hallucinated facts into the matrix.
 - **Every architecture concern gets decided, or the gate will not lock.** Your playbook's
-  concern list is the ADR list: `gate.mjs lock gate-3` refuses while any of them has no ADR, and
+  concern list is the ADR list: `gate.py lock gate-3` refuses while any of them has no ADR, and
   validation rejects an ADR citing a section the playbook does not have. "Every cross-cutting
   concern decided" stopped being a sentence and became a check.
 - **The playbook you decided against is pinned to your decisions.** G4a copies it into the
@@ -322,7 +315,7 @@ docs/PLAYBOOK.md                the full methodology
   and Gate 4 flags a contract entry frozen on one.
 - **Locked means locked.** The hook blocks edits under a locked gate's paths; the escape
   The guards are PreToolUse hooks on `Write|Edit|MultiEdit` only: a shell redirect, `sed -i`
-  or `cp` through Bash is not intercepted, and `validate.mjs`'s locked-hash check is what catches that drift.
+  or `cp` through Bash is not intercepted, and `validate.py`'s locked-hash check is what catches that drift.
   hatch is a formal, logged reopen with a reason — never a quiet edit.
 - **Subagents get their context in the brief, not from the transcript.** Every brief carries a
   context budget: no session transcripts or scratchpad dumps, no tool result over ~20K characters,
@@ -355,7 +348,7 @@ The license posture step will force the right questions, but competitive-intelli
 workflows are out of scope.
 
 **What if I disagree with a locked decision later?** Reopen the gate with a reason —
-`npm run gate -- reopen gate-3 --reason "..."`. It's logged, downstream staleness is
+`python3 scripts/gate.py reopen gate-3 --reason "..."`. It's logged, downstream staleness is
 surfaced, and history stays honest.
 
 **Multiple projects?** One workbench per project, always. The plugin (schemas, scripts,
@@ -383,8 +376,9 @@ the contract and the four rules tooling enforces. Point `architecture.playbook` 
 and every Gate 3 ADR goes back to a blank-slate decision against the reference, which is how
 the pipeline worked before playbooks existed.
 
-**What if my playbook's stack has no `bigin-skills` scaffold profile?** G5 says so out loud
-and falls back: the stack's own scaffolder first, then the harness in its stack-neutral
-`generic` mode — which installs no CI, so your playbook's CI section is what the first slice
-writes by hand. Usually that gap is a plugin version rather than a permanent fact, so check
-before accepting it.
+**What if my playbook has no scaffold manifest?** Gate 3 refuses to lock. A playbook declares
+`scaffold: <file>` in its frontmatter, pointing at a JSON manifest (packages, the stack options for each,
+generator commands, the five commands); one with no manifest, or `scaffold: none`, fails at the gate and
+not at G5, when the first lane needs a repo. Writing one is the price of a playbook for a new stack;
+`references/playbooks/README.md` has the format. With `architecture.playbook: none` you write
+`adr/scaffold.json` yourself, beside your stack ADR.

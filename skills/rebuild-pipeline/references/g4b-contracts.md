@@ -63,9 +63,9 @@ review surface, and states cardinality in the notation instead of in a sentence 
 to interpret. A wrong FK on a diagram is a one-line edit; found after Gate 4 it is a
 migration.
 
-`npm run validate` requires every diagram here to declare **at least one entity** — an
+`python3 scripts/validate.py` requires every diagram here to declare **at least one entity** — an
 `erDiagram` header alone is not a data model, and a scaffold stub would otherwise satisfy
-the check forever. `gate.mjs lock gate-4` refuses to lock while this directory holds no
+the check forever. `gate.py lock gate-4` refuses to lock while this directory holds no
 diagram: gate status is `open|locked` with nothing between, so a check that fires on
 `locked` would report the gap only after the tag is cut. Neither is a Mermaid validator and
 neither can tell you the model is *right* — that is the coherence review below.
@@ -79,7 +79,7 @@ neither can tell you the model is *right* — that is the coherence review below
 All three CI-validated. Everything in G5 must trace to contract elements; anything not
 in a contract does not exist.
 
-**What `npm run validate` does and does not cover** (from 0.6.5; data model from 0.7.0): it
+**What `python3 scripts/validate.py` does and does not cover** (from 0.6.5; data model from 0.7.0): it
 parses every `contracts/**.yaml`, rejects duplicate keys, and resolves **every `$ref`** — including
 cross-file ones — so a pointer at nothing fails here rather than as a codegen error in a
 code repo after the gate is locked and the tag is pinned. For OpenAPI documents it also
@@ -128,7 +128,7 @@ between drafts, because they are written by different agents from the same ADRs.
   and then forgotten — it will be built, migrated, and never read.
 
 Neither direction is scriptable: "maps to" is a judgment about naming and intent, which is
-why this is a review step and not a check in `validate.mjs`. Same reasoning as the callee
+why this is a review step and not a check in `validate.py`. Same reasoning as the callee
 check below — and like it, run it as a step, not as a habit you intend to have.
 
 ## The callee check — run before every Gate 4 lock, including reopens
@@ -209,5 +209,5 @@ unstated exceptions is the failure mode); the callee check's outcome including i
 the change policy after lock: additive changes allowed within the tag series, breaking
 changes reopen Gate 4 for the affected contract only and cut a new major gate tag.
 
-Lock only on explicit approval: `gate.mjs lock gate-4`. Locking cuts the tag code repos
+Lock only on explicit approval: `gate.py lock gate-4`. Locking cuts the tag code repos
 pin to (e.g. `gate-4/contracts-v1`).

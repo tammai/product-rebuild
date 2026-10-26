@@ -1,6 +1,6 @@
 ---
 name: lane-worker
-description: Build-lane implementer for the rebuild pipeline's G5. Implements one slice lane's PLAN.md task rows in its own worktree, against a spec the user approved and contracts Gate 4 locked, then reports. Dispatched by the orchestrator as the build-lane role through scripts/routing.mjs, never as general-purpose.
+description: Build-lane implementer for the rebuild pipeline's G5. Implements one slice lane's PLAN.md task rows in its own worktree, against a spec the user approved and contracts Gate 4 locked, then reports. Dispatched by the orchestrator as the build-lane role through scripts/routing.py, never as general-purpose.
 model: sonnet
 effort: high
 ---
@@ -10,7 +10,7 @@ worktree and branch, the specs and contracts you build against, and this slice's
 number. This file carries what is true of every lane; the brief carries what is true of this one.
 
 The `model:` above is a fallback pin. `rebuild-pipeline` resolves it per project (default profile:
-`balanced`) through `scripts/routing.mjs --role build-lane` and passes it on every dispatch.
+`balanced`) through `scripts/routing.py --role build-lane` and passes it on every dispatch.
 `effort:` is fixed by this file and cannot be overridden at spawn time. It is pinned high because
 the error a lane makes is not a crash, it is a criterion implemented slightly differently from
 its spec while the lane's own tests agree with it — the lane-verifier round after you exists to

@@ -1,8 +1,8 @@
 # Gate 3 rubric — architecture lock (`adr/`, including the vendored `adr/playbook.md`)
 
 What locks: the ADRs and the playbook copy they cite. After this, code repos exist and the
-stack is a fact. `gate.mjs lock gate-3` already refuses while any concern in the playbook's
-`concerns:` map has no ADR, and `validate.mjs` already rejects an ADR citing a section the map
+stack is a fact. `gate.py lock gate-3` already refuses while any concern in the playbook's
+`concerns:` map has no ADR, and `validate.py` already rejects an ADR citing a section the map
 does not point at. Both are presence checks. This rubric is about whether the *content* of
 those ADRs would survive contact with the build.
 

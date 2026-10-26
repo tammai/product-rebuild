@@ -18,7 +18,7 @@
       {
         "if": { "properties": { "kind": { "not": { "const": "state-transition" } } }, "required": ["kind"] },
         "then": { "not": { "required": ["transition"] } },
-        "description": "`transition` belongs to `state-transition` cards only. On any other kind it would feed validate.mjs's state-machine assembly with an edge the card does not claim."
+        "description": "`transition` belongs to `state-transition` cards only. On any other kind it would feed validate.py's state-machine assembly with an edge the card does not claim."
       }
     ],
     "properties": {
@@ -40,9 +40,9 @@
         "type": "object",
         "required": ["entity", "field", "from", "to"],
         "additionalProperties": false,
-        "description": "The edge a `state-transition` card describes, in a form a script can assemble. Each card is one edge, in prose, so an entity's state machine was N unrelated cards and a state no transition reached was invisible; validate.mjs now builds the machine per entity and field from these, and reports unreachable states, dead ends and a missing creation transition. Optional, not required: requiring it would fail every state-transition card mined before it existed, and past Gate 1 those cards sit under a locked path — adding a field nobody asked for at the time would take a gate reopen.",
+        "description": "The edge a `state-transition` card describes, in a form a script can assemble. Each card is one edge, in prose, so an entity's state machine was N unrelated cards and a state no transition reached was invisible; validate.py now builds the machine per entity and field from these, and reports unreachable states, dead ends and a missing creation transition. Optional, not required: requiring it would fail every state-transition card mined before it existed, and past Gate 1 those cards sit under a locked path — adding a field nobody asked for at the time would take a gate reopen.",
         "properties": {
-          "entity": { "type": "string", "minLength": 1, "description": "Must also appear in the card's `entities[]` — validate.mjs fails the card otherwise, since two fields on one card disagreeing is a defect, not a coverage question." },
+          "entity": { "type": "string", "minLength": 1, "description": "Must also appear in the card's `entities[]` — validate.py fails the card otherwise, since two fields on one card disagreeing is a defect, not a coverage question." },
           "field": { "type": "string", "minLength": 1, "description": "The attribute holding the state (`status`). One entity can carry two machines, `status` and `pdf_status`; they are assembled separately." },
           "from": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "description": "Every state this edge leaves from. `(none)` for creation — the state a new record starts in." },
           "to": { "type": "string", "minLength": 1, "description": "The state the edge arrives in." }
@@ -83,12 +83,12 @@
         "type": "array",
         "minItems": 1,
         "items": { "type": "string", "pattern": "^F-[A-Z0-9]+-[0-9]{3}$" },
-        "description": "Which matrix entries this rule belongs to. validate.mjs resolves every id against matrix/features.yaml — a card citing a feature that does not exist is a card no spec will ever find."
+        "description": "Which matrix entries this rule belongs to. validate.py resolves every id against matrix/features.yaml — a card citing a feature that does not exist is a card no spec will ever find."
       },
       "entities": {
         "type": "array",
         "items": { "type": "string", "minLength": 1 },
-        "description": "Entities the rule reads or writes. validate.mjs checks each against findings/ground-truth/reference-erd*.mermaid: a rule naming an entity the reference does not have is a rule that was inferred rather than mined. Required for an `invariant`: these are the entities the property is OF, and G5 finds every module that must test it by the entities that module writes."
+        "description": "Entities the rule reads or writes. validate.py checks each against findings/ground-truth/reference-erd*.mermaid: a rule naming an entity the reference does not have is a rule that was inferred rather than mined. Required for an `invariant`: these are the entities the property is OF, and G5 finds every module that must test it by the entities that module writes."
       },
       "confidence": { "enum": ["high", "medium", "low"] },
       "verification": {

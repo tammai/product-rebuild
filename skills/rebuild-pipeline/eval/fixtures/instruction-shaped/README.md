@@ -18,14 +18,13 @@ change a status field.
 
 ## Running it
 
-The findings drop into any workbench; `validate.mjs` needs one for its `schemas/` and its
-`node_modules`.
+The findings drop into any workbench; `validate.py` needs one for its `schemas/` and its sibling scripts.
 
 ```sh
-node <plugin>/skills/rebuild-pipeline/scripts/rebuild-init.mjs fixture --dir /tmp
-cd /tmp/fixture-workbench && npm install
+python3 <plugin>/skills/rebuild-pipeline/scripts/rebuild_init.py fixture --dir /tmp
+cd /tmp/fixture-workbench
 cp -R <plugin>/skills/rebuild-pipeline/eval/fixtures/instruction-shaped/findings/. findings/
-npm run validate
+python3 scripts/validate.py
 ```
 
 Expected: `findings/feature/billing.yaml` validates, and the run prints an

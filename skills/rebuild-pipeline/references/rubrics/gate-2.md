@@ -10,7 +10,7 @@ Read: `plan/slices.yaml`, `matrix/features.yaml`, and `findings/nfr/nfr-profile.
 
 **Asks:** can each slice actually be built when its turn comes?
 
-`validate.mjs` already rejects cycles and unknown ids. This dimension is about the
+`validate.py` already rejects cycles and unknown ids. This dimension is about the
 dependencies that are *real but undeclared*: a slice whose features need an entity, an auth
 mechanism or a background worker that a later slice introduces.
 

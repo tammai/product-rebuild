@@ -7,30 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### 1.0.0 (in progress, branch `v1`) — phase 1: native guards and lane agents
+### 1.0.0 (in progress, branch `v1`) — standalone, and Python
 
-Part of the standalone pipeline in `specs/Spec Standalone pipeline without bigin-skills.md`. This
-is not released on its own: 1.0.0 ships as a new plugin, `product-rebuild`, once all three phases
-are done. A workbench on 0.x stays on 0.x.
+Part of the standalone pipeline in `specs/Spec Standalone pipeline without bigin-skills.md`. Not
+released on its own: 1.0.0 ships as a new plugin, `product-rebuild`, once phase 3 is done. A workbench
+on 0.x stays on 0.x.
 
-- **The code-repo guards are this plugin's own hooks (E21).** Bash guard, spec gate, injection
-  scan and gate with canary, and commit gates, ported from the retired bigin harness
-  (MIT, Copyright (c) 2026 BigIn; see `NOTICE.md`). Each judges only a repo listed in a workbench's
-  `repos.yaml`, per git invocation for Bash. A crash is a block inside a pipeline session and a
-  pass outside one. `repo-hooks.mjs`, which forwarded a repo's own hooks, is deleted. The canary
-  now actually seeds: a plugin hook is the session's own, which the forwarder's `SessionStart`
-  could not be. Dropped on purpose: the context-budget gate, session resume, the precompact
-  snapshot, the vendored-contract guard, and the Cursor adapter.
-- **`lane-worker` and `lane-verifier` are this plugin's agents (E20).** The lane's standing rules
-  (plan, guards, `cd <worktree> &&`) moved out of every brief into the agent file. The verifier is
-  read-only and does not run the suite, so the once-per-slice test cadence is untouched.
-  `routing.mjs` lost `BIGIN_AGENTS` and the `external` field; effort is now pinned in the agent
-  file for all six roles, and the plugin name comes from `plugin.json`.
-- **`lane-plan.mjs archive <Sn> <lane>`.** The slice-end move of a finished `PLAN.md` was another
-  plugin's cleanup step. It now goes to `plan/lane-plans/archive/` in the workbench, and
-  `slice-review.mjs` reads it from there.
-- **`eval/lane-guards.mjs`** replaces `eval/repo-hooks.mjs`: 70+ checks on what the guards block,
-  what they ignore, and that none runs twice.
+**Python, not Node.** Every script, hook, guard and eval is now Python 3.9+, standard library only,
+so there is nothing to install. About 11,000 lines were ported; each file was checked against its
+original on the same inputs (14,000 guard payloads; 118 autopilot, 93 validate, 51 run-phases, 50
+parity and 34 slice-review scenarios; stdout, stderr, exit codes and written files compared). The
+`.mjs` files are deleted. What replaces the Node packages:
+- **`yamlio.py`** over a vendored, load-only PyYAML 6.0.3 (MIT, one patch, `PATCHES.md`), set to the
+  YAML 1.2 core schema the old parser used: `yes`/`no` and dates stay strings, duplicate keys are
+  errors. **`schemacheck.py`** replaces ajv and refuses any schema keyword it cannot enforce.
+- **`hooks/py.sh`**, adapted from the sdlc plugin, finds a working Python (skipping the Windows Store
+  stub) and fails closed. hooks.json runs every guard through it.
+- **No `package.json`, no `npm install`.** `npm run x -- args` is `python3 scripts/x.py args`; the
+  generated CI uses `actions/setup-python`. Script names are snake_case (`pause_check.py`).
+- Windows branches were ported with their comments but have **not been run**.
+
+**The code-repo guards are this plugin's own hooks (E21).** Bash guard, spec gate, injection scan and
+gate with canary, and commit gates, ported from the retired bigin harness (MIT, Copyright (c) 2026
+BigIn; see `NOTICE.md`). Each judges only a repo listed in a workbench's `repos.yaml`, per git
+invocation for Bash. A crash is a block inside a pipeline session and a pass outside one.
+`repo-hooks.mjs`, which forwarded a repo's own hooks, is gone. The canary now actually seeds: a plugin
+hook is the session's own, which the forwarder's `SessionStart` could not be. Dropped on purpose: the
+context-budget gate, session resume, the precompact snapshot, the vendored-contract guard, and the
+Cursor adapter.
+
+**`lane-worker` and `lane-verifier` are this plugin's agents (E20).** The lane's standing rules (plan,
+guards, `cd <worktree> &&`) moved out of every brief into the agent file. The verifier is read-only
+and does not run the suite, so the once-per-slice test cadence is untouched. `routing.py` lost
+`BIGIN_AGENTS`; effort is pinned in the agent file for all six roles, and the plugin name comes from
+`plugin.json`. **`lane_plan.py archive <Sn> <lane>`** replaces another plugin's slice-end cleanup:
+`PLAN.md` moves to `plan/lane-plans/archive/` and `slice_review.py` reads it from there.
+
+**`scaffold-repo` creates every code repo (E19).** A new skill and `scaffold.py` replace
+`bigin-harness-setup`. The locked playbook ships a **scaffold manifest** (`scaffold:` in its
+frontmatter, vendored at G4a as `adr/playbook.scaffold.json`), and **Gate 3 refuses to lock a
+playbook without a valid one**, so G5 never meets a stack it cannot create. The skill confirms what
+the ADRs decided, asks only what they leave open, shows a proposal for approval, runs the official
+generator, writes the five commands, path-scoped rules, git hooks (Conventional-Commit and
+pre-commit shims), CI and a thin `CLAUDE.md` pointer, and runs the five commands on day one. Both
+shipped playbooks have manifests, and all five stacks (Go, Fastify, Nuxt, Next.js, Flutter) were run
+through the real generators and passed. Removed: the `generic` fallback, every version gate, the G0
+install check and the marketplace instructions.
+- **Behaviour change.** The skeleton is the generator's output plus one passing smoke test, not a
+  feature kit. The old Go scaffold arrived with an auth kernel (signup, login, refresh rotation,
+  admin users); the new one has Gin and `/healthz`, so a lane builds auth. The Flutter skeleton adds
+  `custom_lint` and `riverpod_lint` but not `import_lint`, which is the playbook's §4.3 decision.
+- Nuxt and Next use npm: the pnpm the Nuxt template pins did not start under a stock corepack.
+
+**Two bugs the port found in the Node originals, fixed.** A numbered `## 5. Acceptance criteria`
+heading became the plan's first task row (and counted as a criterion with no `rule_id` in `validate`);
+and `lanes_check` dropped three characters from the first `git status` line, so that file's mtime was
+never counted.
+
+**Evals.** `lane_guards.py` (80 checks), `scaffold_repo.py` (offline, stub generators),
+`lane_plan.py`, `windows_and_upgrade.py`, `run_supervision.py`, `dates_and_reruns.py` and
+`rules_recall.py`, all Python and all passing. `lane_guards.py` replaces `repo-hooks`.
 
 ## [0.33.0] - 2026-10-06
 

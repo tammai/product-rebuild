@@ -22,7 +22,7 @@ Every dispatch is self-contained — subagents share no conversational context. 
    fetching outside `sources.yaml`, no restructuring locked artifacts, no invented
    evidence. Ambiguity resolves by flagging `confidence: low`, never by guessing.
 5. **Done means**: a checkable condition (validates against schema X; covers files Y).
-6. **Model + tier**: the `model` and `tier` `scripts/routing.mjs` resolved for this role, stated
+6. **Model + tier**: the `model` and `tier` `scripts/routing.py` resolved for this role, stated
    in the brief as well as passed on the Agent call. On the record it is checkable after the
    fact; passed only as a parameter it is not, and a dispatch that silently ran on the wrong
    rung looks exactly like one that ran on the right one.
@@ -52,7 +52,7 @@ a generated dump), cut it to the relevant range first and pass the path to that 
 
 ## The judge brief (`rubric-judge`, at every gate — Step 5.1b)
 
-Same five parts, with these values. It runs once per gate attempt, after `validate.mjs`
+Same five parts, with these values. It runs once per gate attempt, after `validate.py`
 passes and before the gate review is written.
 
 1. **Role file**: `${CLAUDE_PLUGIN_ROOT}/agents/rubric-judge.md`.
@@ -86,7 +86,7 @@ One thing to get right when you dispatch it: **do not paste the gate review into
 The judge scores the artifacts, and a judge that has read your summary of them will grade the
 summary.
 
-Its rung is no longer a judgement call in this file — `routing.mjs` maps it to the worker tier
+Its rung is no longer a judgement call in this file — `routing.py` maps it to the worker tier
 and the agent file pins `effort: high`, on the reasoning that scoring a whole artifact set is
 omission-hunting and omissions are what effort buys. What used to be written here as "route it
 to a high tier" is now the resolved value you pass.
@@ -101,8 +101,8 @@ run the slow suites runs all of them after every batch, which is the failure it 
 | When | Run | Don't run |
 |---|---|---|
 | While building | lint, type-check, unit and fixture tests for touched files; integration tests for touched packages; the ONE E2E for the criterion being worked on, if it is a UI-level one (`--grep` / `-run`) | the E2E set; the full backend suite |
-| The joint run, if this lane is named for it | `node scripts/lanes-check.mjs stamp` from the workbench root, then ONE run of the cumulative suite — all unit and integration/API suites, then the E2E set (latest smoke journey plus each slice's one UI-level E2E) — JUnit to `parity/<local-date>-ac.xml` | extra "clean" full runs |
-| After the joint run, for failures this lane owns | `node scripts/lanes-check.mjs stamp --rerun`, then ONLY the failed specs, JUnit to `parity/<local-date>-ac-rerun.xml` | another full run |
+| The joint run, if this lane is named for it | `python3 scripts/lanes_check.py stamp` from the workbench root, then ONE run of the cumulative suite — all unit and integration/API suites, then the E2E set (latest smoke journey plus each slice's one UI-level E2E) — JUnit to `parity/<local-date>-ac.xml` | extra "clean" full runs |
+| After the joint run, for failures this lane owns | `python3 scripts/lanes_check.py stamp --rerun`, then ONLY the failed specs, JUnit to `parity/<local-date>-ac-rerun.xml` | another full run |
 
 `<local-date>` is today on this machine's own calendar, not UTC. Redeploy only when an E2E test
 needs the new build, and say so before and after. Commit before stamping: a dirty tree makes every
@@ -117,7 +117,7 @@ pass on rerun report as unverified, because no commit names the code that ran.
   process started any other way ends without waking you.
 - A run with more than one phase (reset, stamp, backend suite, redeploy, frontend suite) is ONE
   background process: write the phases to `parity/runs/<local-date>-<label>/phases.txt`, then
-  start `node scripts/run-phases.mjs parity/runs/<local-date>-<label>` from the workbench root with
+  start `python3 scripts/run_phases.py parity/runs/<local-date>-<label>` from the workbench root with
   `run_in_background: true`. It runs the phases in order, writes `<phase>.log`, `<phase>.done` and
   `status.json`, and stops at the first failure, so you have one wake-up instead of one per phase.
   Settings the tests need go on `NAME=value` lines in `phases.txt`, never in an `export` inside one
@@ -157,7 +157,7 @@ drifts between them. The brief carries what is true of this dispatch, as written
 ownership, unique test database and role prefixes, and test pools capped and closed in cleanup —
 one harness once leaked 34 connections and exhausted Postgres for every lane. Only the lane merges
 to main. A helper's worktree needs its own plan, because the spec gate reads one per worktree. Before
-dispatching a helper, run from the workbench root `npm run lane-plan -- <Sn> <lane>-h<N> --worktree
+dispatching a helper, run from the workbench root `python3 scripts/lane_plan.py <Sn> <lane>-h<N> --worktree
 <helper worktree> --branch <helper branch> --specs <the specs it builds>`. Never copy your own
 `PLAN.md` into the helper's worktree: a copy carries the wrong `Branch:` and no record of its own.
 
@@ -166,7 +166,7 @@ validation, send it back with the validator error — do not hand-fix, the fix m
 run that could have produced it.
 
 **Dispatch** (part 6): a build lane runs as the `build-lane` role, on the agent *and* model
-`scripts/routing.mjs --role build-lane` resolves, passed as `subagent_type` and `model` on the
+`scripts/routing.py --role build-lane` resolves, passed as `subagent_type` and `model` on the
 Agent call. It is `lane-worker`, never `general-purpose`: the standing rules live in the agent
 file, and a hand-written stand-in prompt silently drops them. The lane-verifier round below
 assumes the lane carried them.
@@ -190,10 +190,10 @@ Then add the context budget (part 4, verbatim, as for every brief) and one line 
 context: "The spec section of PLAN.md is a module spec approved in a rebuild workbench. Its
 acceptance criteria are the task rows. A criterion with a `rule_id` must match that Rule Card's
 values, as quoted in the spec." Pass `subagent_type` and `model` exactly as
-`scripts/routing.mjs --role lane-verifier` resolves them.
+`scripts/routing.py --role lane-verifier` resolves them.
 
 Read the verdict, which is one JSON object (`{"verdict":"PASS"|"FAIL","issues":[...]}`), and
-record it with `lane-plan.mjs record-verify`. Relay a FAIL's issues to the lane verbatim, and
+record it with `lane_plan.py record-verify`. Relay a FAIL's issues to the lane verbatim, and
 nothing else of the verifier's.
 
 ## Which model each role runs on
@@ -203,13 +203,13 @@ merge/spec → mid; ADR drafting → high" — a rule with no mechanism behind i
 of affairs that was true of nothing: the four agent files carried no `model:`, so every dispatch
 inherited the orchestrator's own model regardless of what this paragraph said.
 
-`scripts/routing.mjs` is that mechanism. It maps each role to a tier once, resolves the tier
+`scripts/routing.py` is that mechanism. It maps each role to a tier once, resolves the tier
 through the project's `.claude/model-routing.json` ladder, and prints the `model` to pass. Run it
 once per session (SKILL.md step 4b has the command) and read the values off it — do not re-derive
 a tier from the shape of the task, and do not infer a role's rung from the old sentence above.
 
 The tiers it assigns, and the argument for each, are in the script's `ROLE_TIERS`. The shape of
 the mapping is worth knowing before you read it: **extraction is not the cheap tier here.**
-`validate.mjs` can tell that a finding is schema-valid but not that it is true, so a wrong
+`validate.py` can tell that a finding is schema-valid but not that it is true, so a wrong
 finding that parses ships — which puts the miner on the same footing as the judge, and both at
 full effort on a cheaper model rather than the reverse.

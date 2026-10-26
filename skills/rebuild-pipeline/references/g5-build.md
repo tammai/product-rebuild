@@ -7,87 +7,52 @@ Goal: maximum safe fan-out, one slice at a time. Lane COUNT is an output of Gate
 **The first time a code repo is created**, do all six of these — the repo is not set up
 until they are:
 
-0. **Create it with `bigin-skills`, never by hand.** `bigin-skills` is this pipeline's
-   baseline: it owns app scaffolding and the AI-governance harness, and this pipeline owns
-   none of it. From an **empty directory**, invoke the `bigin-skills:bigin-harness-setup`
-   skill. It is the single entry point — its Phase 0.5 delegates to the matching
-   `*-scaffold` skill's deterministic script, then overlays the governance harness
-   (`CLAUDE.md`, path-scoped `.claude/rules/`, commit-time guard hooks) on top. Do **not**
-   invoke `go-scaffold`/`nuxt-scaffold`/`nodejs-scaffold`/`next-scaffold` yourself, do not
-   scaffold conversationally, and do not hand-write a `CLAUDE.md` — all three produce a repo
-   that diverges from every other repo in the org, which is the whole reason the baseline
-   exists.
+0. **Create it with the `scaffold-repo` skill, never by hand.** From an **empty directory**, invoke
+   `scaffold-repo` (this plugin's skill; its procedure is in `skills/scaffold-repo/SKILL.md`). It reads
+   the scaffold manifest Gate 3 locked (`adr/playbook.scaffold.json`, or `adr/scaffold.json` for a
+   project with no playbook), takes the stack from the locked ADRs, asks only what they leave open
+   (an organisation name, a package name), shows you a proposal, and waits for your approval. Then it
+   runs the stack's own official generator, writes the five commands, path-scoped rules, git hooks,
+   CI and a thin `CLAUDE.md` pointer, and **runs the five commands on day one**: every one must exit 0
+   before the repo counts as created. Never scaffold conversationally and never hand-write the
+   project files a generator would have produced: a repo made by hand diverges from every other repo
+   the pipeline made, and its `lint` is the first thing to go missing.
 
-   Profile follows Gate 3's stack ADR, not a fresh decision: Go backend → `go`, Fastify
-   backend → `nodejs`, Nuxt frontend → `nuxt`, Next frontend → `next`. The harness skill
-   will ask if it can't detect one — answer from the locked ADR.
+   Profile follows Gate 3's stack ADR, not a fresh decision: `--choose api=go` is what the locked
+   ADR says, and a package with several options in the manifest (Go or Fastify, Nuxt or Next) is
+   answered from the ADR, never from what you would prefer.
 
-   **Read the profile off the locked playbook, never off the stack you see in the code.**
-   `adr/playbook.md`'s `scaffold-profile:` frontmatter names it, and that is a Gate 3 fact.
-   The Flutter client playbook resolves to profile `flutter`, which needs `bigin-skills`
-   >= 1.68.0 — its Phase 0.5 delegates to `flutter create`, and the harness then installs the
-   rules, **both** lint commands (`custom_lint` for `riverpod_lint`, `import_lint` for the
-   boundaries — they are separate tools), CI, and the pre-commit gate. Check the installed
-   version before assuming the profile exists.
+   **A stack the playbook cannot scaffold never reaches G5.** Gate 3 refuses to lock a playbook that
+   declares no manifest, so the situation "an empty directory plus a stack nothing can create" cannot
+   arise here. A project that chose no playbook (`architecture.playbook: none`) writes its own
+   `adr/scaffold.json` alongside its stack ADR, in the same format and held to the same check.
 
-   **The fallback, for a playbook whose stack the installed `bigin-skills` has no profile
-   for.** This is the one documented exception to "never scaffold outside
-   `bigin-harness-setup`", and it is keyed to that absence, not to convenience:
-   - The empty-repo question offers only the profiles that plugin version ships, with no
-     "none of these" answer, and its stack-neutral `generic` profile is reachable **only**
-     from a directory that already contains code. So an empty directory plus an unsupported
-     stack is an unsatisfiable pair of rules; pretending otherwise means either stalling or
-     picking a profile that writes conventions for a stack that is not there.
-   - Correct order in that case: **run the stack's own official scaffolder first** (with the
-     package name and org from the locked ADR), commit it, *then* invoke
-     `bigin-harness-setup` over the now-non-empty repo. It detects no marker, lands on
-     `generic`, and installs `CLAUDE.md`, the path-scoped rules, and the commit-time guard
-     hooks. Then add the workbench submodule.
-   - **Know what `generic` skips, and close the gaps yourself from the playbook**: no
-     scaffold phase, no stack conventions or testing rule, no `.vscode` settings, **no CI
-     workflow at all**, and any lint/typecheck/test command it could not detect stays a
-     visible `TODO`. The CI file is then yours to write, from the playbook's own CI section.
-     Do it in the first slice; a repo whose harness installed a `TODO` where the test command
-     goes has a commit hook that runs nothing.
-   - This is **not** licence to hand-roll a repo for a stack that *does* have a profile. If
-     the profile exists, use it; if the playbook names one the plugin does not have, say so
-     out loud before falling back, because the gap is usually a plugin version, not a
-     permanent fact.
-   - Everything else in this checklist still applies unchanged either way: register in
-     `repos.yaml`, remote with posture-matching visibility, confirm `pause-check` sees it,
-     decide what the remote is for.
+   **What the scaffold is, and is not.** It is a skeleton: the generator's output, strict typing, a
+   test runner, a linter, and one passing smoke test per package, pinned so CI matches local. It is
+   not a feature kit. It has no auth, no database, no Docker and no module layout beyond what the
+   playbook's own manifest seeds; the first slice's lane builds the first real module under a spec
+   you approved. (Before 1.0.0 the scaffold arrived with a working auth kernel, and recording it as
+   delivered-by-scaffold was a bookkeeping step. There is nothing to record now.)
+
+   Everything else in this checklist applies as written: register in `repos.yaml`, remote with
+   posture-matching visibility, confirm `pause-check` sees it, decide what the remote is for.
 
    Three things about the order, each of which breaks the run if got wrong:
-   - **Scaffold into the directory while it is still empty, then add the workbench
-     submodule.** Every `*-scaffold` script refuses a non-empty target directory. A repo
-     that already contains the pinned workbench submodule still has no `go.mod`, so
-     `bigin-harness-setup` fires Phase 0.5 anyway and the script it delegates to fails on a
-     directory it considers dirty. Submodule after, always.
-   - **The scaffold makes its own initial commit** (`git init` + commit is part of its
-     verify pass). So step 2's `gh repo create --source . --push` runs *after* it, against
-     a repo that already has history — not before.
-   - **The scaffold's `openapi.yaml` is a starter file, not the contract.** `go-scaffold`
-     ships a spec for its own auth kernel. Gate 4 locked the real one in the workbench's
-     `contracts/`. Replacing it is the first commit after scaffolding, before any codegen
-     is trusted — otherwise commit 1 already violates this phase's own guardrail ("no code
-     against interfaces absent from locked contracts"), and every generated type descends
-     from a spec no gate ever saw.
-
-   **What the scaffold hands you for free, and why that is a bookkeeping problem.** A
-   scaffolded backend arrives with a working auth kernel — signup, login, refresh-token
-   rotation, logout, profile, admin user management — plus rate limiting, CORS and health
-   probes. That is real feature-matrix surface delivered before the slice that planned it.
-   Record it in `plan/progress.yaml` as delivered-by-scaffold the moment the repo exists.
-   Unrecorded, it is indistinguishable from scope creep to G6's parity check, and the first
-   parity report of the project opens with a false positive.
+   - **Scaffold into the directory while it is still empty, then add the workbench submodule.**
+     Official generators (`go mod init` aside) refuse or prompt on a non-empty directory, and a
+     submodule is a non-empty directory. Submodule after, always.
+   - **The scaffold makes its own commits** (`chore(scaffold): <step>`), so step 2's
+     `gh repo create --source . --push` runs *after* it, against a repo that already has history.
+   - **The repo is unguarded until step 1 registers it.** The plugin's guards judge only repos listed
+     in the workbench's `repos.yaml`, so register it before any lane works there.
 
 1. **Register it** in the workbench's `repos.yaml` (`name` + `path` relative to the
-   workbench root). `scripts/pause-check.mjs` reads this list; an unregistered repo is
+   workbench root). `scripts/pause_check.py` reads this list; an unregistered repo is
    invisible to it and never checked before a session pauses.
 2. **Give it a remote**, visibility per `license-posture.md` — private unless the posture is
    `permissive-reference`:
    `gh repo create <repo-name> --private --source . --push`
-3. **Confirm it is actually covered**: run `npm run pause-check` from the workbench and check
+3. **Confirm it is actually covered**: run `python3 scripts/pause_check.py` from the workbench and check
    the new repo appears by name in the report. Registering is not the same as being checked —
    a one-character typo in `path:` (or a path relative to the wrong directory) shows up as
    `registered in repos.yaml but this path does not exist … — nothing about this repo was
@@ -127,7 +92,7 @@ then resolves against the code repo's own remote, so a fresh
    git add .rebuild-workbench && git commit -m "chore: point at the rebuild workbench"
    ```
 
-   This is how `runbook-guard.mjs` finds the workbench, and it cannot use the submodule for
+   This is how `runbook_guard.py` finds the workbench, and it cannot use the submodule for
    it: the submodule is checked out at a **gate tag**, so its `plan/progress.yaml` is frozen
    at Gate 4 and can never know which slice is in progress — slices happen after that tag.
    The marker is the live pointer; the submodule is the pinned contract. Both, for different
@@ -166,7 +131,7 @@ then resolves against the code repo's own remote, so a fresh
 
 0a. **Record this slice's equivalence traces against the legacy system — before the backend
    lane starts.** Applies when `reference.kind: own-code` and the E4 preflight says the
-   reference runs; every other project skips it and `parity.mjs` says the lane does not apply.
+   reference runs; every other project skips it and `parity.py` says the lane does not apply.
    This is step 0's `fullstack` branch: where a `client-only` mobile rebuild records Maestro
    flows against the old app, a rebuild that owns a backend records what the old **system**
    returned.
@@ -174,7 +139,7 @@ then resolves against the code repo's own remote, so a fresh
    For each feature in this slice, author the requests out of its UX flows and Rule Cards, then:
 
    ```sh
-   npm run equiv -- record <feature-id>   # writes parity/equiv/<feature-id>/*.trace.yaml
+   python3 scripts/equiv.py record <feature-id>   # writes parity/equiv/<feature-id>/*.trace.yaml
    git add parity/equiv && git commit -m "equiv: record traces for <feature-id>"
    ```
 
@@ -195,14 +160,14 @@ then resolves against the code repo's own remote, so a fresh
 
    **A hook enforces this**, because an instruction the orchestrator applies to itself
    mid-slice is a budget and a hook is a limit — the same argument that made `gate-guard` a
-   hook. `runbook-guard.mjs` blocks any write into a code repo while `plan/progress.yaml`
+   hook. `runbook_guard.py` blocks any write into a code repo while `plan/progress.yaml`
    shows a slice other than S1 `in-progress` and the runbook is absent. It finds the live
    workbench through the `.rebuild-workbench` marker at the repo root (step 5 of the repo
    checklist), and fails open when the marker is missing — so a repo created before this
    shipped is unguarded rather than broken.
 
 1. **Specs + AC** — dispatch `spec-writer` per module in the slice, briefed per
-   `subagent-briefs.md` — including part 6, the model `scripts/routing.mjs` resolved for this
+   `subagent-briefs.md` — including part 6, the model `scripts/routing.py` resolved for this
    role, which is the worker tier (set `models.spec-writer` to `opus` in `.claude/model-routing.json` for a from-scratch module spanning many contracts). Spec inputs: the
    module's matrix features + flows + ground truth + contracts, **plus
    `findings/rules/<domain>.yaml` for every domain the slice touches** — a fixed input, not
@@ -215,15 +180,15 @@ then resolves against the code repo's own remote, so a fresh
    **Every acceptance criterion that implements a Rule Card carries `rule_id:`.** This is
    the join that makes lane R worth mining: without it the cards are a document nobody reads
    at the moment they are needed, which is precisely the state G1 mined them out of. It buys
-   three things that did not exist before — `validate.mjs` reports the share of criteria in
-   rule-bearing domains that cite no rule, `acsuite.mjs` and `parity.mjs` can say "12 of 14
+   three things that did not exist before — `validate.py` reports the share of criteria in
+   rule-bearing domains that cite no rule, `acsuite.py` and `parity.py` can say "12 of 14
    rules in `billing` are green" rather than only counting features, and a criterion that
    drifts from the reference has a locked, cited card to be wrong against.
 
    **An `invariant` card is cited from every module that writes its entities.** A module spec
    that writes any entity in an invariant's `entities[]` carries a criterion that performs the
    write and then asserts the property. One invariant is therefore cited from several slices,
-   and that is the point: each new writer is a new way to break it. `validate.mjs` lists the
+   and that is the point: each new writer is a new way to break it. `validate.py` lists the
    invariants no criterion cites yet. That is advisory, because before the first slice that
    writes the entity it is expected.
 
@@ -246,7 +211,7 @@ then resolves against the code repo's own remote, so a fresh
    whole slice was built and pushed, for two independent reasons, one of which was a Gate 4
    reopen. Both were answerable in a minute at spec time.
 1b. **Lane plans — after spec approval, before any lane writes feature code.** The plugin's spec
-   gate (`hooks/scripts/spec-gate-guard.mjs`) allows no edit over ~20 lines in a code repo until
+   gate (`hooks/scripts/spec_gate_guard.py`) allows no edit over ~20 lines in a code repo until
    `PLAN.md` at the worktree root says `Status: approved`. It is a plugin hook, so it runs for
    every pipeline tool call whatever directory the session started in (see "The guards run for
    lanes" under Guardrails), and a lane with no plan is blocked on its first real edit. Your approval of the slice's specs is the approval the gate
@@ -257,7 +222,7 @@ then resolves against the code repo's own remote, so a fresh
      The gate reads `PLAN.md` per worktree, so two lanes sharing a checkout would share a plan.
      On S1 the repo does not exist yet: run the repo checklist (step 0) first, then cut the
      worktrees.
-   - **Write each lane's plan** with `npm run lane-plan -- <Sn> <lane> --worktree <path> --specs
+   - **Write each lane's plan** with `python3 scripts/lane_plan.py <Sn> <lane> --worktree <path> --specs
      <the specs this lane builds>`. It writes the `PLAN.md` the spec gate reads: `Status:
      approved`, the lane's `Branch:`, an `Approved:` line (spec paths, workbench commit,
      approver), the specs verbatim, and one task row per acceptance criterion. It refuses specs
@@ -265,25 +230,25 @@ then resolves against the code repo's own remote, so a fresh
      unfinished rows. It records each plan in `plan/lane-plans/<Sn>.yaml`.
    - **Never let a lane write or approve its own plan.** `*.md` is exempt from the gate, so
      nothing mechanical stops it. That is why the plan comes from this script at the approval
-     moment, and why `slice-review.mjs` re-hashes each plan's `## Spec` against what was
+     moment, and why `slice_review.py` re-hashes each plan's `## Spec` against what was
      recorded and names any lane whose approved spec changed underneath it.
    - **When a lane finds the spec wrong**, it sets `Status: amending`, which blocks its own
      non-trivial edits, and reports. That is the only `Status:` edit a lane may make, because it
      can only remove permission. Take it to the user. Once the corrected spec is approved and
-     committed, run `npm run lane-plan -- <Sn> <lane> --worktree <path> --specs <...> --amend
+     committed, run `python3 scripts/lane_plan.py <Sn> <lane> --worktree <path> --specs <...> --amend
      --reason "..."`. A row keeps its status only if its criterion text is unchanged, and the
      reason is logged under `## Amendments`.
-   - **At slice end**, once every row is `Done` and the slice is deployed, run `npm run lane-plan
+   - **At slice end**, once every row is `Done` and the slice is deployed, run `python3 scripts/lane_plan.py
      -- archive <Sn> <lane>` for each lane. It moves `PLAN.md` to `plan/lane-plans/archive/` in the
      workbench, so the code repo's tree carries no plan after the slice (a plan left behind keeps
      its `Status: approved`, which the gate would honour for the next lane cut from that tree). It
      refuses a plan with unfinished rows, and it records an edited `## Spec` for the slice review
      to name.
 2. **Backend** — one lane per bounded context touched (module or service per Gate 3).
-   On the first slice this is where the repo checklist above runs (`bigin-harness-setup`,
-   then the locked contract replacing the scaffold's starter spec); on every slice after,
-   the repo already exists and this step starts at codegen from `contracts/`.
-3. **Frontend** — same: first slice creates the repo through `bigin-harness-setup` (`nuxt`
+   On the first slice this is where the repo checklist above runs (`scaffold-repo`), and the lane
+   starts from the generated skeleton and the locked contracts; on every slice after, the repo
+   already exists and this step starts at codegen from `contracts/`.
+3. **Frontend** — same: first slice creates the repo through `scaffold-repo` (`nuxt`
    or `next` per Gate 3), thereafter build against the generated typed client. May split
    per feature area.
 
@@ -319,13 +284,13 @@ then resolves against the code repo's own remote, so a fresh
    would not carry `lane-worker`'s standing rules.
 
    - **Dispatch every build lane as the `build-lane` role** (lanes 2–4 above), with the agent
-     and model `scripts/routing.mjs --role build-lane` resolves (`lane-worker`). Pass both
+     and model `scripts/routing.py --role build-lane` resolves (`lane-worker`). Pass both
      on the Agent call, together with the build-lane brief and its worktree.
    - **When a lane reports its rows `Done`**, dispatch a fresh `lane-verifier` (the agent and
      model routing resolves, `lane-verifier`) with the verifier brief in
      `subagent-briefs.md`. Pass it the worktree's `PLAN.md`, the lane's diff since it branched,
      and the lane's own test run, and nothing the lane said about its work. Record the round:
-     `npm run lane-plan -- record-verify <Sn> <lane> --verdict PASS|FAIL --round <n> --issues <count>`.
+     `python3 scripts/lane_plan.py record-verify <Sn> <lane> --verdict PASS|FAIL --round <n> --issues <count>`.
    - **On `FAIL`**, resume the *same* lane (SendMessage to its agent ID) with the issues list
      verbatim, so it fixes only what was flagged. Then dispatch a **new** verifier against the
      new diff, never a resumed one. Every verifier dispatch is a round, and the cap is 3.
@@ -338,7 +303,7 @@ then resolves against the code repo's own remote, so a fresh
 
    A code review is not run per lane. Whether to review is the user's call at the slice
    boundary, with the whole slice's diff in front of them. You only dispatch and read one JSON verdict per round, so the loop costs your context a
-   few lines per lane, not the diffs. `slice-review.mjs` names any lane with no recorded `PASS`.
+   few lines per lane, not the diffs. `slice_review.py` names any lane with no recorded `PASS`.
 5. **The joint run — once, at the end of the build.** One lane, named when the slice starts,
    runs the cumulative suite: every unit and integration/API suite in every repo, then the
    E2E set against the deployment — the latest checkpoint's smoke journey plus each slice's
@@ -347,13 +312,13 @@ then resolves against the code repo's own remote, so a fresh
    lower-level suites carry its criteria. Immediately before it starts:
 
    ```sh
-   node scripts/lanes-check.mjs stamp          # from the workbench root
+   python3 scripts/lanes_check.py stamp          # from the workbench root
    ```
 
    JUnit goes straight to `parity/<local-date>-ac.xml`, where `<local-date>` is today on the
-   machine's own calendar — the date `parity.mjs` and `slice-review.mjs` look it up by.
+   machine's own calendar — the date `parity.py` and `slice_review.py` look it up by.
 
-   - **Brief the joint-run lane to drive the run with `scripts/run-phases.mjs`**: the clean
+   - **Brief the joint-run lane to drive the run with `scripts/run_phases.py`**: the clean
      reset, the stamp, each suite, each redeploy, as phases of ONE `run_in_background` process
      (the build-lane brief's "Long runs" part has the layout). One joint-run lane stalled three
      times in a slice, 13 to 18 minutes each, because it ran each suite under `nohup` and
@@ -363,11 +328,11 @@ then resolves against the code repo's own remote, so a fresh
    - **Green means no failures, no errors, no more than 10% skipped, and no skip for an unset
      environment variable.** One joint run reported 0 failures with 670 of 1209 tests skipped,
      because the integration database settings never reached the test processes. The lane
-     reports skips by reason, and `parity.mjs` and `slice-review.mjs` mark a run outside these
+     reports skips by reason, and `parity.py` and `slice_review.py` mark a run outside these
      bounds NOT GREEN. A criterion skipped for an unset variable did not pass; fix the
      environment and run again rather than rerunning the skipped specs one by one.
 6. **Rerun only the failures.** The lane that owns each failure re-runs exactly the failed
-   specs — not another full run — after `node scripts/lanes-check.mjs stamp --rerun`, with JUnit
+   specs — not another full run — after `python3 scripts/lanes_check.py stamp --rerun`, with JUnit
    to `parity/<local-date>-ac-rerun.xml`. Both reports count the pair the same way and label
    every pass on rerun as flaky, code-changed or unverified (`g6-parity.md` says what each one
    means). A criterion still not green is PENDING with a reason; a slice does not close on an
@@ -439,11 +404,10 @@ relaxed to compensate.
 ## Guardrails you enforce as orchestrator
 - No code against interfaces absent from locked contracts (hook also blocks workbench
   edits — if an agent needs a contract change, that is a Gate 4 conversation).
-- **The baseline is not optional and not partially adoptable.** Every code repo is created
-  by `bigin-skills:bigin-harness-setup` and keeps what it installed. Deleting its guard
-  hooks, rewriting its `CLAUDE.md` wholesale, or swapping the scaffolded stack for a
-  hand-rolled one is a Gate 3 conversation (it contradicts the locked stack ADR), not a
-  lane-level decision.
+- **The scaffold is not optional and not partially adoptable.** Every code repo is created by
+  `scaffold-repo` and keeps what it installed. Deleting its git hooks or CI, rewriting its
+  `CLAUDE.md` pointer into a rules brief, or swapping the scaffolded stack for a hand-rolled one is
+  a Gate 3 conversation (it contradicts the locked stack ADR), not a lane-level decision.
 - **The guards run for lanes, from the plugin.** Claude Code loads a repo's
   `.claude/settings.json` hooks only when the session started in that repo, and rebuild sessions
   start in the project's parent directory. So the guards are this plugin's own hooks, which load
@@ -457,19 +421,19 @@ relaxed to compensate.
   directory it names, which is why the build-lane brief has lanes start commands with
   `cd <worktree> &&`: a command that names none is not judged at all.
 - CI per lane: lint, tests, security scan, license scan, AC-coverage (every AC has a test).
-  The scaffold already wrote `.github/workflows/ci.yml` with lint/test/build — this
-  pipeline's extra jobs (license scan, AC-coverage) are **added to that file**, not a
-  second workflow written alongside it.
+  The scaffold already wrote `.github/workflows/rebuild-verify.yml`, one job per package running
+  the recorded commands — this pipeline's extra jobs (license scan, AC-coverage) are **added to
+  that file**, not a second workflow written alongside it.
 - Cross-lane shared changes go through one serialized review path.
 - **You run no tests.** Not a suite, not "just to confirm" after a lane reports. Evidence is the
   JUnit the lane wrote and the report it sent; a failure worth investigating goes to that lane
   or to a fork. See "Test cadence within a slice".
 - **Watch the long runs, because nothing else will.** While any build lane has a run longer than
   a few minutes open, schedule a recurring 10-minute check (CronCreate, session-scoped) that runs
-  `node scripts/lanes-check.mjs` from the workbench root; while the joint run is open, every 5
+  `python3 scripts/lanes_check.py` from the workbench root; while the joint run is open, every 5
   minutes, because its phases hand off to each other and each hand-off is a chance to stall. It
   prints, per repo and worktree, the last commit, the dirty count and the live test processes,
-  each `run-phases.mjs` run's phase and driver state, and the newest results file. It exits 2
+  each `run_phases.py` run's phase and driver state, and the newest results file. It exits 2
   when a driver died mid-phase, or when no test process or driver is alive and nothing has
   changed for more than 10 minutes, and then names the newest file anywhere and its age. On
   exit 2, if a lane still has work, send it that evidence verbatim (file, age, status, counts)
@@ -478,7 +442,7 @@ relaxed to compensate.
   Monitor, which expires after at most 30 minutes, then sitting idle "waiting for the
   notification" — 2½ hours once, and several shorter gaps, noticed only when the user asked.
   The same check names any code repo whose `.rebuild-workbench` marker is missing or points
-  elsewhere while a slice is in progress (`pause-check.mjs` does too): `runbook-guard.mjs` fails
+  elsewhere while a slice is in progress (`pause_check.py` does too): `runbook_guard.py` fails
   open without it, so a repo created before the marker step existed had the guard off silently.
 - **"Deployed" for a client app means a build a real person can install** — an internal
   TestFlight or Play internal-track release, on a device that is not the build machine, with
@@ -529,12 +493,12 @@ Four steps, in order, then return here for the next slice:
    output about the reference, and the two vocabularies share the words `covered`, `partial`
    and `missing` so nothing looks wrong.
 2. **Run G6 parity** — `g6-parity.md`.
-3. **Run the slice review** — `npm run slice-review -- <Sn>`. Generated from what is on disk,
+3. **Run the slice review** — `python3 scripts/slice_review.py <Sn>`. Generated from what is on disk,
    never composed: does the whole product still run (cumulative AC suite, and what regressed
    since the last run), what shipped, where that puts us in the order, what is pressing on the
    plan. **Advisory** — it locks nothing and blocks nothing. Present it, and say what you think.
 4. **Act on the plan now, or not at all until the next boundary.** Slice *order* is
-   `npm run sequence -- reorder <Sn> --before <Sm> --reason "..."` — logged, cheap, and refused
+   `python3 scripts/sequence.py reorder <Sn> --before <Sm> --reason "..."` — logged, cheap, and refused
    once the next slice starts. What is IN a slice is still a gate-2 reopen.
 5. **Write the build runbook (S1 only), or amend it (every boundary after).**
 
@@ -551,14 +515,14 @@ Sections are fixed, so a later reader knows where to look and a later writer kno
 # Build runbook — <project>
 
 Written at the S1 boundary from what the S1 lanes reported. Required reading for every
-backend, frontend and infra lane from S2 on (`runbook-guard.mjs` enforces it). Append
+backend, frontend and infra lane from S2 on (`runbook_guard.py` enforces it). Append
 amendments; never rewrite.
 
 ## Codegen from contracts/
 How it was invoked, verbatim. What it got wrong, and what was done about it.
 
 ## Harness quirks
-What `bigin-harness-setup` produced that needed adjusting, and why. Anything its CI wrote
+What the scaffold produced that needed adjusting, and why. Anything its CI wrote
 that does not work for this project's shape.
 
 ## Reference behaviors the spec did not say
@@ -596,7 +560,7 @@ Verbatim, copy-pasteable, with the directory they run in.
 **After every later slice: append `## Amendment after S<n>`, dated. Never rewrite.** The
 runbook is a record of what was learned and when; rewriting it destroys the sequence, and the
 sequence is what tells a reader whether a claim predates the thing they are debugging.
-`slice-review.mjs`'s fifth question puts the diff since the previous boundary in front of you at
+`slice_review.py`'s fifth question puts the diff since the previous boundary in front of you at
 exactly the moment to answer it, and records what you did in `plan/progress.yaml`'s
 `runbook_amended:` — a boundary that wrote nothing is visible, which is the point.
 
@@ -614,7 +578,7 @@ test name. Both files are already on disk; nothing new has to be run to get it.
 
 **A finding that arrives mid-slice does not wait in someone's head.** Write it to
 `plan/progress.yaml` `notes:` on the slice you are *in* — "S6 has no dependents, could come
-before S4". `parity.mjs` already carries notes into its report and the slice review surfaces
+before S4". `parity.py` already carries notes into its report and the slice review surfaces
 them beside the reorder candidates, so an observation recorded at the moment it is real gets
-acted on at the moment it is safe. That is also why `sequence.mjs` refuses to reorder while a
+acted on at the moment it is safe. That is also why `sequence.py` refuses to reorder while a
 slice is in progress: the finding is welcome, the mid-flight reshuffle is not.

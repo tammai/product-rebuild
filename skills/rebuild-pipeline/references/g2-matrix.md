@@ -21,4 +21,4 @@ Output: `matrix/features.yaml` per `schemas/feature.schema.json`.
 - What locks: domain structure and canonical names. Agents may still ADD findings into
   the taxonomy afterward, never restructure it.
 
-Lock only on explicit approval: `gate.mjs lock gate-1`.
+Lock only on explicit approval: `gate.py lock gate-1`.

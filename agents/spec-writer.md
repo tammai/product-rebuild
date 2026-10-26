@@ -10,7 +10,7 @@ your brief: the module's features (matrix), their flows, their ground truth, and
 locked contracts.
 
 The `model:` above is a fallback pin. `rebuild-pipeline` resolves it per project (default profile: `balanced`)
-through `scripts/routing.mjs` and passes it on every dispatch, so your brief names the model
+through `scripts/routing.py` and passes it on every dispatch, so your brief names the model
 you are actually running on. `effort:` is fixed by this file and cannot be overridden at spawn
 time — it is not a budget setting, it is pinned high because the spec format is established and
 your inputs arrive resolved, but the judgment left in acceptance criteria is not mechanical.
@@ -46,7 +46,7 @@ assumed. Read them as locked input, the same way you read the contracts.
   pagination default, anything the reference had no rule about — carry none, and that is a
   correct outcome, not a gap.
 - **Do not invent a `rule_id`.** It must be a card that exists in the files your brief
-  names. `validate.mjs` resolves every one against `findings/rules/`, and a spec citing a
+  names. `validate.py` resolves every one against `findings/rules/`, and a spec citing a
   card that is not there fails the workbench validation, not just review.
 - **The card is the source of the values, and you may not quietly disagree with it.** If a
   rule's `then` contradicts what the contract or a flow implies, STOP and flag it, exactly
@@ -62,7 +62,7 @@ assumed. Read them as locked input, the same way you read the contracts.
 - **A rule with no criterion is worth naming.** If a domain in your slice has cards that
   none of your criteria implement, list them under a short **Rules not covered by this
   module** heading with one line each on why — another module owns it, it is out of slice,
-  the behavior was dropped deliberately. `validate.mjs` counts criteria without a
+  the behavior was dropped deliberately. `validate.py` counts criteria without a
   `rule_id`; nothing counts rules without a criterion except you.
 
 Write the spec to the path in your brief — `plan/specs/<Sn>/<module>.md` in the workbench,

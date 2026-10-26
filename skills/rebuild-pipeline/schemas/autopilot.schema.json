@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "autopilot.schema.json",
   "title": "Autopilot run state (mutable, ungated — breadcrumbs, not the source of truth)",
-  "description": "Written by scripts/autopilot.mjs. The authoritative phase always comes from `node scripts/gate.mjs status`; engaged_phase and paused.next_action are hints for a human reading the file, and must never be acted on in place of state detection.",
+  "description": "Written by scripts/autopilot.py. The authoritative phase always comes from `python3 scripts/gate.py status`; engaged_phase and paused.next_action are hints for a human reading the file, and must never be acted on in place of state detection.",
   "type": "object",
   "additionalProperties": false,
   "required": ["status", "threshold_pct"],
@@ -13,7 +13,7 @@
     },
     "engaged_at": { "type": "string", "format": "date-time" },
     "engaged_phase": {
-      "description": "Phase reported by gate.mjs at engage time. A record of what was true then, not a claim about now.",
+      "description": "Phase reported by gate.py at engage time. A record of what was true then, not a claim about now.",
       "type": "string"
     },
     "threshold_pct": {

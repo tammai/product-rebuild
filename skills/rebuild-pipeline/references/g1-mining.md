@@ -39,11 +39,11 @@ no evidence, no entry.
   **The failure side is a target, not an accident.** Error handlers, retries, rollbacks and
   fallback defaults carry rules that a rebuild drops without any test failing. The brief
   sends the miner to them on purpose, and `path_kind: error | default` marks the cards it
-  finds there. `validate.mjs` prints the split per domain, so a zero is visible at the gate.
+  finds there. `validate.py` prints the split per domain, so a zero is visible at the gate.
   An invariant the database already enforces is lane D's, not a card (`agents/miner.md`).
 
   **State machines are checked as a whole.** Every `state-transition` card carries a
-  `transition` (`entity`, `field`, `from`, `to`), and `validate.mjs` assembles each entity's
+  `transition` (`entity`, `field`, `from`, `to`), and `validate.py` assembles each entity's
   machine and reports unreachable states, dead ends and a missing creation edge. This is
   advisory and goes to the Gate 1 judge. The one failure is a `transition.entity` that is
   not in the card's own `entities[]`.
@@ -59,7 +59,7 @@ no evidence, no entry.
 
   **It runs after D because it depends on D's output.** A card cites entities, and until
   lane D has transcribed `reference-erd.mermaid` there is nothing to cite against — a lane-R
-  miner dispatched in the same batch would be inventing entity names and `validate.mjs`
+  miner dispatched in the same batch would be inventing entity names and `validate.py`
   would reject every file. Dispatch D, let it finish, then dispatch R with lane D's findings
   and the ERD named in the brief as fixed inputs.
 
@@ -101,7 +101,7 @@ The ERD convention is the same vocabulary. `%% inferred` on a reference ERD mean
 `basis: inferred` means on a finding — keep the words aligned rather than inventing a second
 scale for diagrams.
 
-**What reads it.** `validate.mjs` counts entries with no `basis` per file; `parity.mjs` names
+**What reads it.** `validate.py` counts entries with no `basis` per file; `parity.py` names
 features whose evidence is *entirely* inferred as the weakest parity claims in the report; and
 `g4b-contracts.md` flags an external-contract entry backed only by inferred evidence at the
 Gate 4 review, because that is a contract being frozen on a guess.
@@ -212,7 +212,7 @@ there is nothing to graph.
   under `findings/<lane>/` (lane R writes `findings/rules/<domain>.yaml`). State the lane's default `basis` in the brief — a miner given the
   default writes it deliberately, and a miner given nothing writes whatever the last example
   it saw used.
-- After each batch: run `validate.mjs`; reject schema violations back to the lane, do not
+- After each batch: run `validate.py`; reject schema violations back to the lane, do not
   hand-fix silently.
 - Findings are content-hashed by the validator; re-runs are idempotent.
 

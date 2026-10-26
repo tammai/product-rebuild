@@ -2,7 +2,7 @@
 playbook: mobile-flutter
 stack: "Flutter (Dart) client against an existing HTTP API (alternate state layer: BLoC)"
 target-shape: client-only
-scaffold-profile: "flutter, via bigin-skills:bigin-harness-setup (requires bigin-skills >= 1.68.0)"
+scaffold: mobile-flutter/scaffold.json
 not-applicable-when:
   - "the target is a single-screen utility or a marketing shell — the layering below costs more than it returns"
   - "the product is offline-first collaborative (CRDTs, multi-writer merge) — that needs a local-first playbook, not this one"
@@ -47,14 +47,16 @@ decide-before:
 > and the section bodies together or not at all.
 >
 > **Repo creation is the normal path, and §3 still owes the native half.**
-> `bigin-skills` >= 1.68.0 ships a working `flutter` profile, so G5 creates the repo the same way it
-> creates every other one: `bigin-harness-setup` from an empty directory, whose Phase 0.5
-> delegates to `flutter create` and which then installs the harness, both lint commands, CI,
-> and the pre-commit gate. Earlier versions of `bigin-skills` have no such profile — on those,
-> G5 falls back to the stack's own scaffolder plus the stack-neutral `generic` harness, and the
-> CI and conventions this playbook describes must be written by hand (`g5-build.md` step 0).
-> Either way §3 and §26 keep the **native** setup detail — Xcode schemes, Android
-> `productFlavors`, per-flavor Firebase files — because no scaffold generates that.
+> G5 creates the repo with the `scaffold-repo` skill from this playbook's manifest
+> (`mobile-flutter/scaffold.json`): `flutter create` with the org's bundle id and package name,
+> `flutter_riverpod`, `custom_lint` with `riverpod_lint`, the analyzer `exclude:` block §3 asks for, a
+> `ProviderScope` root with one passing widget test, a pre-commit hook and CI, and it runs
+> `dart format --output=none --set-exit-if-changed .`, `flutter analyze --fatal-infos`,
+> `dart run custom_lint` and `flutter test` before the repo counts as created. It deliberately
+> does **not** install `import_lint`: whether to run the import boundaries as a second plugin
+> mechanism is §4.3's decision, taken in an ADR, not an assumption made by a scaffold. Either way
+> §3 and §26 keep the **native** setup detail — Xcode schemes, Android `productFlavors`,
+> per-flavor Firebase files — because no scaffold generates that.
 >
 > **Every "the lint catches this" claim below has been checked against the actual rule
 > sets.** Where no tool enforces a rule, it says so and names what would have to be written.
@@ -185,7 +187,7 @@ scaffold to delegate them to:**
   native half explicitly; it is a day of work per platform and it is where a flavor setup
   silently half-exists.
 
-**CI** (added to whatever `bigin-harness-setup` wrote, one file, not a second workflow):
+**CI** (added to the workflow the scaffold wrote, `.github/workflows/rebuild-verify.yml`, one file, not a second workflow):
 
 ```sh
 dart format --output=none --set-exit-if-changed .   # --output=none or it REWRITES the tree
@@ -947,13 +949,11 @@ depth requirement.
 
 1. **Establish the platform floor first** (§19). It is a number about real users and it can
    invalidate the whole plan; everything below assumes it came out acceptable.
-2. `bigin-harness-setup` from an empty directory, profile `flutter` — its Phase 0.5 runs
-   `flutter create` with the org's package name and it then installs the harness, both lint
-   commands and CI (`g5-build.md` step 0). On `bigin-skills` older than 1.68.0 the profile is
-   absent or day-one-broken, so scaffold with `flutter create` yourself, run the harness over
-   it in `generic` mode, and write the CI from §3 by hand. Older than 1.66.0 there is no
-   flutter profile: scaffold with `flutter create` yourself, run the harness over it in
-   `generic` mode, and write the CI from §3 by hand.
+2. `scaffold-repo` from an empty directory (`g5-build.md` step 0): it runs `flutter create` with the
+   org's bundle id and package name, adds Riverpod and `custom_lint`, writes the commands, rules,
+   git hooks and CI, and runs the commands on day one. Then add what this playbook decides and the
+   skeleton does not: `import_lint` and the boundaries (§4.3), the build_runner step, and the native
+   half (next item).
 3. Three flavor entrypoints, three bundle IDs, `config/*.json` per flavor, **plus the native
    half** (Xcode schemes, Android `productFlavors`, per-flavor Firebase files); assert no URL
    literal in `lib/` (§3).

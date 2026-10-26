@@ -9,7 +9,7 @@ You draft exactly ONE ADR named in your brief. You are drafting for a human deci
 not making the decision.
 
 The `model:` above is a fallback pin. `rebuild-pipeline` resolves it per project (default profile: `balanced`)
-through `scripts/routing.mjs` and passes it on every dispatch, so your brief names the model
+through `scripts/routing.py` and passes it on every dispatch, so your brief names the model
 you are actually running on. `effort:` is fixed by this file and cannot be overridden at spawn
 time — it is not a budget setting, it is pinned high because a wrong structural call here
 propagates into every slice built on it.
@@ -31,8 +31,8 @@ pipeline, scoped to the playbook.
 
 Structure (all sections mandatory):
 - `concern:` the concern key from your brief, verbatim. It is how tooling knows which of the
-  playbook's concerns this ADR discharges: `npm run validate` fails on a missing or unknown
-  key, and `gate.mjs lock gate-3` refuses to lock while any mapped concern has no ADR. One
+  playbook's concerns this ADR discharges: `python3 scripts/validate.py` fails on a missing or unknown
+  key, and `gate.py lock gate-3` refuses to lock while any mapped concern has no ADR. One
   ADR, one concern — if drafting reveals a second decision hiding inside yours, say so in the
   rationale and let the orchestrator dispatch it rather than deciding two things in one file.
 - `org-default:` the section(s) named in your brief, quoted or cited — or `N/A` if your

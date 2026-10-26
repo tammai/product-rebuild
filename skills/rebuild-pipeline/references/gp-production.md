@@ -27,10 +27,10 @@ Checklist — each item needs EVIDENCE (log, recording, doc link), not assertion
 - **Equivalence against the legacy system** (`reference.kind: own-code` only): every trace
   recorded across all slices replays green on the **production candidate** — not on a dev
   box, not on the build that happened to be around when the slice closed — or the difference
-  is a logged decision in `parity/equiv/DECISIONS.md`. Run `npm run equiv -- replay --all`
+  is a logged decision in `parity/equiv/DECISIONS.md`. Run `python3 scripts/equiv.py replay --all`
   against the candidate and cite the `parity/<date>-equiv.xml` it produces.
 
-  This is the one checklist line with teeth of its own: `gate.mjs lock gate-5` refuses while
+  This is the one checklist line with teeth of its own: `gate.py lock gate-5` refuses while
   the newest equivalence run has a failing trace that no decision names. A red trace says the
   rebuild returns something the old system did not, on traffic recorded from the old system
   before the rebuild existed — and Gate 5 is terminal, so nothing downstream catches it.
@@ -87,6 +87,6 @@ doing, not asserting:
   — a bad release detected, halted, and remediated by roll-forward.
 
 ## Gate 5 review
-Walk the evidence per item. Lock on explicit approval: `gate.mjs lock gate-5`.
+Walk the evidence per item. Lock on explicit approval: `gate.py lock gate-5`.
 This is the finish line — the result now matches the promise: completed, full-featured,
 production-ready.

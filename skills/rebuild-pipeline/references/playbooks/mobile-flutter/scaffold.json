@@ -1,0 +1,71 @@
+{
+  "ask": [
+    {
+      "key": "bundle_org",
+      "prompt": "Reverse-domain organisation for the bundle ids (e.g. com.acme)",
+      "suggest": "com.<company>"
+    },
+    {
+      "key": "app_name",
+      "prompt": "Dart package name (lowercase letters, digits, underscores)",
+      "suggest": "client"
+    }
+  ],
+  "rules": [
+    "code-style",
+    "tests",
+    "sensitive",
+    "ci"
+  ],
+  "ci": {
+    "os": [
+      "ubuntu-latest"
+    ]
+  },
+  "packages": [
+    {
+      "name": "app",
+      "path": ".",
+      "monorepoPath": "apps/app",
+      "options": {
+        "flutter": {
+          "generator": [
+            "flutter create --org {{bundle_org}} --project-name {{app_name}} ."
+          ],
+          "after": [
+            "flutter pub add flutter_riverpod",
+            "flutter pub add --dev custom_lint riverpod_lint",
+            "dart format ."
+          ],
+          "files": [
+            {
+              "from": "flutter/analysis_options.yaml",
+              "to": "analysis_options.yaml",
+              "class": "generated"
+            },
+            {
+              "from": "flutter/main.dart",
+              "to": "lib/main.dart",
+              "class": "generated"
+            },
+            {
+              "from": "flutter/widget_test.dart",
+              "to": "test/widget_test.dart",
+              "class": "generated"
+            }
+          ],
+          "commands": {
+            "install": "flutter pub get",
+            "build": null,
+            "lint": "dart format --output=none --set-exit-if-changed . && flutter analyze --fatal-infos && dart run custom_lint",
+            "typecheck": null,
+            "test": "flutter test"
+          },
+          "ci": {
+            "setup": "flutter"
+          }
+        }
+      }
+    }
+  ]
+}

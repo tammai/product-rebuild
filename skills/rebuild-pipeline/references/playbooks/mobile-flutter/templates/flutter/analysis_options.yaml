@@ -1,0 +1,19 @@
+include: package:flutter_lints/flutter.yaml
+
+# Generated code is committed, CI-diffed and never hand-edited, so the analyzer skips it: with
+# --fatal-infos a generator's own infos would otherwise turn the gate red on day one with no legal
+# fix (see the playbook's CI section). custom_lint runs as its own command, not as an analyzer plugin:
+# Dart 3.13 deprecates legacy analyzer plugins, and listing it here makes `flutter analyze` warn.
+analyzer:
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+    - "**/*.gr.dart"
+    - api/generated/**

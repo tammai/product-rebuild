@@ -16,15 +16,18 @@ and the list of concerns to decide. This file is the procedure; the playbook is 
    a one-line note carried into the Gate 3 review. If a criterion *does* apply, say so and
    ask the user: either switch playbooks (some other registry entry may fit) or set
    `architecture.playbook: none` and take step 0b.
-3. **Vendor it.** Copy the resolved playbook to `adr/playbook.md`. This is not
+3. **Vendor it.** Copy the resolved playbook to `adr/playbook.md`, and the scaffold manifest its
+   `scaffold:` frontmatter names to `adr/playbook.scaffold.json` (with `architecture.playbook: none`,
+   write `adr/scaffold.json` instead, in the same format, alongside the stack ADR). This is not
    housekeeping: `adr/` is inside gate-3's `protects:`, so the vendored copy is hashed into
    the lock. Every ADR cites section numbers, and a plugin upgrade can renumber sections
    under a locked gate — the vendored copy is what makes an accepted ADR's citation still
-   mean in a year what it meant on the day it was accepted. `gate.mjs lock gate-3` refuses
-   to lock while `sources.yaml` names a playbook and this file is missing.
+   mean in a year what it meant on the day it was accepted. `gate.py lock gate-3` refuses
+   to lock while `sources.yaml` names a playbook and this file is missing, or while the manifest is
+   missing or fails its check: a stack nothing can scaffold is a Gate 3 failure.
 4. **Read its frontmatter as the phase's own inputs**: `concerns:` is the list of ADRs this
    phase owes, `decide-before:` is the order constraints between them, `target-shape:` must
-   match `sources.yaml`'s (`npm run validate` fails on a mismatch), and `scaffold-profile:`
+   match `sources.yaml`'s (`python3 scripts/validate.py` fails on a mismatch), and `scaffold-profile:`
    is what G5 will need at repo-creation time.
 
 **0b — no playbook applies.** Every ADR below reverts to the pipeline's original model: a
@@ -85,7 +88,7 @@ playbook maps twenty-one, and **only three keys appear in both** — `decomposit
 `files-media`, `data-modeling`. The other eighteen, from `state-management` and `offline-sync`
 to `platform-floor` and `on-device-migration`, have no counterpart at all. Citing "§7 for
 auth" against a playbook whose §7 is the API client is the exact failure the vendored copy and
-`npm run validate`'s citation check exist to catch — and the check can only catch a section a
+`python3 scripts/validate.py`'s citation check exist to catch — and the check can only catch a section a
 playbook does not have, not a plausible-looking wrong one.
 
 **When no playbook applies (step 0b), the canonical concern list by target shape:**
@@ -122,8 +125,8 @@ target `contracts/data-model/<context>.mermaid` it constrains — that file does
 
 Every ADR states:
 - `concern:` the exact key from the playbook's `concerns:` map (or from the canonical list,
-  under step 0b). One ADR per key; `npm run validate` fails on a missing or unknown key, and
-  `gate.mjs lock gate-3` refuses to lock while a mapped concern has no ADR. This is what
+  under step 0b). One ADR per key; `python3 scripts/validate.py` fails on a missing or unknown key, and
+  `gate.py lock gate-3` refuses to lock while a mapped concern has no ADR. This is what
   turns "every cross-cutting concern decided" from a prose exit criterion into a check.
 - `org-default:` the section(s) the map names for this concern, or `N/A`. Validation
   rejects a `§` token the vendored playbook's map never points at.
@@ -171,7 +174,7 @@ divergence from the *reference* is still the thing that gates.
 
 Send drafts to the `adr-drafter` agent (one per ADR, parallel except where `decide-before:`
 serializes them), briefed per `subagent-briefs.md` — including part 6, the model
-`scripts/routing.mjs` resolved for this role, which is the architect tier. Pass
+`scripts/routing.py` resolved for this role, which is the architect tier. Pass
 `adr/playbook.md`'s path, the exact `concerns:` value for that
 concern (or `N/A`), and the concern key itself, alongside the per-ADR brief. Present each to
 the user for decision IN DEPENDENCY ORDER; later ADRs cite earlier ones.
@@ -186,5 +189,5 @@ being locked alongside the ADRs, and what that means: after the lock, the file t
 cannot move even if the plugin's registry copy does.
 
 What locks: no new service, datastore, queue, deployment target or top-level module
-downstream without reopening. Run `npm run validate`, then lock only on explicit approval:
-`gate.mjs lock gate-3`, then `git push && git push --tags`.
+downstream without reopening. Run `python3 scripts/validate.py`, then lock only on explicit approval:
+`gate.py lock gate-3`, then `git push && git push --tags`.

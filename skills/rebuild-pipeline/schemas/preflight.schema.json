@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "preflight.schema.json",
   "title": "G0 preflight result — is the reference provably buildable and runnable before G1 dispatches miners",
-  "description": "Written by scripts/preflight.mjs as the last G0 action, alongside the human-readable PREFLIGHT.md. Read by autopilot.mjs preflight and by SKILL.md's phase detection: a workbench with sources.yaml filled but no preflight.json is still in G0. Contains no timestamp on purpose — two runs on an unchanged tree must produce a byte-identical file, and staleness is answered by reference.pinned_commit and reference.checkout_head, which move when the thing being checked moves.",
+  "description": "Written by scripts/preflight.py as the last G0 action, alongside the human-readable PREFLIGHT.md. Read by autopilot.py preflight and by SKILL.md's phase detection: a workbench with sources.yaml filled but no preflight.json is still in G0. Contains no timestamp on purpose — two runs on an unchanged tree must produce a byte-identical file, and staleness is answered by reference.pinned_commit and reference.checkout_head, which move when the thing being checked moves.",
   "type": "object",
   "required": ["verdict", "reference", "lanes", "checks"],
   "additionalProperties": false,

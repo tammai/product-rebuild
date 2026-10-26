@@ -39,32 +39,25 @@ chosen file to `adr/playbook.md`, inside gate-3's `protects:`, so the sections i
 cannot shift under a locked gate. Never carry a concern list or a section number between
 projects: §8 means storage in one playbook and auth in another.
 
-**Baseline dependency — `bigin-skills`.** This pipeline produces decisions, contracts and
-specs; it does not know how to create a repo. From G5 onward, every code repo is created by
-the `bigin-skills:bigin-harness-setup` skill — a single entry point that scaffolds the app
-(delegating to `go-`/`nuxt-`/`nodejs-`/`next-scaffold` per the stack locked at Gate 3) and
-overlays the AI-governance harness. Never scaffold conversationally, never call the
-`*-scaffold` skills directly, and never hand-write a `CLAUDE.md` into a code repo. Every
-shipped playbook names a profile `bigin-skills` can build — the org-default web playbook maps to
-`go`/`nodejs` + `nuxt`/`next`, the Flutter client playbook to `flutter` (needs `bigin-skills`
->= 1.68.0) — on purpose: G4a decides, `bigin-skills` builds. **The one exception** is a locked
-playbook naming a stack the *installed* plugin has no profile for: `bigin-harness-setup` cannot
-start from an empty directory without one, so G5 runs the stack's own scaffolder first and the
-harness second in its `generic` profile. That is a version gap to state out loud, not a
-standing arrangement — the procedure and what `generic` skips are in `references/g5-build.md`
-step 0. Confirm the plugin is installed at G0
-(it is needed at G5, and discovering it missing months in is the expensive way to find out).
+**Repo creation — `scaffold-repo`.** This pipeline produces decisions, contracts and specs. From G5
+on, every code repo is created by this plugin's `scaffold-repo` skill from the scaffold manifest the
+locked playbook ships (vendored at G4a as `adr/playbook.scaffold.json`, a project with no playbook
+writes `adr/scaffold.json`). The stack is a Gate 3 fact: Gate 3 refuses to lock a playbook that
+declares no manifest, so G5 never meets a stack it cannot create. The skill confirms what the ADRs
+decided, asks only what they leave open, waits for approval, runs the stack's official generator, and
+proves the five commands pass before the repo counts as created (`references/g5-build.md` step 0).
+Never scaffold conversationally and never hand-write a `CLAUDE.md` rules brief into a code repo.
 
 **The plugin's guards apply to pipeline work.** Claude Code loads a repo's hooks only when the
 session started in that repo, and rebuild sessions start in the project's parent, so the guards
 are this plugin's own hooks (`hooks/scripts/`): a bash guard, a spec gate, the injection gate and
 canary, and the commit gates. Each judges only a repo listed in the workbench's `repos.yaml`. A
 block naming a guard is that guard's rule, never something to edit around. The spec gate is
-satisfied by the lane `PLAN.md` that `lane-plan.mjs` writes from the slice specs the user approved
+satisfied by the lane `PLAN.md` that `lane_plan.py` writes from the slice specs the user approved
 (`references/g5-build.md` step 1b). Build lanes run as this plugin's `lane-worker` agent, and each
 lane's diff is audited by its `lane-verifier` against that plan before the joint run (step 4b: an
 implement/verify loop run by you, capped at 3 rounds). Both are resolved through
-`scripts/routing.mjs` (`build-lane`, `lane-verifier`).
+`scripts/routing.py` (`build-lane`, `lane-verifier`).
 
 ## Orchestration Protocol
 
@@ -78,17 +71,17 @@ started: offer to run onboarding (Step 4a).
 
 ### Step 2 — Detect state
 
-Run, with the workbench root as cwd: `node scripts/gate.mjs status`
+Run, with the workbench root as cwd: `python3 scripts/gate.py status`
 
 Always the workbench's own `scripts/` copy, never the plugin's. Every script except
-`rebuild-init.mjs` reads and writes cwd-relative paths, and `validate.mjs`/`parity.mjs`
-additionally need the workbench's `node_modules` — the plugin ships no dependencies.
+`rebuild_init.py` reads and writes cwd-relative paths, and `validate.py`/`parity.py`
+use `yamlio.py`, `schemacheck.py` and `_vendor/pyyaml/` from the same directory, so nothing is installed.
 
 **First, bring the workbench's tooling up to the plugin you are running** — the one exception
 to "never the plugin's copy", because the workbench's own upgrader is as old as the rest:
 
 ```sh
-node ${CLAUDE_PLUGIN_ROOT}/skills/rebuild-pipeline/scripts/upgrade.mjs --auto --plugin ${CLAUDE_PLUGIN_ROOT}
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/rebuild-pipeline/scripts/upgrade.py --auto --plugin ${CLAUDE_PLUGIN_ROOT}
 ```
 
 It prints one `TOOLING` line. It copies only the vendored files it can prove are unmodified,
@@ -96,7 +89,7 @@ and only when no slice is in progress, no autopilot run is engaged, the tree is 
 copy would break an import between scripts; otherwise it defers to a later session start. An
 applied upgrade is one commit, followed by `validate` and `gate status`. Relay the line in
 Step 3. A `refused` file is a local edit or an unknown-provenance copy: say so and leave it to
-the user (`node scripts/upgrade.mjs` shows why). A `FAILS` from validate, or a `gate status
+the user (`python3 scripts/upgrade.py` shows why). A `FAILS` from validate, or a `gate status
 changed`, after an upgrade is the first thing to look at, before any pipeline work.
 
 This prints each gate's state (open/locked, date, artifact hashes) and derives the
@@ -109,7 +102,7 @@ G1 — gate-1 closes G2 — so "first unlocked gate" reports G1 for every workbe
 been scaffolded, including one whose G0 never finished. Apply this before routing:
 
 > A workbench with `sources.yaml` filled in but **no `preflight.json`** is in **G0**, not
-> G1. Finish G0 and run `npm run preflight` (g0 reference has it as the last action).
+> G1. Finish G0 and run `python3 scripts/preflight.py` (g0 reference has it as the last action).
 > A `preflight.json` reading **`Not-ready`** is also still G0 for dispatch purposes: report
 > the blockers from `PREFLIGHT.md`, and do not dispatch miners until it reads `Ready` or
 > `Ready-with-gaps`.
@@ -119,7 +112,7 @@ Everything else in G0 still proceeds and still commits — `sources.yaml` and
 held is the mining fan-out, because every lane-D finding cites `path + pinned_commit` and a
 preflight that says the checkout is elsewhere is saying those citations would be wrong.
 A workbench scaffolded before this shipped has no `preflight.json` and no
-`scripts/preflight.mjs`; see `docs/PLAYBOOK.md` → *Upgrading a workbench*. Until it is
+`scripts/preflight.py`; see `docs/PLAYBOOK.md` → *Upgrading a workbench*. Until it is
 copied in, treat the G0 confirmation as the user's word, the way it was before.
 
 ### Step 3 — Report progress, always
@@ -136,7 +129,7 @@ per-phase by design to keep context lean:
 | Phase | Read | Typical work |
 |---|---|---|
 | Not started | `references/g0-reference.md` | Onboarding interview, scaffold workbench |
-| G0 (scaffolded, no `preflight.json` or Not-ready) | `references/g0-reference.md` | Finish the interview, fill `sources.yaml`, `npm run preflight` until Ready / Ready-with-gaps |
+| G0 (scaffolded, no `preflight.json` or Not-ready) | `references/g0-reference.md` | Finish the interview, fill `sources.yaml`, `python3 scripts/preflight.py` until Ready / Ready-with-gaps |
 | G1 | `references/g1-mining.md` | Dispatch miner subagents per lane |
 | G2 | `references/g2-matrix.md` | Merge findings, draft taxonomy, Gate 1 review |
 | G3 | `references/g3-slicing.md` | Dependency graph, slice plan, Gate 2 review |
@@ -150,7 +143,7 @@ per-phase by design to keep context lean:
 distribution intent (this decides license posture), whether the reference is third-party or
 an app they already own, and the `architecture:` block — target shape and playbook (see g0
 reference for all of it). Then scaffold:
-`node ${CLAUDE_PLUGIN_ROOT}/skills/rebuild-pipeline/scripts/rebuild-init.mjs <project-name>`
+`python3 ${CLAUDE_PLUGIN_ROOT}/skills/rebuild-pipeline/scripts/rebuild_init.py <project-name>`
 and walk the user through the generated `sources.yaml` and `license-posture.md`. Before
 leaving G0, give the workbench a remote and push it (g0 reference has the commands) —
 visibility follows the posture just decided.
@@ -165,14 +158,14 @@ subagents are unavailable in the current environment.
 root:
 
 ```sh
-node scripts/routing.mjs --agents ${CLAUDE_PLUGIN_ROOT}/agents
+python3 scripts/routing.py --agents ${CLAUDE_PLUGIN_ROOT}/agents
 ```
 
 A workbench scaffolded before 0.16.0 has no vendored copy. Run the plugin's, pointed at the
 workbench — no upgrade step, and nothing to copy in:
 
 ```sh
-node ${CLAUDE_PLUGIN_ROOT}/skills/rebuild-pipeline/scripts/routing.mjs \
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/rebuild-pipeline/scripts/routing.py \
   --root . --agents ${CLAUDE_PLUGIN_ROOT}/agents
 ```
 
@@ -187,7 +180,7 @@ re-running it between every fan-out is pure noise.
 config the user believes is active but is not would otherwise be invisible — the same reasoning
 that keeps a rubric score from blocking a lock, applied to a dispatch. Effort warnings are
 expected (`adr-drafter` under `balanced`; `miner`, `rubric-judge` and `spec-writer` under `frontier`) and are not a
-problem to fix: effort is pinned per role and is not movable at spawn time (`scripts/routing.mjs` has the argument).
+problem to fix: effort is pinned per role and is not movable at spawn time (`scripts/routing.py` has the argument).
 
 **4c — When intent is ambiguous, ask — with options.** If the user's request could mean
 several things ("continue" during G5 could mean: next module in this slice, start next
@@ -197,7 +190,7 @@ slice, or run parity), present the concrete options rather than guessing.
 
 Gates are human decisions. When a phase's exit criteria are met:
 
-1. Run `node scripts/validate.mjs` from the workbench root — all artifacts must pass schema
+1. Run `python3 scripts/validate.py` from the workbench root — all artifacts must pass schema
    validation first. From 0.6.5 this also structurally checks `contracts/`: YAML validity,
    duplicate keys, and every `$ref` resolving; from 0.7.0, that every
    `contracts/data-model/*.mermaid` declares entities; from 0.11.0, that every ADR names a
@@ -223,7 +216,7 @@ Gates are human decisions. When a phase's exit criteria are met:
 
 2. Present a **gate review** to the user: what is being locked, the key decisions inside
    it, open risks, what the rubric report flagged, and what becomes immutable afterward.
-3. Only after explicit user approval, run `node scripts/gate.mjs lock <gate-id>`.
+3. Only after explicit user approval, run `python3 scripts/gate.py lock <gate-id>`.
 4. **Push the lock commit *and* its tag**: `git push && git push --tags`. Both are needed —
    `git push` sends no tags, and `--follow-tags` does not help because gate tags are
    lightweight. The tag is not a label: code repos pin this workbench as a submodule at
@@ -235,7 +228,7 @@ Gates are human decisions. When a phase's exit criteria are met:
    This holds under autopilot too: a run reaching a gate writes its review to
    `plan/gate-reviews/gate-N.md` and stops there (Step 6).
 
-Reopening (`gate.mjs reopen <gate-id> --reason "..."`) is allowed but is a formal,
+Reopening (`gate.py reopen <gate-id> --reason "..."`) is allowed but is a formal,
 logged event; require the user to state the reason.
 
 ### Step 6 — Autopilot, if the user asks for it (opt-in, off by default)
@@ -246,20 +239,20 @@ every gate**. It changes nothing about Step 5: it never locks a gate, and the li
 non-gate human decisions it must also stop for is in the reference file.
 
 When the user asks for autopilot, read `references/autopilot.md` and follow it. Never
-engage without running `node scripts/autopilot.mjs preflight` and getting an explicit
+engage without running `python3 scripts/autopilot.py preflight` and getting an explicit
 confirmation of the brief — the word "autopilot" is a request to be told what a run would
 do, not consent to run it.
 
 If `plan/autopilot.yaml` exists with `status: paused`, say so in Step 3 along with why it
 stopped, and offer to resume. Its `engaged_phase` and `paused.next_action` are breadcrumbs
-for a human reading the file — `gate.mjs status` remains the authority on where the project
+for a human reading the file — `gate.py status` remains the authority on where the project
 actually is.
 
 ### Step 7 — Pause safety check (before ending a session)
 
 When the user signals they're pausing, stopping, or ending the session — or you notice a
 natural stopping point (a slice just finished, a gate review just landed) — run:
-`node scripts/pause-check.mjs` (from the workbench root)
+`python3 scripts/pause_check.py` (from the workbench root)
 
 This is NOT one of the five hash-pinned gates — it locks nothing, has no gate-guard
 enforcement, and is safe to run any number of times. It reports, across the workbench and
@@ -300,18 +293,18 @@ conversation (a partial ADR, a draft matrix, in-flight findings) that hasn't rea
   runner (private-submodule checkout, unset secrets, gitignored paths), so leaving them
   enabled just emails a failure on every push.
 - The slice boundary is the only cheap place to change the plan, so stop there deliberately:
-  record progress, run parity, run `npm run slice-review -- <Sn>`, and act on the sequence if
+  record progress, run parity, run `python3 scripts/slice_review.py <Sn>`, and act on the sequence if
   it needs acting on. All of it is advisory — none of it blocks the next slice — which is
   exactly why it has to be a habit rather than a mechanism you can lean on.
-- Slice ORDER is a logged decision (`npm run sequence -- reorder ... --reason "..."`), slice
+- Slice ORDER is a logged decision (`python3 scripts/sequence.py reorder ... --reason "..."`), slice
   BOUNDARIES are a gate-2 reopen. Never conflate them, and never hand-edit
   `plan/sequence.yaml` — the file's value is that every change to it carries a reason.
 - Tests in G5 run at a fixed cadence (`g5-build.md`, "Test cadence within a slice"): lanes run
   only what they touch while building, the full cumulative suite runs once per slice as the
   joint run, then only its failures re-run. You, the orchestrator, run no tests at all — you
-  read the JUnit — and while a lane has a long run open, `scripts/lanes-check.mjs` on a
+  read the JUnit — and while a lane has a long run open, `scripts/lanes_check.py` on a
   10-minute schedule (5 while the joint run is open) is what notices when it stops. The
-  joint run is one `scripts/run-phases.mjs` process, so its lane has one wake-up, not one per
+  joint run is one `scripts/run_phases.py` process, so its lane has one wake-up, not one per
   phase.
 - All model-facing artifacts are English.
 
@@ -323,17 +316,17 @@ Cost here is not output, it is context re-read on every turn: a measured downstr
 - **Never Read `plan/backlog.md`, `plan/progress.yaml` or `plan/slices.yaml` whole.** `grep -n`
   for the slice id or heading, then Read with offset/limit. `pause-check` flags any over 40 KB.
 - **One session per unit of work** (a slice stage, a gate review). Checkpoint to `plan/drafts/`,
-  run `pause-check`, end the session; resume from `gate.mjs status`, not from chat memory.
+  run `pause-check`, end the session; resume from `gate.py status`, not from chat memory.
 - **Do not dispatch `fork` subagents for pipeline work.** A fork inherits the orchestrator's whole
   context and its model. Use the named agents, which start clean and run on the routed model.
 - Redirect long Bash output to a file and read the tail; do not let a build log land in context.
 - **End the session when it gets big, attended or not.** At each unit boundary,
-  `node scripts/autopilot.mjs status` prints the session's context in tokens (from the status
+  `python3 scripts/autopilot.py status` prints the session's context in tokens (from the status
   line's snapshot — `references/autopilot.md`). Over the limit (default 250k): checkpoint, run
   `pause-check`, and tell the user `/clear`, then `/rebuild`. Autopilot does this itself through
   `check` and a `context-threshold` pause.
 - **Keep the orchestrator thin.** A subagent's result reaches you as its short report plus the
-  file it wrote; check the file with `validate.mjs` or a targeted Grep, never by reading it
+  file it wrote; check the file with `validate.py` or a targeted Grep, never by reading it
   whole. A gate review is written to `plan/gate-reviews/` and the chat gets the path and the
   few lines that need a decision. Never paste a subagent's output, a spec, or a contract back
   into the conversation.
@@ -355,19 +348,17 @@ Cost here is not output, it is context re-read on every turn: a measured downstr
 - Letting the user drift into product code before Gate 3 locks decomposition.
 - Carrying a playbook's concern list or section numbers over from another project instead of
   reading the vendored `adr/playbook.md`. A citation that names a section the playbook never
-  maps is caught by `validate.mjs`; a plausible-looking wrong one is not caught by anything.
-- Creating a code repo by hand — running `npm create`/`go mod init` directly, calling a
-  `*-scaffold` skill instead of `bigin-harness-setup`, or writing a `CLAUDE.md` yourself.
-  (`g5-build.md` step 0's fallback is the sole exception, and it is keyed to the installed
-  plugin genuinely lacking a profile for the locked playbook's stack — not to a judgment call
-  at G5, and not to a stack whose profile merely needs a plugin upgrade.)
+  maps is caught by `validate.py`; a plausible-looking wrong one is not caught by anything.
+- Creating a code repo by hand — running `npm create` or `go mod init` directly, scaffolding
+  conversationally, or writing a `CLAUDE.md` rules brief yourself. Repos come from `scaffold-repo`.
+  A stack with no manifest is a Gate 3 failure to fix there, not a reason to improvise at G5.
   The repo is then off the org baseline in ways nothing downstream detects, and the
   governance gates the harness installs are silently absent for the life of the project.
 - Trusting codegen from the scaffold's starter `openapi.yaml`. Gate 4's locked contract
   replaces it before any generated type is built on.
 - Starting the next slice straight off the back of the last one. Nothing blocks it — the slice
   review is advisory by design — which is why it is listed here instead: the boundary is where
-  a reorder is still cheap, and once the next slice starts `sequence.mjs` refuses one outright.
+  a reorder is still cheap, and once the next slice starts `sequence.py` refuses one outright.
 - Reordering, or proposing a reorder, mid-slice. The finding is welcome; write it to
   `plan/progress.yaml` `notes:` on the slice in flight, where the parity report and the next
   slice review both pick it up. The reshuffle waits for the boundary.
@@ -379,7 +370,7 @@ Cost here is not output, it is context re-read on every turn: a measured downstr
 - Engaging autopilot on a partial preflight, or on an inferred yes — "can you autopilot
   this?" asks for the brief; only an explicit approval of that brief starts a run.
 - Resuming an autopilot run from `plan/autopilot.yaml`'s `next_action` instead of
-  re-deriving the phase with `gate.mjs status`. It is a breadcrumb written before a pause,
+  re-deriving the phase with `gate.py status`. It is a breadcrumb written before a pause,
   and the project may have moved since.
 - Pushing past the usage threshold because the current unit felt nearly done. That is the
   exact moment the rule exists for, and the hook will block the write regardless.
