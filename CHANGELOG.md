@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-26
+
+The audit items 1.3.0 held back, done with a check each.
+
+### Added
+
+- **`data-model-drafter`**, a seventh agent role (architect tier, effort high). G4b's data models were drafted
+  one after another by the orchestrator in its own context; their files are independent per bounded context
+  (cross-context references are by id only), so one drafter per context now runs in the same turn.
+  The drafter may not make a structural change no ADR made: it reports what it would change. A smoke run on a
+  small fixture produced a diagram `erd.py` accepts, with the cross-context id as a plain attribute. It has not
+  been A/B tested against a cheaper tier; `routing.py` says so.
+- `scripts/rules_for.py`: a spec-writer gets the Rule Cards that name its module's features, and the `invariant`
+  cards on entities it writes, in full, and every other card in the touched domains as one index line. It used
+  to get every touched domain's whole `findings/rules/<domain>.yaml`. No card can disappear: each is in full or
+  in the index with its id, and the eval checks that.
+- `scripts/cite_excerpts.py`, `scripts/gate_facts.py`, `scripts/evidence_bundle.py`: the files the rubric judge
+  used to build or the orchestrator to retype. The cited source line beside each `transcribed` claim (an
+  unopenable citation is marked, not skipped); the ERD-orphan and per-domain and per-slice counts; and verbatim
+  `path:start-end` excerpts. The judge still scores.
+- `eval/doc_links.py`: every reference doc and script the plugin's text names must exist.
+
+### Changed
+
+- **`g5-build.md` split.** The first-repo checklist, the inbound-webhook slice and the runbook template moved to
+  `g5-first-slice.md`, so the orchestrator no longer carries them on every turn of every slice (43 KB to 31 KB).
+  Every hook message, script comment and doc that named them points at the new file.
+- **The lane brief's standing rules moved into `lane-worker.md`**: test cadence, long runs, migrations, helpers.
+  The brief now says only what is true of one dispatch (is this the joint-run lane, its migration number,
+  whether it may run helpers). The eval checks the agent file still carries each rule.
+- **`py.sh` remembers which Python worked**, keyed by PATH, so the version probe is not repeated: about 32 ms
+  off a 144 ms hook. Off on Windows, where the probe exists to catch the Store stub. The cache can name only
+  one of the three candidates and only if the file is ours; a planted file or a symlink is ignored.
+
 ## [1.3.0] - 2026-10-26
 
 The rest of the audit that could be done safely. Four items were checked and not done, and why is below.

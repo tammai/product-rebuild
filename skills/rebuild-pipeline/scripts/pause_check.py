@@ -493,7 +493,7 @@ def main(argv=None):
                 pass  # missing
             points = os.path.abspath(os.path.join(d, target)) if target else ""
             fix = (f"Fix: `cd {_shq(d)} && echo {_shq(here)} > .rebuild-workbench && git add .rebuild-workbench && "
-                   'git commit -m "chore: point at the rebuild workbench"` (g5-build.md, repo checklist step 5).')
+                   'git commit -m "chore: point at the rebuild workbench"` (g5-first-slice.md, repo checklist step 5).')
             if not target:
                 issues.append(f"{name}: no `.rebuild-workbench` marker while {', '.join(in_progress)} is in progress, "
                               f"so runbook_guard.py is off for this repo (it fails open without one). {fix}")

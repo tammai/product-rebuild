@@ -2,7 +2,7 @@
 """routing.py — resolves which MODEL each pipeline subagent runs on. Run from the workbench root.
 
 Usage:
-  python3 scripts/routing.py                     # all six roles, as JSON
+  python3 scripts/routing.py                     # all seven roles, as JSON
   python3 scripts/routing.py --role miner        # one role
   python3 scripts/routing.py --agents <dir>      # read effort pins from real agent frontmatter
 
@@ -66,7 +66,7 @@ CONFIG
   { "profile": "frontier", "models": { "miner": "haiku", "architect": "fable" } }
 
 `profile` picks a ladder; `models` overrides on top of it and accepts either a TIER key
-(worker · architect · verifier) or a ROLE key (miner · rubric-judge · spec-writer ·
+(worker · architect · verifier) or a ROLE key (miner · rubric-judge · spec-writer · data-model-drafter ·
 adr-drafter · build-lane · lane-verifier), with a role key winning over the tier it belongs to. Per-role exists because the
 most likely real override in this pipeline is a single role: G1 dispatches miners many at a
 time and nothing else in the pipeline fans out like it. Fable is in no profile; it is reachable
@@ -134,6 +134,10 @@ ROLE_TIERS = {
         "tier": "architect",
         "why": "architecture decisions, and a wrong structural call propagates into every slice built on it.",
     },
+    "data-model-drafter": {
+        "tier": "architect",
+        "why": "the data model is locked by Gate 4 and every slice builds against it, so a wrong key or a missed ownership boundary is a migration after the lock. It is the same kind of call as an ADR (a structural one), and the drafter is told it may not make a structural change no ADR made. Not A/B tested against a cheaper tier: until 1.4.0 the orchestrator drafted these in its own context, on whatever model the session ran.",
+    },
     "build-lane": {
         "tier": "worker",
         "agent": "lane-worker",
@@ -152,6 +156,7 @@ PIN_FALLBACK = {
     "rubric-judge": "high",
     "spec-writer": "high",
     "adr-drafter": "high",
+    "data-model-drafter": "high",
     "build-lane": "high",
     "lane-verifier": "high",
 }

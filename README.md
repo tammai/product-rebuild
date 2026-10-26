@@ -286,10 +286,14 @@ skills/rebuild-pipeline/        THE skill you interact with
   scripts/sequence.py          slice execution order — the logged-decision reorder mechanism
   scripts/slice_review.py      the between-slices standing report (generated, advisory)
   scripts/boundary.py          the slice boundary in one call: archive lane plans, parity, slice review, re-mine due?
+  scripts/rules_for.py         a spec-writer's Rule Cards: the module's in full, every other card as an index line
+  scripts/cite_excerpts.py     each transcribed citation's source line beside its claim, for the rubric judge
+  scripts/gate_facts.py        the ERD-orphan and per-domain / per-slice counts the gate 1 and 2 rubrics ask for
+  scripts/evidence_bundle.py   verbatim path:start-end excerpts into one file, so no excerpt is retyped
   scripts/pause_check.py       is it safe to pause the session? (advisory, not a gate)
   scripts/autopilot.py         unattended-run state: preflight / check / engage / log / disengage
   scripts/routing.py           which model each subagent role dispatches on (.claude/model-routing.json)
-agents/                         miner, adr-drafter, spec-writer, rubric-judge, lane-worker,
+agents/                         miner, adr-drafter, data-model-drafter, spec-writer, rubric-judge, lane-worker,
                                 lane-verifier (opt-in audit) subagents
 hooks/                          PreToolUse guards: locked artifacts, recorded AC flows, and
                                 the autopilot usage threshold; plus the code-repo guards (bash,

@@ -82,9 +82,9 @@ Goal: pick the reference and record the legal posture BEFORE any agent reads any
   submodule pin, and `git push` sends no tags (nor does `--follow-tags`: these are
   lightweight). After every lock: `git push && git push --tags`.
   Ask which the remote is for — durability only, or durability *and* hosted CI — and record the
-  answer. It decides that last line here and step 4 of G5's repo checklist. The scaffold ships
+  answer. It decides that last line here and step 4 of G5's repo checklist (`g5-first-slice.md`). The scaffold ships
   a `validate.yml` that does pass on a hosted runner, but the code repos' workflows will not
-  (see G5's private-submodule trap), so "we push to GitHub" and "GitHub runs our CI" need to be
+  (see the private-submodule trap in `g5-first-slice.md`), so "we push to GitHub" and "GitHub runs our CI" need to be
   separate decisions rather than one assumption.
   **Visibility follows the posture just decided.** `private-learning` or
   `possible-closed-distribution` → private, non-negotiable: pushing the rebuild to a public

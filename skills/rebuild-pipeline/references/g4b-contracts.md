@@ -1,8 +1,11 @@
 # G4b — Data model + contracts → GATE 4: contract lock
 
 Order matters: data model FIRST (Gate 3 decided where data lives; this decides what it
-is), then three contract layers. Data model drafts sequentially; contracts then draft
-per context in parallel.
+is), then three contract layers. The data models draft in parallel, one `data-model-drafter`
+per bounded context (their files are independent: cross-context references are by id only, so
+no context's diagram needs another's); they must all land and be reviewed before the contracts,
+which then draft per context in parallel. Until 1.4.0 the orchestrator drafted them one after
+another in its own context.
 
 ## Which mode this phase runs in — read `sources.yaml` before drafting anything
 
@@ -57,6 +60,15 @@ the rebuild, and a *structural* one (flattening a hierarchy, merging entities, d
 table the reference has) needed an ADR back at Gate 3, not a comment here. Cross-context
 references by ID only, never shared tables — a relationship line crossing a context
 boundary belongs in neither file and is a Gate 3 question.
+
+**Dispatch.** One `data-model-drafter` per context in the context map, all in the same turn
+(`scripts/routing.py --role data-model-drafter` gives the agent and model, the architect tier;
+`subagent-briefs.md`, "The data-model-drafter brief"). Then review what came back before anything
+else drafts against it: read each report for the **structural changes it did not make** (those go to
+the user as a Gate 3 question, never into a diagram), the **cross-context ids** it drew (every one
+must name an entity that exists in the other context's file), and the entities it marked `%% internal`
+(confirmed or corrected in the coherence check below). Run `python3 scripts/validate.py`: it fails a
+diagram that declares no entity.
 
 Mermaid rather than prose because it is the one format that is diffable, renders in every
 review surface, and states cardinality in the notation instead of in a sentence someone has

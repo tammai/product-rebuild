@@ -45,7 +45,7 @@ locked playbook ships (vendored at G4a as `adr/playbook.scaffold.json`, a projec
 writes `adr/scaffold.json`). The stack is a Gate 3 fact: Gate 3 refuses to lock a playbook that
 declares no manifest, so G5 never meets a stack it cannot create. The skill confirms what the ADRs
 decided, asks only what they leave open, waits for approval, runs the stack's official generator, and
-proves the five commands pass before the repo counts as created (`references/g5-build.md` step 0).
+proves the five commands pass before the repo counts as created (`references/g5-first-slice.md` step 0).
 Never scaffold conversationally and never hand-write a `CLAUDE.md` rules brief into a code repo.
 
 **The plugin's guards apply to pipeline work.** Claude Code loads a repo's hooks only when the
@@ -147,7 +147,7 @@ per-phase by design to keep context lean:
 | G3 | `references/g3-slicing.md` | Dependency graph, slice plan, Gate 2 review |
 | G4a | `references/g4a-architecture.md` (+ the playbook `sources.yaml` names, vendored to `adr/playbook.md` — its `concerns:` map is the ADR list) | Vendor the playbook, dispatch ADR drafts, Gate 3 review |
 | G4b | `references/g4b-contracts.md` | Data model (`contracts/data-model/`), three contract layers, Gate 4 |
-| G5 | `references/g5-build.md` | Per-slice fan-out to build subagents; the between-slices sequence at the end of it |
+| G5 | `references/g5-build.md` (plus `references/g5-first-slice.md` for the first slice's repo checklist, an inbound-webhook slice, and the S1 runbook) | Per-slice fan-out to build subagents; the between-slices sequence at the end of it |
 | G6 | `references/g6-parity.md` | Parity report, slice review, upstream re-mine |
 | GP | `references/gp-production.md` | Readiness checklist, Gate 5 review |
 
@@ -161,7 +161,7 @@ leaving G0, give the workbench a remote and push it (g0 reference has the comman
 visibility follows the posture just decided.
 
 **4b — Delegation.** You orchestrate; subagents execute. Dispatch phase work to the
-agents in `${CLAUDE_PLUGIN_ROOT}/agents/` (miner, adr-drafter, spec-writer, rubric-judge)
+agents in `${CLAUDE_PLUGIN_ROOT}/agents/` (miner, adr-drafter, data-model-drafter, spec-writer, rubric-judge)
 using the briefing format in `references/subagent-briefs.md`. Run independent lanes in parallel.
 Do the work inline only when it is small (a single merge, a single review pass) or when
 subagents are unavailable in the current environment.
@@ -220,7 +220,9 @@ Gates are human decisions. When a phase's exit criteria are met:
    Never present a score as a reason to lock or not to lock; present it as something the
    user should look at before deciding.
 
-   Its report lands at `plan/gate-reviews/gate-N-rubric.md` and stays there after the lock.
+   Before you dispatch it, make the files it should not build for itself (`subagent-briefs.md`, "The judge
+   brief"): `cite_excerpts.py` for the cited lines, `gate_facts.py` for gates 1 and 2, `evidence_bundle.py`
+   for big contracts. Its report lands at `plan/gate-reviews/gate-N-rubric.md` and stays there after the lock.
    If you are about to lock a gate and no rubric report exists for this attempt, run the
    judge first — that is an instruction to you, not a hook, and nothing will stop you
    skipping it. Reject any dimension scored below 4 that carries no citation back to the

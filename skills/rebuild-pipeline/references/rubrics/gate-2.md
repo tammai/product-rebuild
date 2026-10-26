@@ -27,6 +27,8 @@ later.
 
 **Asks:** are the slices comparable enough that "we finished a slice" means something?
 
+The counts are in `plan/gate-reviews/gate-2-facts.md` (from `gate_facts.py`). Score the scope from them and the specs; the count alone is not the dimension.
+
 - **5** — feature counts and rough scope are within a small factor of each other, and any
   deliberate outlier (a spike, a migration) is labelled as one.
 - **3** — one slice is two or three times any other, with no reason given.

@@ -132,7 +132,7 @@ def main(argv=None):
         f"they are about to rediscover it — each lane separately, and not necessarily the same way.\n"
         f"\n"
         f"Write the build runbook first, at the workbench, from what the S1 lanes REPORTED — not from "
-        f"memory (g5-build.md, \"Write the build runbook\"). Fixed sections: how codegen from "
+        f"memory (g5-first-slice.md, \"The build runbook\"). Fixed sections: how codegen from "
         f"contracts/ was invoked and what it got wrong; harness quirks that needed adjusting, and why; "
         f"reference behaviors the running instance revealed that the spec did not say; the "
         f"test-fixture approach; deploy prerequisites that turned out to be missing; commands that "

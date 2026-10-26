@@ -355,6 +355,44 @@ check("canary-seed runs on SessionStart and the scan on PostToolUse",
       any(r["script"] == "canary_seed.py" and r["event"] == "SessionStart" for r in registered) and
       any(r["script"] == "injection_scan_guard.py" and r["event"] == "PostToolUse" for r in registered))
 
+# ================================ py.sh fast path ===============================================
+print("\n# py.sh launcher cache")
+PYSH = os.path.join(os.path.dirname(HOOKS), "py.sh")
+if shutil.which("bash") and not shutil.which("cygpath"):
+    tmp = tempfile.mkdtemp(prefix="pysh-eval-")
+    penv = dict(os.environ, TMPDIR=tmp)
+    probe_script = os.path.join(tmp, "hello.py")
+    with open(probe_script, "w") as f:
+        f.write("import sys; print('ran', sys.argv[1:])\n")
+
+    def pysh(env=penv):
+        return subprocess.run(["bash", PYSH, probe_script, "arg"], capture_output=True, text=True, env=env)
+
+    def cache_files():
+        return [os.path.join(tmp, n) for n in os.listdir(tmp) if n.startswith("product-rebuild-py-")]
+
+    r = pysh()
+    check("py.sh runs the script and remembers which Python worked",
+          r.returncode == 0 and "ran ['arg']" in r.stdout and len(cache_files()) == 1
+          and open(cache_files()[0]).read() in ("python3", "python", "py -3"), r.stdout + r.stderr)
+    check("the next run takes the cached answer and still runs the script", pysh().returncode == 0 and "ran ['arg']" in pysh().stdout)
+    cf = cache_files()[0]
+    with open(cf, "w") as f:
+        f.write("rm -rf /; python3")
+    r = pysh()
+    check("a cache file naming anything but the three candidates is ignored, and rewritten",
+          r.returncode == 0 and "ran ['arg']" in r.stdout and open(cf).read() in ("python3", "python", "py -3"), r.stdout + r.stderr)
+    os.remove(cf)
+    os.symlink(os.path.join(tmp, "hello.py"), cf)
+    r = pysh()
+    check("a symlink at the cache path is not followed", r.returncode == 0 and "ran ['arg']" in r.stdout, r.stdout + r.stderr)
+    os.unlink(cf)
+    r = subprocess.run(["bash", PYSH, os.path.join(tmp, "missing.py")], capture_output=True, text=True, env=penv)
+    check("an unreadable script is not run through the cache either", r.returncode != 0 or "ran" not in r.stdout)
+    shutil.rmtree(tmp, ignore_errors=True)
+else:
+    print("skip  py.sh cache cases (no bash, or Windows, where the cache is deliberately off)")
+
 # ================================ Windows spellings =============================================
 print("\n# Windows paths")
 sys.path.insert(0, HOOKS)

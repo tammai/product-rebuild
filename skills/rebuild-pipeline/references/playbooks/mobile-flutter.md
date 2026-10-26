@@ -949,7 +949,7 @@ depth requirement.
 
 1. **Establish the platform floor first** (§19). It is a number about real users and it can
    invalidate the whole plan; everything below assumes it came out acceptable.
-2. `scaffold-repo` from an empty directory (`g5-build.md` step 0): it runs `flutter create` with the
+2. `scaffold-repo` from an empty directory (`g5-first-slice.md` step 0): it runs `flutter create` with the
    org's bundle id and package name, adds Riverpod and `custom_lint`, writes the commands, rules,
    git hooks and CI, and runs the commands on day one. Then add what this playbook decides and the
    skeleton does not: `import_lint` and the boundaries (§4.3), the build_runner step, and the native

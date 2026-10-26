@@ -40,6 +40,9 @@ while another holds "Password field shows a strength meter"?
 **Asks:** does every entity in the reference ERD appear in some feature's `ground_truth`, and
 does every entity a feature names exist in the ERD?
 
+The orchestrator hands you `plan/gate-reviews/gate-1-facts.md` (from `gate_facts.py`): both directions are
+listed there. Score from it, and cite from it.
+
 - **5** — both directions clean, or every exception is annotated (`%% internal`, out of scope).
 - **3** — a few entities appear in the ERD and in no feature; nobody has said whether that is
   scope or an oversight.

@@ -66,12 +66,21 @@ passes and before the gate review is written.
    uncited dimensions named if it does not — same rule as a schema violation, and for the
    same reason: the fix has to come from a run that could have produced it.
 
-**Pre-extract an evidence bundle for large contracts.** For gates whose artifacts are big
-(gate 3 ADR sets, gate 4 `openapi.yaml`, specs), write the sections the rubric's dimensions
-touch into `plan/gate-reviews/gate-N-evidence.md` before dispatching: **verbatim excerpts**
-only, each headed `path:startLine-endLine`, never a summary of them (the paragraph below
-applies to the bundle too). Pass the bundle as an input beside the artifact paths. The judge
-scores from it and opens the full file only for a targeted range when a dimension needs what
+**Three files the judge should not have to build for itself**, all made by scripts before you dispatch
+(each used to be the judge opening files one at a time, or you retyping them as model output):
+
+- **Citation excerpts**, wherever the gate's artifacts carry `basis: transcribed` evidence (gate 1 on):
+  `python3 scripts/cite_excerpts.py --out plan/gate-reviews/gate-N-citations.md`. The cited line and its
+  neighbours next to each claim; an unopenable citation is marked, never skipped. Pass it as an input.
+- **Computed facts**, for the two gates with arithmetic dimensions:
+  `python3 scripts/gate_facts.py gate-1|gate-2 --out plan/gate-reviews/gate-N-facts.md` (ERD entities in both
+  directions and feature counts per domain; feature counts per slice).
+- **Evidence bundle** for gates whose artifacts are big (gate 3 ADR sets, gate 4 `openapi.yaml`, specs). You
+  choose which ranges the rubric's dimensions touch; `python3 scripts/evidence_bundle.py --out
+  plan/gate-reviews/gate-N-evidence.md path:start-end ...` copies them verbatim, each headed `path:start-end`.
+  Never type an excerpt yourself: a retyped one is not verbatim, and one had quietly fixed a typo the judge was
+  meant to score. The paragraph below applies to the bundle too. Pass the bundle as an input beside the artifact
+  paths. The judge scores from it and opens the full file only for a targeted range when a dimension needs what
 the excerpt left out — it is a starting point, not a limit on what the judge may check.
 One run on 8 judge dispatches read `openapi.yaml` 25 times; the bundle is how that becomes 1.
 
@@ -84,57 +93,38 @@ and the agent file pins `effort: high`, on the reasoning that scoring a whole ar
 omission-hunting and omissions are what effort buys. What used to be written here as "route it
 to a high tier" is now the resolved value you pass.
 
+## The data-model-drafter brief (`data-model-drafter`, G4b, one per bounded context)
+
+Same six parts, with these values. Dispatch every context in one turn, as the `data-model-drafter` role on the
+agent and model `scripts/routing.py --role data-model-drafter` resolves (`subagent_type` and `model` on the Agent
+call; its agent file carries the rules and the context budget).
+
+1. **Role file**: `${CLAUDE_PLUGIN_ROOT}/agents/data-model-drafter.md`.
+2. **Inputs**: the context's name and its matrix features (ids); `findings/ground-truth/reference-erd.mermaid`; the
+   Gate 3 ADRs that bear on data (decomposition, storage, tenancy and the like), by path; for `fullstack` the
+   storage concern's playbook excerpt (`python3 scripts/playbook.py excerpt storage > plan/adr-excerpts/storage.md`);
+   `target_shape`.
+3. **Output contract**: `contracts/data-model/<context>.mermaid`, one `erDiagram`, at least one entity, deviations
+   annotated with `%%`.
+4. **Boundaries**: no file but the output path; no other context's entities; no structural change that no ADR made.
+5. **Done means**: the file declares entities (`validate.py`), and the report lists the structural changes not made,
+   the cross-context ids drawn and the entities marked internal.
+6. **Model + tier**: as resolved by `routing.py`, stated in the brief.
+
 ## The build-lane brief (backend, frontend and infra lanes — G5)
 
-Same six parts. Parts 2 and 5 carry this, **verbatim** — a lane that has to infer how often to
-run the slow suites runs all of them after every batch, which is the failure it exists to stop.
+Same six parts. `lane-worker`'s agent file carries the standing rules, so they are not pasted into
+each brief (a rule that lives in every brief drifts between them, and the paste cost about 1.2K tokens per
+dispatch): the **test cadence** (what to run while building, at the joint run, and on the rerun of failures),
+the **long-run rules** (`run_in_background`, `run_phases.py`, what counts as green), the **migration** rules and
+the **helper** rules. The cadence is also stated for the orchestrator in `g5-build.md`, "Test cadence within a
+slice". `eval/lane_plan.py` checks the agent file still carries each rule. The brief says only what is true
+of this dispatch:
 
-**Test cadence** (part 5, from `g5-build.md` "Test cadence within a slice"):
-
-| When | Run | Don't run |
-|---|---|---|
-| While building | lint, type-check, unit and fixture tests for touched files; integration tests for touched packages; the ONE E2E for the criterion being worked on, if it is a UI-level one (`--grep` / `-run`) | the E2E set; the full backend suite |
-| The joint run, if this lane is named for it | `python3 scripts/lanes_check.py stamp` from the workbench root, then ONE run of the cumulative suite — all unit and integration/API suites, then the E2E set (latest smoke journey plus each slice's one UI-level E2E) — JUnit to `parity/<local-date>-ac.xml` | extra "clean" full runs |
-| After the joint run, for failures this lane owns | `python3 scripts/lanes_check.py stamp --rerun`, then ONLY the failed specs, JUnit to `parity/<local-date>-ac-rerun.xml` | another full run |
-
-`<local-date>` is today on this machine's own calendar, not UTC. Redeploy only when an E2E test
-needs the new build, and say so before and after. Commit before stamping: a dirty tree makes every
-pass on rerun report as unverified, because no commit names the code that ran.
-
-**Long runs** (part 5):
-
-- Start any command expected to take more than about 2 minutes with Bash `run_in_background: true`,
-  output to a log file. The process exit is the completion signal. A Monitor is never the only
-  signal that a long run ended — it expires after at most 30 minutes.
-- Never `nohup`, `&`, `setsid`, `disown` or `start`. Only `run_in_background: true` is tracked; a
-  process started any other way ends without waking you.
-- A run with more than one phase (reset, stamp, backend suite, redeploy, frontend suite) is ONE
-  background process: write the phases to `parity/runs/<local-date>-<label>/phases.txt`, then
-  start `python3 scripts/run_phases.py parity/runs/<local-date>-<label>` from the workbench root with
-  `run_in_background: true`. It runs the phases in order, writes `<phase>.log`, `<phase>.done` and
-  `status.json`, and stops at the first failure, so you have one wake-up instead of one per phase.
-  Settings the tests need go on `NAME=value` lines in `phases.txt`, never in an `export` inside one
-  phase: each phase is its own shell.
-- Whenever you wake, for any reason, first check whether your own run's process is alive. If it
-  ended, read the result and act on it before anything else.
-- Never end a turn "waiting for the notification" unless your own background process is still
-  running.
-- Report a run's result to the orchestrator in the same turn the run ends.
-- Report passed, failed, errored and skipped per suite, and every skip grouped by its reason. A run
-  is green only with no failures, no errors, no more than 10% skipped, and no test skipped because
-  an environment variable was unset. A criterion skipped for an unset variable was not tested:
-  fix the run's environment and run again before reporting it as passed.
-
-**Migrations** (part 4, verbatim, for a lane that changes a database schema):
-
-- Your migration number is `<N>`, assigned for this slice. Use only that number (or the range
-  given). Never pick the next free one yourself: parallel lanes picking at once collide.
-- Never run a migration `up` against a shared stack (the shared test database or deploy stack)
-  from a tree that lacks a lower-numbered migration another lane has applied there. A tool that
-  records only the highest applied version skips the lower one silently. Use your own database for
-  your own tests.
-- The joint run starts from a clean `reset` of the shared stack, with every lane's migrations
-  merged, so they apply in number order.
+- **Joint run:** whether this lane is the one named for the joint run (and so stamps and runs the cumulative
+  suite), or not.
+- **Migrations:** this lane's migration number (or range) for the slice, `<N>`, if its spec changes the schema.
+- **Helpers:** whether this lane may run helper agents.
 
 **The plan and the guards** (part 4). `lane-worker`'s agent file carries the standing rules: work the
 task rows of the `PLAN.md` at the worktree root, edit only their Status and Notes, set `Status:
@@ -145,14 +135,6 @@ drifts between them. The brief carries what is true of this dispatch, as written
 - You work in `<worktree>` on branch `slice/<Sn>-<lane>`, under the `PLAN.md` at its root. The
   rebuild pipeline wrote that plan from the slice specs the user approved. Your standing rules for
   it, and for the guards that run on this repo, are in your agent file.
-
-**Helpers** (part 4). A lane may run helper agents only in their own worktrees, with disjoint file
-ownership, unique test database and role prefixes, and test pools capped and closed in cleanup —
-one harness once leaked 34 connections and exhausted Postgres for every lane. Only the lane merges
-to main. A helper's worktree needs its own plan, because the spec gate reads one per worktree. Before
-dispatching a helper, run from the workbench root `python3 scripts/lane_plan.py <Sn> <lane>-h<N> --worktree
-<helper worktree> --branch <helper branch> --specs <the specs it builds>`. Never copy your own
-`PLAN.md` into the helper's worktree: a copy carries the wrong `Branch:` and no record of its own.
 
 Parallelism: dispatch independent lanes/modules in the same turn. On subagent output failing
 validation, send it back with the validator error — do not hand-fix, the fix must come from a

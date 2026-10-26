@@ -45,11 +45,37 @@ t = (sys.argv[1:] or [""])[0]
 sys.exit(0 if sys.version_info >= (3, 9) and (not t or (os.path.isfile(t) and os.access(t, os.R_OK))) else 3)' "$target" >/dev/null 2>&1
 }
 
+# FAST PATH. The probe above starts a whole interpreter to check a version, and then `exec` starts a second
+# one for the guard: about 35 ms of an 85 to 130 ms hook, on every tool call, for eight guards. The answer
+# does not change within a session, so a successful probe is remembered, keyed by PATH, and the next run
+# skips it. Never on Windows (cygpath exists there): the Store-stub failure that the probe is for is exactly
+# the one a cached answer would hide. The cache holds only one of the three candidate strings below and only
+# if the file is ours, so a file planted at a predictable path in a shared /tmp can name nothing else to run.
+cache=""
+if ! command -v cygpath >/dev/null 2>&1 && command -v cksum >/dev/null 2>&1; then
+    cache="${TMPDIR:-/tmp}/product-rebuild-py-$(id -u 2>/dev/null || echo 0)-$(printf '%s' "$PATH" | cksum | cut -d' ' -f1)"
+    if [ -O "$cache" ] && [ ! -L "$cache" ] && { [ -z "$target" ] || [ -r "$target" ]; }; then
+        cached="$(cat "$cache" 2>/dev/null || true)"
+        case "$cached" in
+            "python3"|"python"|"py -3")
+                if command -v "${cached%% *}" >/dev/null 2>&1; then
+                    # shellcheck disable=SC2086
+                    exec $cached "$@"
+                fi
+                ;;
+        esac
+    fi
+fi
+
 for candidate in "python3" "python" "py -3"; do
     exe="${candidate%% *}"
     command -v "$exe" >/dev/null 2>&1 || continue
     # shellcheck disable=SC2086  # `py -3` is deliberately two words
     if probe $candidate; then
+        if [ -n "$cache" ]; then
+            # Atomic, so two guards starting together cannot leave a half-written name behind.
+            printf '%s' "$candidate" > "$cache.$$" 2>/dev/null && mv -f "$cache.$$" "$cache" 2>/dev/null || true
+        fi
         # shellcheck disable=SC2086
         exec $candidate "$@"
     fi

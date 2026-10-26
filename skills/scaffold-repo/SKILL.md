@@ -69,7 +69,7 @@ forced or the workbench is damaged: say so and stop. Do not improvise a scaffold
      never gains one; it is the user's file after it is written.
 
 6. **Finalize**: `$SC finalize` (moves the lock to `.rebuild/scaffold.lock.json`), commit, then continue
-   with the rest of `g5-build.md` step 0: add the workbench submodule **after** this (generators refuse a
+   with the rest of `g5-first-slice.md` step 0: add the workbench submodule **after** this (generators refuse a
    non-empty directory), register the repo in `repos.yaml`, give it a remote, confirm `pause-check` sees
    it.
 

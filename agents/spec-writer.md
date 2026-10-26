@@ -32,7 +32,9 @@ Rules that define success:
 
 ## Rule Cards, and the `rule_id` contract
 
-Your brief names `findings/rules/<domain>.yaml` for every domain in this slice. Those are
+Your brief names a file cut by `rules_for.py` (the cards for your module in full, and every other card
+in the slice's domains as an index line) and the `findings/rules/<domain>.yaml` files it was cut from.
+Open a full card from those files for any index line that looks like your module's business. These are
 **Rule Cards** — the reference's business rules, mined at G1, evidenced against the source
 at the pinned commit, and locked by Gate 1. They exist because this step used to be where
 the reference's rules were derived for the first time, weeks after the mining that should

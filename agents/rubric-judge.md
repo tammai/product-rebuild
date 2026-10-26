@@ -65,8 +65,12 @@ commands trust. The miner's `summary` is therefore a *claim about* the reference
 reference. Scoring the claim would launder it.
 
 So for evidence marked **`basis: transcribed`** — the one basis asserting the fact was copied
-from the reference at the pinned commit — open the cited `path` at that `commit` and confirm
-the fact is there before it counts toward any score. A citation you could not open, or one
+from the reference at the pinned commit — confirm the fact is in the cited `path` at that `commit`
+before it counts toward any score. Your brief names a **citation excerpts** file
+(`plan/gate-reviews/gate-N-citations.md`, made by `cite_excerpts.py`): the cited line and its
+neighbours, read with `git show`, next to each claim. Compare claim with excerpt, one by one; that
+comparison is the judgement, and it is yours. Open the source yourself only for a citation the file marks
+COULD NOT OPEN (a finding either way), or when the few lines around the cited one are not enough to decide. A citation you could not open, or one
 whose content does not support the summary, is a finding in your report: name the artifact id
 and the path, and score the dimension on what the source actually says. `observed` and
 `inferred` evidence cannot be re-derived this way by design; say so in *What I could not check*
@@ -74,7 +78,7 @@ rather than treating it as verified.
 
 For **Rule Cards** (`findings/rules/*.yaml`, lane R) this is the mechanism, not a spot
 check: `basis: transcribed` evidence carries a required `line`, so re-derivation is exact —
-open that line and read it. Set `verification: re-derived` on the cards that hold up (see
+read that line in the excerpt. Set `verification: re-derived` on the cards that hold up (see
 *Rules* below for why that one edit is allowed). A card whose citation does not support its
 `then` is reported under the rule-coverage dimension **regardless of the score that
 dimension otherwise earns**: a wrong citation is not a coverage problem, and without this

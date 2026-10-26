@@ -222,6 +222,25 @@ r = arch()
 check("a lane is archived once", r.returncode == 1 and re.search(r"already archived", r.stderr), r.stderr)
 
 
+# --- lane-worker.md carries the standing rules the lane brief used to paste each time -----------
+worker_md = read(os.path.join(ROOT, "agents", "lane-worker.md"))
+for label, needle in (
+        ("the cadence: stamp before the joint run", "lanes_check.py stamp"),
+        ("the cadence: rerun only failures", "ONLY\n  the failed specs"),
+        ("the cadence: commit before stamping", "Commit before stamping"),
+        ("long runs: run_in_background only", "Only `run_in_background: true` is tracked"),
+        ("long runs: never nohup", "Never `nohup`"),
+        ("long runs: one process for phases", "run_phases.py parity/runs/<local-date>-<label>"),
+        ("long runs: skips bound", "no more than 10% skipped"),
+        ("migrations: use only your number", "Use only the number"),
+        ("migrations: not up on a shared stack", "Never run a migration `up` against a shared stack"),
+        ("helpers: own worktree and plan", "A helper's worktree needs its own plan"),
+        ("helpers: never copy PLAN.md", "Never copy your own `PLAN.md`")):
+    check(f"lane-worker.md still says: {label}", needle in worker_md)
+briefs_md = read(os.path.join(ROOT, "skills", "rebuild-pipeline", "references", "subagent-briefs.md"))
+check("the build-lane brief no longer pastes the long-run rules", "Never `nohup`" not in briefs_md)
+
+
 # --- boundary.py: the slice boundary's mechanical steps in one call ------------------------------
 def boundary(*a):
     return run_script("boundary.py", *a)
