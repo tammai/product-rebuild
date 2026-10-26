@@ -28,7 +28,7 @@
       "type": "object",
       "required": ["A", "B", "C", "D"],
       "additionalProperties": false,
-      "description": "Per-lane, because the causes are not interchangeable: a wrong commit poisons lane D's citations and nothing else, an unreachable instance takes out B and C and leaves D untouched.",
+      "description": "Per-lane, because the causes are not interchangeable: a wrong commit poisons lane D's citations and nothing else, an unreachable instance takes out B and C and leaves D untouched. A black-box reference (no repo declared) leaves D `degraded`: docs and API only, nothing wrong.",
       "properties": {
         "A": { "$ref": "#/definitions/laneVerdict" },
         "B": { "$ref": "#/definitions/laneVerdict" },
@@ -50,7 +50,7 @@
           "title": { "type": "string", "minLength": 1 },
           "status": {
             "enum": ["pass", "gap", "fail", "skip"],
-            "description": "Only `fail` makes the run Not-ready. `gap` is a named, costed degradation — a build detected but not executed is a gap, never a pass."
+            "description": "Only `fail` makes the run Not-ready. `gap` is a named, costed degradation — a build detected but not executed is a gap, never a pass. `skip` is a check with nothing to inspect, including every source check of a black-box reference."
           },
           "detail": { "type": "string", "minLength": 1 },
           "effect": {

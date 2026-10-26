@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-26
+
+### Changed
+
+- `preflight.py` no longer fails a workbench that has no reference repository. When `sources.yaml` leaves `reference.repo`, `checkout` and `pinned_commit` empty and no `--checkout` is given, the source checks are skipped and lane D reads `degraded` (docs and API only, as under clean-room) instead of the run reading Not-ready on a checkout that was never going to exist. Declaring any one of those fields still requires a checkout at the pinned commit, so a forgotten clone still fails.
+- `autopilot.py preflight` refuses a black-box reference whose instance did not pass (lane D `degraded`, lanes B and C `blocked`): nothing is left to mine but public docs, and nobody is watching an unattended run to notice. Attended runs still see it as an ordinary Ready-with-gaps; every other Ready-with-gaps stays a note.
+
 ## [1.4.2] - 2026-10-26
 
 ### Fixed (documentation)

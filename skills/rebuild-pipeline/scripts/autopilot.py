@@ -599,6 +599,19 @@ def cmd_preflight(args, state):
                 blockers.append("G0 preflight reads Not-ready — G1 must not dispatch miners:\n" +
                                 "\n".join(f"      - {_js_str(b)}" for b in (bl if isinstance(bl, list) else [])) +
                                 "\n      Fix the cause and re-run `python3 scripts/preflight.py`. PREFLIGHT.md has the detail.")
+            elif verdict == "Ready-with-gaps" and (_get(lanes, "D") == "degraded" and _get(lanes, "B") == "blocked"
+                                                   and _get(lanes, "C") == "blocked"):
+                # A black-box reference (lane D degraded: no repo) whose instance did not pass
+                # (B and C blocked): nothing is left to observe but public docs. Attended, the
+                # user sees the gap in PREFLIGHT.md and decides; unattended nobody does, and a
+                # whole run would spec the rebuild from a changelog and a pricing page. Ready-with-
+                # gaps stays a note for every other cause — this is the one combination with no
+                # evidence source behind it. Reads the lane verdicts, not the check text, so it
+                # survives a reworded detail line.
+                blockers.append("G0 preflight: black-box reference with no running instance (lanes "
+                                f"{lane_line}) — there is nothing to mine but public docs.\n"
+                                "      Add the instance URL to sources.yaml `allowed:` and re-run "
+                                "`python3 scripts/preflight.py`, or run this one attended.")
             elif verdict == "Ready-with-gaps":
                 gaps = _get(pf, "gaps")
                 notes.append(f"preflight: 🟡 Ready-with-gaps (lanes {lane_line}) — mining may start; the gaps are named "

@@ -109,6 +109,11 @@ Goal: pick the reference and record the legal posture BEFORE any agent reads any
   commit writes citations that are wrong the moment they are written and stay wrong through
   a gate lock that hashes them.
 
+  **A reference with no repository at all** (closed-source, SaaS) is accepted: leave
+  `reference.repo`, `checkout` and `pinned_commit` empty and the source checks are skipped,
+  with lane D `degraded` — docs, API and the running product only, as under clean-room. Fill
+  any one of the three and the full check applies, so a repo you forgot to clone still fails.
+
   **Not-ready blocks G1 dispatch and nothing else.** `sources.yaml` and `license-posture.md`
   commit and push regardless — none of the causes changes a G0 decision, they change whether
   it is honest to start mining. Fix the cause and re-run; it is idempotent.

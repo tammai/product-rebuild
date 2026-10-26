@@ -40,6 +40,11 @@ reasons that are not budget:
 Not executing is recorded as a gap, named in PREFLIGHT.md with the exact command to run,
 so it reads as "unproven", never as "passed". Ready-with-gaps is the honest verdict for
 a reference whose build nobody has watched succeed.
+
+BLACK-BOX REFERENCES. A rebuild from a running product and docs has no repository, and a
+preflight that demanded one would hold G1 on a check that can never pass. When sources.yaml
+declares no source at all the source checks are skipped and lane D is `degraded`; declaring
+any of repo, checkout or pinned_commit opts back in to the full check. See `blackbox` in main().
 ---------------------------------------------------------------------------
 """
 from __future__ import annotations
@@ -186,6 +191,16 @@ def main(argv=None):
     ) if c]
     checkout = next((c for c in checkout_candidates if os.path.exists(os.path.join(c, ".git"))), None)
 
+    # Black-box reference: the workbench declares no source at all — no --checkout, no
+    # `reference.checkout`, `reference.repo` or `reference.pinned_commit` — and none of the
+    # candidate paths is a git repo. That is a rebuild from a running product, docs and an API
+    # (a closed-source or SaaS reference), and "no checkout" is the truth, not a mistake.
+    # Narrow on purpose: ANY of those fields set means the user expects a source tree, and a
+    # missing one is the forgot-to-clone failure the pinned-commit check below exists to catch.
+    # Treating "repo set, checkout missing" as black-box would turn that failure into a pass.
+    blackbox = not checkout and not (arg_after("--checkout") or ref["checkout"]
+                                     or ref["repo"] or ref["pinned_commit"])
+
     # --- checks -------------------------------------------------------------------------
     # status: "pass" | "gap" | "fail" | "skip". Only "fail" makes the run Not-ready.
     checks = []
@@ -196,13 +211,24 @@ def main(argv=None):
     # 1. Reference source is at pinned_commit.
     #    Not-ready, and it is the one check that has to be: every lane-D finding cites this
     #    commit, so mining a different tree writes citations that are wrong at the moment they
-    #    are written and stay wrong through a gate lock that hashes them.
+    #    are written and stay wrong through a gate lock that hashes them. Black-box skips it:
+    #    with no tree there is no commit for a citation to be wrong against.
     title1 = "Reference source is at pinned_commit"
-    if not checkout:
+    if blackbox:
+        add("pinned-commit", title1, "skip",
+            "No reference repository declared (sources.yaml `reference.repo`, `checkout` and "
+            "`pinned_commit` are empty, no --checkout given): black-box reference.",
+            "Lane D has no source to transcribe and works from docs, API responses and the running "
+            "product only, as under clean-room posture: its evidence is `inferred`, never "
+            "`transcribed`, and fidelity on ownership and nullability is lower. To mine source "
+            "after all, fill `reference.repo`, `checkout` and `pinned_commit` and re-run.")
+    elif not checkout:
         looked = ", ".join(checkout_candidates) or "(nothing to look for — sources.yaml names no reference)"
         add("pinned-commit", title1, "fail",
             f"No reference checkout found. Looked for a .git in: {looked}.",
-            "Pass --checkout <path>, or add `checkout:` under `reference:` in sources.yaml.")
+            "Pass --checkout <path>, or add `checkout:` under `reference:` in sources.yaml. "
+            "If there is no source to mine, clear `reference.repo` and `reference.pinned_commit` "
+            "instead: with nothing declared, preflight accepts a black-box reference.")
     elif not ref["pinned_commit"]:
         add("pinned-commit", title1, "fail",
             f"sources.yaml has no reference.pinned_commit. The checkout at {checkout} is at "
@@ -274,8 +300,9 @@ def main(argv=None):
                     break
 
     if not checkout:
-        add("build", "Reference builds", "skip", "No checkout to inspect.", None)
-        add("test-suite", "Reference test suite exists and passes", "skip", "No checkout to inspect.", None)
+        why = "Black-box reference: no source to inspect." if blackbox else "No checkout to inspect."
+        add("build", "Reference builds", "skip", why, None)
+        add("test-suite", "Reference test suite exists and passes", "skip", why, None)
     elif not build_defs:
         add("build", "Reference builds", "gap",
             "No build definition detected (.github/workflows, Dockerfile, Makefile — in that order).",
@@ -445,13 +472,15 @@ def main(argv=None):
     #
     # The wrong commit is the only global Not-ready, and it earns it: it is the only cause
     # where dispatching anyway produces artifacts that are wrong rather than missing.
+    # A black-box reference is the opposite case — lane D's artifacts are thinner, not wrong —
+    # so it is `degraded`, never `blocked`.
     commit_bad = (by_id.get("pinned-commit") or {}).get("status") == "fail"
     instance_ok = (by_id.get("instance") or {}).get("status") == "pass"
     lanes = {
         "A": "ready",
         "B": "ready" if instance_ok else "blocked",
         "C": "ready" if instance_ok else "blocked",
-        "D": "blocked" if commit_bad else "ready",
+        "D": "blocked" if commit_bad else "degraded" if blackbox else "ready",
     }
 
     # No timestamp in this file, deliberately. Two runs on an unchanged tree must produce a
