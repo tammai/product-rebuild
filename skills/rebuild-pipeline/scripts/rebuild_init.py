@@ -38,7 +38,7 @@ SCRIPTS = [
     "playbook.py", "basis.py", "flows.py", "autopilot.py",
     "sequence.py", "slice_review.py", "acsuite.py", "routing.py",
     "preflight.py", "upgrade.py", "equiv.py", "lanes_check.py",
-    "lane_plan.py", "run_phases.py",
+    "lane_plan.py", "run_phases.py", "boundary.py",
     # The YAML and JSON-schema readers every checking script imports, and the PyYAML they sit on.
     "yamlio.py", "schemacheck.py",
 ]

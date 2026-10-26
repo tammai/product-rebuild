@@ -211,7 +211,9 @@ Gates are human decisions. When a phase's exit criteria are met:
    it is not broken in the ways that silently reach a code repo.
 
    **1b — dispatch the rubric judge**, after validate passes and before the review is
-   written. Brief `${CLAUDE_PLUGIN_ROOT}/agents/rubric-judge.md` against
+   finished. Dispatch it in the background and draft the review while it runs (what is being locked,
+   the decisions inside it, the risks); add what the rubric report flagged when it lands. The judge
+   and the draft need nothing from each other, and waiting for it first was dead time. Brief `${CLAUDE_PLUGIN_ROOT}/agents/rubric-judge.md` against
    `references/rubrics/gate-N.md`. Everything step 1 checks is structural, and between it and
    a human's judgement nothing measured whether the artifacts are any *good*. The judge fills
    that gap and nothing else: **scores inform the lock decision, they never gate it.**

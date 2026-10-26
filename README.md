@@ -192,10 +192,11 @@ Four of the five gates close before a line of product code exists, and the fifth
 That leaves the build — the longest stretch of the project — with no scheduled moment to stop
 and look, which is where "the pipeline runs, but where are we?" comes from.
 
-So after each slice: record progress, run parity, then
+So after each slice: record progress in `plan/progress.yaml`, then one call runs the rest (archives the
+slice's lane plans, runs parity and the slice review, and says whether the upstream re-mine is due):
 
 ```bash
-python3 scripts/slice_review.py S3
+python3 scripts/boundary.py S3
 ```
 
 It generates `plan/slice-reviews/S3.md` from what is on disk — never composed — and answers
@@ -284,6 +285,7 @@ skills/rebuild-pipeline/        THE skill you interact with
   scripts/lane_plan.py         a lane's PLAN.md, written from the slice specs you approved
   scripts/sequence.py          slice execution order — the logged-decision reorder mechanism
   scripts/slice_review.py      the between-slices standing report (generated, advisory)
+  scripts/boundary.py          the slice boundary in one call: archive lane plans, parity, slice review, re-mine due?
   scripts/pause_check.py       is it safe to pause the session? (advisory, not a gate)
   scripts/autopilot.py         unattended-run state: preflight / check / engage / log / disengage
   scripts/routing.py           which model each subagent role dispatches on (.claude/model-routing.json)

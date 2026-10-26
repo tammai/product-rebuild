@@ -222,6 +222,40 @@ r = arch()
 check("a lane is archived once", r.returncode == 1 and re.search(r"already archived", r.stderr), r.stderr)
 
 
+# --- boundary.py: the slice boundary's mechanical steps in one call ------------------------------
+def boundary(*a):
+    return run_script("boundary.py", *a)
+
+
+src_path = os.path.join(wb, "sources.yaml")
+src_before = read(src_path) if os.path.exists(src_path) else ""
+w(wb, "sources.yaml", "reference:\n  kind: third-party\n  upstream: active\n")
+r = boundary("S1")
+check("boundary runs archive, parity, slice review and the re-mine check in one call",
+      all(h in r.stdout for h in ("== S1: archive lane plans (1 recorded)", "api: already archived", "== parity", "== slice review"))
+      and os.path.exists(os.path.join(wb, "parity")) and "Upstream re-mine: DUE. None is recorded" in r.stdout, r.stdout[:1500] + r.stderr)
+check("a due re-mine exits 2", r.returncode == 2, r.returncode)
+check("remine-done records today's date", boundary("remine-done").returncode == 0
+      and re.fullmatch(r"\d{4}-\d\d-\d\d\n", read(os.path.join(wb, "parity/last-remine"))) is not None)
+r = boundary("S1")
+check("a recorded re-mine is not due, and the whole call exits 0", r.returncode == 0 and "Upstream re-mine: not due. Last on" in r.stdout, r.stdout[-400:] + r.stderr)
+w(wb, "parity/last-remine", "2020-01-01\n")
+r = boundary("S1")
+check("a 30-day-old re-mine is due again", r.returncode == 2 and re.search(r"DUE\. Last on 2020-01-01, \d+ days ago", r.stdout), r.stdout[-300:])
+w(wb, "sources.yaml", "reference:\n  kind: own-code\n  upstream: frozen   # replaced app\n")
+r = boundary("S1")
+check("a frozen reference says so and exits 0", r.returncode == 0 and "reference is frozen, no re-mine" in r.stdout, r.stdout[-300:] + r.stderr)
+recp = os.path.join(wb, "plan/lane-plans/S1.yaml")
+rec3 = json.loads(re.sub(r"^#.*\n", "", read(recp), flags=re.M))
+rec3["lanes"]["ghost"] = {"worktree": os.path.join(base, "no-such-worktree")}
+w(wb, "plan/lane-plans/S1.yaml", "# test\n" + json.dumps(rec3))
+r = boundary("S1")
+check("a lane that cannot be archived is named, and the call exits 2", r.returncode == 2 and re.search(r"ghost: NOT archived", r.stdout), r.stdout[:600])
+check("boundary with no slice id prints usage", boundary().returncode == 1)
+if src_before:
+    w(wb, "sources.yaml", src_before)
+
+
 # --- routing resolves build lanes to this plugin's agents -----------------------------------------
 def route(cfg):
     if cfg:

@@ -122,7 +122,7 @@ then `disengage --reason gate-review --next "..."`, run `pause_check.py`, and pr
 review. The user decides; the file is there so the decision does not depend on scrollback.
 
 **At a slice boundary.** Run the between-slices sequence in `g5-build.md` — record progress,
-parity, `slice_review.py`, commit all of it — *before* halting for the "marking a slice done"
+then `boundary.py <Sn>` (archive, parity, slice review, re-mine check), commit all of it — *before* halting for the "marking a slice done"
 decision. The review is the artifact that decision gets made against, and an unattended run that
 halts without writing one hands the user a question and none of the evidence for it.
 

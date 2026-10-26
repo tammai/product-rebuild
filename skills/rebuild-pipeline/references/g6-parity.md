@@ -1,6 +1,7 @@
 # G6 — Parity loop (automated)
 
-Run after each slice and on schedule (monthly default).
+Run after each slice (`python3 scripts/boundary.py <Sn>` runs it with the rest of the boundary). The upstream
+re-mine in step 3 is on a 30-day schedule, not every slice.
 
 1. **AC suite**: run the tests; "is the feature done" is a test result, not a meeting.
 
@@ -40,8 +41,11 @@ Run after each slice and on schedule (monthly default).
 2. **Parity diff**: `python3 scripts/parity.py` from the workbench root — coverage vs `matrix/`:
    covered / partial / missing per feature, plus scope-creep detection (built but not
    in matrix). Report lands in `parity/<date>.md`.
-3. **Upstream re-mine**: re-run lane A (changelog) against the reference's latest
-   release; content-hashing surfaces only real changes. New upstream features enter the
+3. **Upstream re-mine, when it is due**: `boundary.py` prints `DUE` or `not due` against the date in
+   `parity/last-remine` (30 days). Skip it when it says not due; when it says DUE, re-run lane A (changelog)
+   against the reference's latest release, then `python3 scripts/boundary.py remine-done` and commit the file.
+   Before this the step ran at every slice with no date, which was one miner run per slice against a reference
+   that ships monthly. Content-hashing surfaces only real changes. New upstream features enter the
    matrix as backlog candidates flagged for the next slice boundary — they NEVER bypass
    gates or reorder the current slice.
 

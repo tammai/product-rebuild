@@ -6,7 +6,9 @@ taxonomy. With source access, presence is deterministic; the work is ORGANIZATIO
 ## Steps
 1. Merge lanes per feature (agentable): join lane-D facts with lane A/C context; keep all
    evidence. Dedupe is minimal with a single reference.
-2. Canonical naming: agent drafts, user spot-checks.
+2. Canonical naming: agent drafts, user spot-checks. **Present it in the same message as the
+   taxonomy in step 3**, not as its own stop: both are reviewed on the same list of features, and
+   two sequential approvals over one list was one extra halt (an unattended run stops at each).
 3. Taxonomy — USER decision, propose-before-act: group features into domains. The
    taxonomy is the first draft of bounded contexts (G4a inherits it). Advise the user:
    cut domains the way THEY would design the system; keeping the reference's module

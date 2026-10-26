@@ -175,7 +175,9 @@ then resolves against the code repo's own remote, so a fresh
    describe the product; code repos reach them through the submodule pin). Every spec ends
    with acceptance criteria: testable behaviors, each mapping 1:1 to a test at the lowest
    level that can observe it (see "Test depth and UI depth"). Where behavior is ambiguous, the RUNNING REFERENCE is the arbiter — check it,
-   never guess. Specs pass user review (propose-before-act) before any code.
+   never guess. Run `python3 scripts/validate.py` when the spec-writers return and before you present them: it checks the
+   `rule_id` join against lane R's cards, so a bad id surfaces now and not at a later check. Specs pass user
+   review (propose-before-act) before any code.
 
    **Every acceptance criterion that implements a Rule Card carries `rule_id:`.** This is
    the join that makes lane R worth mining: without it the cards are a document nobody reads
@@ -238,8 +240,8 @@ then resolves against the code repo's own remote, so a fresh
      committed, run `python3 scripts/lane_plan.py <Sn> <lane> --worktree <path> --specs <...> --amend
      --reason "..."`. A row keeps its status only if its criterion text is unchanged, and the
      reason is logged under `## Amendments`.
-   - **At slice end**, once every row is `Done` and the slice is deployed, run `python3 scripts/lane_plan.py
-     -- archive <Sn> <lane>` for each lane. It moves `PLAN.md` to `plan/lane-plans/archive/` in the
+   - **At slice end**, once every row is `Done` and the slice is deployed, `boundary.py <Sn>` (see "Between
+     slices") archives each lane; by hand it is `python3 scripts/lane_plan.py archive <Sn> <lane>`. It moves `PLAN.md` to `plan/lane-plans/archive/` in the
      workbench, so the code repo's tree carries no plan after the slice (a plan left behind keeps
      its `Status: approved`, which the gate would honour for the next lane cut from that tree). It
      refuses a plan with unfinished rows, and it records an edited `## Spec` for the slice review
@@ -480,15 +482,19 @@ and it is worth naming before the slice rather than discovering mid-verification
 
 ## Between slices — the boundary is the only cheap place to change the plan
 
-Four steps, in order, then return here for the next slice:
+Five steps, in order, then return here for the next slice. Steps 2 and 3 are one call.
 
 1. **Record the slice's outcome** in `plan/progress.yaml` — `slices:` *and* `features:`.
    Filling in only the first is the natural thing to do and it is the documented trap: every
    feature then falls through to `matrix/features.yaml`'s `status:`, which is gate-1 MINING
    output about the reference, and the two vocabularies share the words `covered`, `partial`
    and `missing` so nothing looks wrong.
-2. **Run G6 parity** — `g6-parity.md`.
-3. **Run the slice review** — `python3 scripts/slice_review.py <Sn>`. Generated from what is on disk,
+2. **Run the boundary** — `python3 scripts/boundary.py <Sn>`, after step 1 because parity reads
+   `plan/progress.yaml`. One call does what was four to six turns: archives each of the slice's lane plans
+   (a plan that will not archive is named, not skipped), runs G6 parity (`g6-parity.md`), runs the slice
+   review, and says whether the upstream re-mine is due (`g6-parity.md` step 3). It exits 2 when something
+   needs you: an unarchived lane, a failed step, or a due re-mine.
+3. **Read the slice review** it printed (`plan/slice-reviews/<Sn>.md`). Generated from what is on disk,
    never composed: does the whole product still run (cumulative AC suite, and what regressed
    since the last run), what shipped, where that puts us in the order, what is pressing on the
    plan. **Advisory** — it locks nothing and blocks nothing. Present it, and say what you think.

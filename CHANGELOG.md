@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-26
+
+The rest of the audit that could be done safely. Four items were checked and not done, and why is below.
+
+### Added
+
+- `scripts/boundary.py <Sn>`: the mechanical half of a slice boundary in one call. It archives each lane plan
+  (naming any that will not archive), runs parity and the slice review, and prints whether the upstream re-mine
+  is due. That was four to six orchestrator turns, each re-reading the session. `boundary.py remine-done`
+  records the re-mine. Vendored into workbenches with the other scripts. `g5-build.md`, `g6-parity.md`,
+  `autopilot.md` and the README use it.
+
+### Changed
+
+- **The upstream re-mine is on a 30-day schedule, not every slice.** `g6-parity.md` put it in the every-slice
+  run with no date, one miner run per slice against a reference that ships monthly. The date of the last one is
+  in `parity/last-remine`; a frozen reference still skips it.
+- The rubric judge is dispatched in the background while the gate review is drafted, since neither needs the other.
+- `validate.py` runs when the spec-writers return, before the specs are shown to you, so a bad `rule_id` surfaces
+  then.
+- G2's canonical names and its taxonomy proposal are presented in one message: one halt, not two, over the same list.
+
+### Checked and not done
+
+- **Splitting `g5-build.md` by situation:** about 35 inbound references name its sections (hook messages, script
+  comments, other docs), and the saving is cache-read tokens. Not worth breaking them.
+- **Parallel G4b data models:** the files are independent per context, but only the orchestrator drafts them
+  and a parallel drafter needs a new agent role for an artifact Gate 4 locks. That needs its own quality check.
+- **Filtering Rule Cards per spec-writer, moving the lane brief's standing rules into `lane-worker.md`, a judge
+  facts script:** each risks silently dropping a rule or changing a lane's behaviour, and the savings were not
+  measured. The remote-purpose, team-composition and learning-stage questions are deliberate (different repos,
+  or the only place the fact is ever recorded).
+- **A faster `py.sh`:** about 35 ms of an 85 to 130 ms hook, in parallel; not worth Windows risk.
+
 ## [1.2.0] - 2026-10-26
 
 A token and time audit of the pipeline (three read-only reviews, then checked against the source) and the
