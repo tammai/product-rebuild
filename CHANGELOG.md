@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-10-26
+
+### Fixed (documentation)
+
 - `README.md` named the command `/rebuild`. In a fresh session with the plugin installed the working name is `/product-rebuild:rebuild` (found by installing the released plugin and running it); the README now uses it.
 
 ## [1.4.1] - 2026-10-26

@@ -28,7 +28,7 @@
         "agent-orchestrated",
         "claude-code-plugin"
       ],
-      "version": "1.4.1"
+      "version": "1.4.2"
     }
   ]
 }
