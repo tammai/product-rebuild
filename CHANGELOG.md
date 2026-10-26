@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### 1.0.0 (unreleased, branch `v1`) — standalone, and Python
+## [1.0.0] - 2026-10-26 — standalone, and Python
 
 Part of the standalone pipeline in `specs/Spec Standalone pipeline without bigin-skills.md`.
 1.0.0 is a new plugin, `product-rebuild` (`tammai/product-rebuild`), not an update to
