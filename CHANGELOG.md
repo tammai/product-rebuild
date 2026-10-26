@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (documentation)
+
+A stale-doc audit: mechanical checks (dangling doc, script and step references; lists against the files on disk;
+phrases that changed meaning) and four read-only reviews against a sheet of what changed since 1.0.0, each claim
+then checked against the source. 1.1.0 to 1.4.0 changed behaviour faster than the prose around it.
+
+- `SKILL.md` still described the 10-minute `lanes_check.py` cron, listed the slice boundary as three manual steps
+  instead of `boundary.py`, had the wrong set of expected effort warnings (`data-model-drafter` under `balanced`,
+  `build-lane` under `frontier`), and carried two fallbacks for 0.x workbenches that 1.x refuses
+  (`routing.py` before 0.16.0, no `preflight.py`). `autopilot.md` had the same kind of dead fallback.
+- `docs/PLAYBOOK.md`: "Upgrading a workbench" was written for 0.x (pre-0.17 bootstrap, 0.16 two-file copy, a
+  `package.json` script line); it now says a 0.x workbench is not migrated and how a 1.x one upgrades. Lane R and
+  the Rule Card contract were missing from the guide entirely. Data models are no longer "drafted sequentially",
+  drafters read a playbook excerpt, and the frontmatter key is `scaffold:`, not `scaffold-profile:` (also in
+  `g4a-architecture.md`).
+- `README.md`: "Two ideas" listed three; the mining walkthrough omitted lane R; five scripts were missing from the
+  layout and `lanes_check.py watch` from its entry; the hooks entry omitted the runbook guard, the injection scan
+  and the canary seed; one bullet had a sentence spliced into the middle of another and said every guard matched
+  `Write|Edit|MultiEdit`; briefs no longer carry the context budget.
+- `subagent-briefs.md`: role lists said six agents, the judge brief said five parts. `lane-worker.md` still said
+  "the brief's test cadence" after the cadence moved into it, and `g5-build.md` still said the brief has lanes `cd`.
+  A paragraph in `g5-first-slice.md` and one in `g6-parity.md` had lost their antecedents in the 1.4.0 split.
+  `rubric-judge.md` and the gate 1, 3 and 4 rubrics did not mention the helper files `cite_excerpts.py`,
+  `gate_facts.py` and `evidence_bundle.py` make. `lane-verifier.md` and `routing.py` still spoke of a verifier
+  round. The playbooks README now documents inline `content`, `to` staying in the repo, the `ci` keys and the
+  `playbook: none` manifest path.
+
 ## [1.4.0] - 2026-10-26
 
 The audit items 1.3.0 held back, done with a check each.

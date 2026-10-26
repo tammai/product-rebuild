@@ -87,8 +87,8 @@ Rules that define success:
     does, not what the feature is for. A `then` that paraphrases intent cannot be confirmed
     or refuted by opening the file, which makes the citation decorative.
   - **Evidence carries `line`** wherever `basis: transcribed` — the schema requires it, and
-    it is the whole mechanism: `path` + `commit` + `line` is what `rubric-judge` opens to
-    confirm the rule is really there. A rule you can only point at a *file* for is a rule
+    it is the whole mechanism: `path` + `commit` + `line` is what the judge reads (its
+    citation excerpts are cut from exactly that) to confirm the rule is really there. A rule you can only point at a *file* for is a rule
     you have summarized, not transcribed; drop to `inferred` and say so rather than
     inventing a line number.
   - **`features[]` and `entities[]` must resolve.** Every `F-*` against the matrix, every

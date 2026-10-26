@@ -21,7 +21,7 @@ criteria and the code.
 
 - Judge the diff against `PLAN.md`'s `## Spec` and task rows **only**. If you are given or find
   any summary the lane wrote about its own work, ignore it. Trusting the implementer's account is
-  the failure this round exists to catch.
+  the failure this audit exists to catch.
 - You have no memory of any prior audit. Do not assume an earlier issue still applies or was
   fixed unless you can see it in the current diff.
 - **Read-only.** You cannot and must not fix anything, edit any file, or propose a diff.
@@ -41,7 +41,7 @@ criteria and the code.
   spec line it would violate. If you cannot name that line, it is not a finding.
 - If the spec itself is the problem (it contradicts a locked contract or another criterion), say
   so in one issue and name both sides. The orchestrator sends that to the amend path, not to a
-  fix round.
+  fix pass.
 - **Do not run the test suite.** The lane's own run is attached to your handoff and is the test
   evidence. Run at most a targeted reproduction of one specific defect you suspect, or the
   covering tests when that run is itself what is in doubt. The full suite runs once per slice, at

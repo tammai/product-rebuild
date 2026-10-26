@@ -51,7 +51,8 @@ Never scaffold conversationally and never hand-write a `CLAUDE.md` rules brief i
 **The plugin's guards apply to pipeline work.** Claude Code loads a repo's hooks only when the
 session started in that repo, and rebuild sessions start in the project's parent, so the guards
 are this plugin's own hooks (`hooks/scripts/`): a bash guard, a spec gate, the injection gate and
-canary, and the commit gates. Each judges only a repo listed in the workbench's `repos.yaml`. A
+canary, and the commit gates (the locked-artifact, recorded-flow, autopilot and runbook guards cover the
+workbench itself). Each code-repo guard judges only a repo listed in the workbench's `repos.yaml`. A
 block naming a guard is that guard's rule, never something to edit around. The spec gate is
 satisfied by the lane `PLAN.md` that `lane_plan.py` writes from the slice specs the user approved
 (`references/g5-build.md` step 1b). Build lanes run as this plugin's `lane-worker` agent, resolved through
@@ -123,9 +124,6 @@ Everything else in G0 still proceeds and still commits — `sources.yaml` and
 `license-posture.md` are decisions, and none of preflight's blockers changes one. What is
 held is the mining fan-out, because every lane-D finding cites `path + pinned_commit` and a
 preflight that says the checkout is elsewhere is saying those citations would be wrong.
-A workbench scaffolded before this shipped has no `preflight.json` and no
-`scripts/preflight.py`; see `docs/PLAYBOOK.md` → *Upgrading a workbench*. Until it is
-copied in, treat the G0 confirmation as the user's word, the way it was before.
 
 ### Step 3 — Report progress, always
 
@@ -173,14 +171,6 @@ root:
 python3 scripts/routing.py --agents ${CLAUDE_PLUGIN_ROOT}/agents
 ```
 
-A workbench scaffolded before 0.16.0 has no vendored copy. Run the plugin's, pointed at the
-workbench — no upgrade step, and nothing to copy in:
-
-```sh
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/rebuild-pipeline/scripts/routing.py \
-  --root . --agents ${CLAUDE_PLUGIN_ROOT}/agents
-```
-
 It prints, per role, the `tier`, the `model` to pass on the Agent call, the `effort` its agent
 file pins, and `why` that rung. **Pass `model:` explicitly on every dispatch**, even when it
 matches the agent file's own frontmatter, so the brief and the actual run cannot disagree. Cache
@@ -191,7 +181,8 @@ re-running it between every fan-out is pure noise.
 `.claude/model-routing.json` degrades to the `balanced` default rather than failing, so a
 config the user believes is active but is not would otherwise be invisible — the same reasoning
 that keeps a rubric score from blocking a lock, applied to a dispatch. Effort warnings are
-expected (`adr-drafter` under `balanced`; `miner`, `rubric-judge` and `spec-writer` under `frontier`) and are not a
+expected (`adr-drafter` and `data-model-drafter` under `balanced`; `miner`, `rubric-judge`, `spec-writer` and
+`build-lane` under `frontier`) and are not a
 problem to fix: effort is pinned per role and is not movable at spawn time (`scripts/routing.py` has the argument).
 
 **4c — When intent is ambiguous, ask — with options.** If the user's request could mean
@@ -309,8 +300,8 @@ conversation (a partial ADR, a draft matrix, in-flight findings) that hasn't rea
   runner (private-submodule checkout, unset secrets, gitignored paths), so leaving them
   enabled just emails a failure on every push.
 - The slice boundary is the only cheap place to change the plan, so stop there deliberately:
-  record progress, run parity, run `python3 scripts/slice_review.py <Sn>`, and act on the sequence if
-  it needs acting on. All of it is advisory — none of it blocks the next slice — which is
+  record progress, run `python3 scripts/boundary.py <Sn>` (archives the lane plans, runs parity and the
+  slice review, says whether the upstream re-mine is due), and act on the sequence if it needs acting on. All of it is advisory — none of it blocks the next slice — which is
   exactly why it has to be a habit rather than a mechanism you can lean on.
 - Slice ORDER is a logged decision (`python3 scripts/sequence.py reorder ... --reason "..."`), slice
   BOUNDARIES are a gate-2 reopen. Never conflate them, and never hand-edit
@@ -318,8 +309,8 @@ conversation (a partial ADR, a draft matrix, in-flight findings) that hasn't rea
 - Tests in G5 run at a fixed cadence (`g5-build.md`, "Test cadence within a slice"): lanes run
   only what they touch while building, the full cumulative suite runs once per slice as the
   joint run, then only its failures re-run. You, the orchestrator, run no tests at all — you
-  read the JUnit — and while a lane has a long run open, `scripts/lanes_check.py` on a
-  10-minute schedule (5 while the joint run is open) is what notices when it stops. The
+  read the JUnit — and while a lane has a long run open, `scripts/lanes_check.py watch`
+  (one background process, `--interval 600`, or 300 while the joint run is open) is what notices when it stops. The
   joint run is one `scripts/run_phases.py` process, so its lane has one wake-up, not one per
   phase.
 - All model-facing artifacts are English.

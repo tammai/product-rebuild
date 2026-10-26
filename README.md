@@ -30,7 +30,7 @@ amber is advisory: you look, you decide, and nothing blocks if you don't. Grey p
 to drive with the skill's help. The loop is the shape of the build: every slice ends deployed,
 then stops at a boundary before the next one starts.
 
-Two ideas carry everything:
+Three ideas carry everything:
 
 1. **Artifacts, not vibes.** Every phase reads and writes schema-validated files in a
    dedicated *workbench repo* — the pipeline's state store. `git log` on it is your
@@ -91,11 +91,12 @@ gate files (all open), validation scripts, and CI. There is nothing to install: 
 
 ### 2. Mining (G1) — mostly hands-off
 
-The skill dispatches miner agents in parallel across four lanes: **ground truth** (the
+The skill dispatches miner agents in parallel across four lanes (then a fifth, **rules**, once ground truth lands): **ground truth** (the
 reference's actual schema, routes, permissions, jobs — when the license posture allows),
 **features** (changelogs, docs), **NFR** (how it behaves running), **UX flows** (how key
-features actually work). Your two jobs: get the reference running locally, and verify
-the drafted UX flows against it when asked. Every finding carries evidence or it gets
+features actually work). The **rules** lane runs after ground truth, as a second wave, because each
+Rule Card (a business rule with the source line that proves it) cites entities the ground-truth lane found.
+Your two jobs: get the reference running locally, and verify the drafted UX flows against it when asked. Every finding carries evidence or it gets
 rejected at validation.
 
 For a `client-only` rebuild, lane D points at the *client*: every API call site (which becomes
@@ -219,7 +220,7 @@ refused.
 
 ## Autopilot
 
-The gates are where judgment lives. Everything between them — four mining lanes, a matrix
+The gates are where judgment lives. Everything between them — the mining lanes, a matrix
 merge, per-slice spec → backend → frontend → infra, a parity report — is work you would
 otherwise advance by typing "continue". Say **"autopilot"** and the skill checks the project
 is in a safe state, tells you exactly what it would run and where it would stop, and waits
@@ -280,7 +281,7 @@ skills/rebuild-pipeline/        THE skill you interact with
   scripts/flows.py             the logged-decision log for AC flow assertions (unlock/relock)
   scripts/parity.py            G6 coverage report + AC pass rate from the suite's JUnit
   scripts/acsuite.py           JUnit reader shared by parity and slice-review; counts a rerun once
-  scripts/lanes_check.py       is a build lane still working? + `stamp`: which commits a test run saw
+  scripts/lanes_check.py       is a build lane still working? `watch` runs the check as one background process; `stamp` records which commits a test run saw
   scripts/run_phases.py        a several-phase test run as one tracked background process
   scripts/lane_plan.py         a lane's PLAN.md, written from the slice specs you approved
   scripts/sequence.py          slice execution order — the logged-decision reorder mechanism
@@ -291,14 +292,20 @@ skills/rebuild-pipeline/        THE skill you interact with
   scripts/gate_facts.py        the ERD-orphan and per-domain / per-slice counts the gate 1 and 2 rubrics ask for
   scripts/evidence_bundle.py   verbatim path:start-end excerpts into one file, so no excerpt is retyped
   scripts/pause_check.py       is it safe to pause the session? (advisory, not a gate)
+  scripts/equiv.py             record and replay request traces against the legacy system (own-code references)
+  scripts/preflight.py         does the reference actually build and run? blocks G1 until it does
+  scripts/upgrade.py           bring a workbench's vendored scripts up to the plugin you are running
+  scripts/yamlio.py            the YAML reader every checking script uses (over a vendored PyYAML, YAML 1.2 core)
+  scripts/schemacheck.py       the JSON-schema checker validate.py uses (no third-party dependency)
   scripts/autopilot.py         unattended-run state: preflight / check / engage / log / disengage
   scripts/routing.py           which model each subagent role dispatches on (.claude/model-routing.json)
 agents/                         miner, adr-drafter, data-model-drafter, spec-writer, rubric-judge, lane-worker,
                                 lane-verifier (opt-in audit) subagents
-hooks/                          PreToolUse guards: locked artifacts, recorded AC flows, and
-                                the autopilot usage threshold; plus the code-repo guards (bash,
-                                spec gate, injection gate and canary, commit gates), which judge
-                                only repos listed in a workbench's repos.yaml
+hooks/                          PreToolUse guards: locked artifacts, recorded AC flows, the
+                                autopilot usage threshold and the build runbook; the code-repo
+                                guards (bash, spec gate, injection gate, commit gates), which
+                                judge only repos listed in a workbench's repos.yaml; a PostToolUse
+                                injection scan; and a SessionStart canary seed
 docs/PLAYBOOK.md                the full methodology
 ```
 
@@ -322,13 +329,13 @@ docs/PLAYBOOK.md                the full methodology
   evidence carries `basis` — transcribed from source at the pinned commit, observed running,
   or inferred from docs. The parity report names the features standing entirely on inference,
   and Gate 4 flags a contract entry frozen on one.
-- **Locked means locked.** The hook blocks edits under a locked gate's paths; the escape
-  The guards are PreToolUse hooks on `Write|Edit|MultiEdit` only: a shell redirect, `sed -i`
-  or `cp` through Bash is not intercepted, and `validate.py`'s locked-hash check is what catches that drift.
-  hatch is a formal, logged reopen with a reason — never a quiet edit.
-- **Subagents get their context in the brief, not from the transcript.** Every brief carries a
-  context budget: no session transcripts or scratchpad dumps, no tool result over ~20K characters,
-  each file read once. The judge gets a pre-extracted evidence bundle of verbatim excerpts for
+- **Locked means locked.** The hook blocks edits under a locked gate's paths; the escape hatch is a formal,
+  logged reopen with a reason — never a quiet edit. That hook matches `Write|Edit|MultiEdit` only: a shell
+  redirect, `sed -i` or `cp` through Bash is not intercepted, and `validate.py`'s locked-hash check is what
+  catches that drift.
+- **Subagents get their context in the brief, not from the transcript.** Every agent file carries a
+  context budget (briefs do not repeat it): no session transcripts or scratchpad dumps, no tool result over
+  ~20K characters, each file read once. The judge gets a pre-extracted evidence bundle of verbatim excerpts for
   large contracts, because every subagent turn re-bills everything read so far — one audited day
   spent ~85M tokens on a single drafter that read its parent's transcript.
 - **Gates are yours.** The skill never locks a gate on its own initiative — including on

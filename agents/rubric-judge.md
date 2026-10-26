@@ -23,6 +23,11 @@ your job. Never repeat a finding that a validator would already have caught.
 
 - The **gate id** and the **rubric path** (`references/rubrics/gate-N.md`).
 - The **artifact paths** to score, and the **supporting paths** the rubric says to read.
+- Where the orchestrator made them, three **helper files** under `plan/gate-reviews/`: `gate-N-citations.md`
+  (the cited source line beside each `transcribed` claim, from `cite_excerpts.py`), `gate-N-facts.md` (counts
+  from `gate_facts.py`, gates 1 and 2 only) and `gate-N-evidence.md` (verbatim excerpts of a big contract, from
+  `evidence_bundle.py`). They save you opening files one at a time. They are a starting point: you still score,
+  and you still open a full file for anything they left out.
 - The **output path**: `plan/gate-reviews/gate-N-rubric.md`. Create the directory if needed.
 
 Read the rubric first and score exactly the dimensions it defines. Do not invent dimensions,

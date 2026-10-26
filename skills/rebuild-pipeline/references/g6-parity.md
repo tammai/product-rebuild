@@ -13,6 +13,9 @@ re-mine in step 3 is on a 30-day schedule, not every slice.
    maestro test parity/flows --format junit --output parity/<date>-ac.xml
    ```
 
+   Other shapes and playbooks run whatever their own AC suite is and record the result under a
+   hand-written `## AC suite` heading, which `parity.py` preserves.
+
    The JUnit file lands beside the parity report, and step 2 reads it: the AC pass rate in
    `parity/<date>.md` is generated from that XML, not written by hand from a memory of the
    run. Use the same `<date>` for both or the report will not find it — and `<date>` is the
@@ -35,9 +38,7 @@ re-mine in step 3 is on a 30-day schedule, not every slice.
      against them. The report lists the repos and commit ranges. The joint run's other passes
      predate the fix, so decide out loud whether the change needs a wider run.
    - **unverified** — a record is missing or unreadable, or a tree was dirty when stamped.
-     Which code ran cannot be said; fix the stamping before the next rerun. Other shapes and
-   playbooks run whatever their own AC suite is and record the result under a hand-written
-   `## AC suite` heading, which `parity.py` preserves.
+     Which code ran cannot be said; fix the stamping before the next rerun.
 2. **Parity diff**: `python3 scripts/parity.py` from the workbench root — coverage vs `matrix/`:
    covered / partial / missing per feature, plus scope-creep detection (built but not
    in matrix). Report lands in `parity/<date>.md`.

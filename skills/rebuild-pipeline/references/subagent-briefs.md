@@ -2,7 +2,7 @@
 
 Every dispatch is self-contained — subagents share no conversational context. Include:
 
-1. **Role file**: point at the agent definition (miner / adr-drafter / spec-writer).
+1. **Role file**: point at the agent definition (`agents/<role>.md`: miner, adr-drafter, data-model-drafter, spec-writer, rubric-judge, lane-worker, lane-verifier).
 2. **Inputs** (absolute paths): the exact workbench files to read. Never "the matrix" —
    always `workbench/matrix/features.yaml`. For miners: the `sources.yaml` entries in
    scope and the pinned reference commit. For lane-D miners specifically, also include the
@@ -33,20 +33,20 @@ Every dispatch is self-contained — subagents share no conversational context. 
 One audit day cost ~200M tokens, ~85M of it a single drafter that read the parent session's
 transcript. Every subagent turn re-bills the whole context so far, so one large read early in a
 run is paid again on every later turn. The three rules that prevent it are in the agent file of
-every role this pipeline dispatches (`miner`, `adr-drafter`, `spec-writer`, `rubric-judge`,
-`lane-worker`, `lane-verifier`): never read session transcripts or scratchpad dumps, keep every
+every role this pipeline dispatches (`miner`, `adr-drafter`, `data-model-drafter`, `spec-writer`,
+`rubric-judge`, `lane-worker`, `lane-verifier`): never read session transcripts or scratchpad dumps, keep every
 tool result under ~20K characters, read each file once. They used to be pasted into every brief as
 well, about 275 output tokens per dispatch written out by the orchestrator for text the agent
 already has. Dispatch each role by its agent (`subagent_type`), which is what carries them; a
 brief does not repeat them.
 
-Add the three rules to the brief only for an agent that is not one of those six (a helper a lane
+Add the three rules to the brief only for an agent that is not one of those seven (a helper a lane
 spawns, or a fork), since nothing else delivers them.
 
 ## The judge brief (`rubric-judge`, at every gate — Step 5.1b)
 
-Same five parts, with these values. It runs once per gate attempt, after `validate.py`
-passes and before the gate review is written.
+Same six parts, with these values. It runs once per gate attempt, after `validate.py`
+passes, and it can run in the background while the gate review is drafted.
 
 1. **Role file**: `${CLAUDE_PLUGIN_ROOT}/agents/rubric-judge.md`.
 2. **Inputs**: the **gate id**; the **rubric** `${CLAUDE_PLUGIN_ROOT}/skills/rebuild-pipeline/references/rubrics/gate-N.md`;
@@ -65,6 +65,7 @@ passes and before the gate review is written.
    below 4 carries a file-plus-line or file-plus-id citation. Send a report back with the
    uncited dimensions named if it does not — same rule as a schema violation, and for the
    same reason: the fix has to come from a run that could have produced it.
+6. **Model + tier**: the `model` and `tier` `scripts/routing.py --role rubric-judge` resolved, stated in the brief.
 
 **Three files the judge should not have to build for itself**, all made by scripts before you dispatch
 (each used to be the judge opening files one at a time, or you retyping them as model output):

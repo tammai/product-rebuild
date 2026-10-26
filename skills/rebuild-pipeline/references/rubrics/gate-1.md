@@ -6,7 +6,9 @@ taxonomy afterwards; they may never restructure it. So the score is about whethe
 can add features, it cannot re-cut domains without a reopen.
 
 Read: `matrix/features.yaml`, every file under `findings/`, and
-`findings/ground-truth/reference-erd*.mermaid`.
+`findings/ground-truth/reference-erd*.mermaid`; and, if your brief names them,
+`plan/gate-reviews/gate-1-facts.md` (counts per domain, entities in both directions) and
+`plan/gate-reviews/gate-1-citations.md` (the cited source line beside each claim).
 
 ## D1. Coverage against the findings
 
@@ -80,6 +82,9 @@ listed there. Score from it, and cite from it.
 
 **Asks:** lane R turns the reference's behavior into cited Rule Cards. Did it reach the
 behavior that actually matters, and does every card point at something real?
+
+For "does every card point at something real", read `plan/gate-reviews/gate-1-citations.md`: it has each
+card's cited line next to its `then`. An entry marked COULD NOT OPEN is a finding.
 
 Read `findings/rules/*.yaml` against lane D's route and permission findings, and against
 `reference-erd*.mermaid`.

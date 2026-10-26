@@ -324,7 +324,7 @@ relaxed to compensate.
   nothing loaded them; only the repos' git hooks ran. Each guard judges only a repo listed in the
   workbench's `repos.yaml` and ignores everything else. A block names its guard and why: it is
   the rule, so follow its message and never edit around it. A Bash command is judged only by the
-  directory it names, which is why the build-lane brief has lanes start commands with
+  directory it names, which is why `lane-worker`'s agent file has lanes start commands with
   `cd <worktree> &&`: a command that names none is not judged at all.
 - CI per lane: lint, tests, security scan, license scan, AC-coverage (every AC has a test).
   The scaffold already wrote `.github/workflows/rebuild-verify.yml`, one job per package running

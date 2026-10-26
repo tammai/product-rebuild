@@ -197,11 +197,12 @@ amendment, and ask the user before continuing. Two independent lanes hitting the
 not two bugs; it is the runbook being wrong, and every further lane you dispatch will hit it
 too.
 
-**The one thing that has no home anywhere else** is step 3's regression check. Every deploy
-criterion in this phase asserts only its own slice's features, so "did S3 break S1" was a
-question the pipeline could not answer — the AC pass rate is one number, and a number that moves
-does not say which way or which test. The review compares this run against the previous one by
-test name. Both files are already on disk; nothing new has to be run to get it.
+**The one thing that has no home anywhere else** is the slice review's regression check
+(`g5-build.md`, "Between slices" step 3). Every deploy criterion in this phase asserts only its own
+slice's features, so "did S3 break S1" was a question the pipeline could not answer — the AC pass
+rate is one number, and a number that moves does not say which way or which test. The review compares
+this run against the previous one by test name. Both runs' JUnit files are already on disk; nothing new
+has to be run to get it.
 
 **A finding that arrives mid-slice does not wait in someone's head.** Write it to
 `plan/progress.yaml` `notes:` on the slice you are *in* — "S6 has no dependents, could come

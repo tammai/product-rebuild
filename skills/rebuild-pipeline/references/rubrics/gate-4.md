@@ -7,7 +7,8 @@ the *artifacts*, not the checks, and it is where a `client-only` transcription g
 what it actually claims.
 
 Read: everything under `contracts/`, the lane-D call-site and response-handling findings, and
-`findings/ground-truth/reference-erd*.mermaid`.
+`findings/ground-truth/reference-erd*.mermaid`; and, if your brief names it,
+`plan/gate-reviews/gate-4-evidence.md` (verbatim excerpts of `openapi.yaml`).
 
 ## D1. Field-level coherence with the lane-D call-site findings
 

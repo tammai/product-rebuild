@@ -10,7 +10,9 @@ the ADRs. The pipeline knows nothing about any playbook's content — it reads t
 | `mobile-flutter` | `client-only` | Flutter client against an existing HTTP API; Riverpod + go_router + Drift + generated dio client | `mobile-flutter/scaffold.json`: Flutter with Riverpod and `custom_lint` |
 
 `web-modular-monolith` is the default when `architecture.playbook` is empty. `none` disables
-the mechanism: every G4a ADR becomes a blank-slate decision against the reference alone.
+the mechanism: every G4a ADR becomes a blank-slate decision against the reference alone, and the project
+writes its own `adr/scaffold.json` (the same format, below) beside its stack ADR. Gate 3 checks it like a
+registered playbook's and refuses to lock without a valid one.
 
 ## Writing your own
 
@@ -102,5 +104,13 @@ One JSON file per playbook, beside it (`<playbook>/scaffold.json`), with the fil
   Go and Vue templates keep their own `{{ }}`; any `[[...]]` that is not a known key is left as written.
 - **`files[].class`**: `seeded` (rewritten only while untouched), `generated` (rewritten freely, and
   replaces a file the generator also writes), `user` (written once).
+- **`files[]` entries** need `to` (a path that must stay inside the repo), a `class`, and exactly one of
+  `from` (a template under `<playbook>/templates/`) or `content` (the text inline).
+- **`generator`** may be empty only when `files` supply the skeleton. An option with neither has no skeleton
+  and the check refuses it.
+- **`ci`**: the top-level `ci.os` is the runner list. Per option, `ci.setup` is `go`, `node`, `flutter` or
+  `none` (`none` writes a `TODO` line in the workflow, since no toolchain action is known), `ci.version` is the
+  Node version for `node` (default `22`), and `ci.pre` is a list of shell lines the workflow runs before the five
+  commands.
 - Keep it a skeleton: the generator's output, strict typing, a runner, a linter, one passing smoke
   test. The first slice builds the first module.

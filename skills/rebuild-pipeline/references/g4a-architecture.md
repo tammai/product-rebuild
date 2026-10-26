@@ -27,8 +27,8 @@ and the list of concerns to decide. This file is the procedure; the playbook is 
    missing or fails its check: a stack nothing can scaffold is a Gate 3 failure.
 4. **Read its frontmatter as the phase's own inputs**: `concerns:` is the list of ADRs this
    phase owes, `decide-before:` is the order constraints between them, `target-shape:` must
-   match `sources.yaml`'s (`python3 scripts/validate.py` fails on a mismatch), and `scaffold-profile:`
-   is what G5 will need at repo-creation time.
+   match `sources.yaml`'s (`python3 scripts/validate.py` fails on a mismatch), and `scaffold:`
+   (the path of the scaffold manifest) is what G5 will need at repo-creation time.
 
 **0b — no playbook applies.** Every ADR below reverts to the pipeline's original model: a
 blank-slate decision against the reference's lane-D evidence only, `org-default: N/A`

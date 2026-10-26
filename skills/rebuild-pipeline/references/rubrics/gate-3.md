@@ -7,7 +7,8 @@ does not point at. Both are presence checks. This rubric is about whether the *c
 those ADRs would survive contact with the build.
 
 Read: every file in `adr/`, `adr/playbook.md` (the vendored copy, never the plugin's registry
-file), `findings/nfr/nfr-profile.yaml`, and `matrix/features.yaml`.
+file), `findings/nfr/nfr-profile.yaml`, and `matrix/features.yaml`; and, if your brief names it,
+`plan/gate-reviews/gate-3-evidence.md` (verbatim excerpts of the ADR set).
 
 ## D1. Concern coverage against the vendored playbook map
 

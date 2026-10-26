@@ -21,7 +21,7 @@
 
 ```
 G0 Reference selection + license posture
-G1 Parallel mining          (lanes: ground truth / features / NFR / UX flows)
+G1 Parallel mining          (lanes: ground truth / features / NFR / UX flows, then rules)
 G2 Feature matrix           ── GATE 1: taxonomy lock
 G3 Milestone slicing        ── GATE 2: slice-plan lock
 G4a System design           ── GATE 3: architecture lock (mirror-or-diverge ADRs)
@@ -155,9 +155,11 @@ Lane D output uses the same finding schema as other lanes but with `confidence: 
   confidence: high | medium | low
 ```
 
+- **Lane R — Rules (a second wave, after lane D):** the reference's business rules as **Rule Cards**, `findings/rules/<domain>.yaml`, one array per domain. Six kinds: `calculation`, `validation`, `eligibility`, `state-transition`, `derivation` and `invariant` (a property that holds after every write to its entities, with no trigger). Each card is one given/when/then with concrete values and evidence that carries `path` + `commit` + `line` wherever it is `transcribed`. It runs after lane D because each card's `entities` must resolve against the ground-truth ERD. The failure side is mined on purpose: error handlers, retries, rollbacks and fallback defaults carry rules a rebuild drops without a test failing. The Gate 1 judge re-derives each cited line, and at G5 a spec's acceptance criteria cite their card as `rule_id` (see 8.1).
+
 Rules: no evidence, no entry (dropped at ingest); findings are content-hashed so re-runs are idempotent; deploying and using the reference locally is an exit requirement, not a nice-to-have.
 
-**Exit criteria:** reference running locally; lane D extraction complete (schema, routes, permissions, jobs); lanes A–C complete; all findings validate; top-feature flows human-verified against the live instance.
+**Exit criteria:** reference running locally; lane D extraction complete (schema, routes, permissions, jobs); lanes A–C complete; lane R's Rule Cards cite real lines and entities; all findings validate; top-feature flows human-verified against the live instance.
 
 ---
 
@@ -249,7 +251,7 @@ it from scratch each time.
 
 **The playbook, not this document, is the authority on which concerns exist and where their
 answers live.** Its frontmatter carries a `concerns:` map (concern key → section(s), or `N/A`),
-a `not-applicable-when:` list, a `target-shape:`, a `scaffold-profile:`, and `decide-before:`
+a `not-applicable-when:` list, a `target-shape:`, a `scaffold:` (the path of the playbook's scaffold manifest), and `decide-before:`
 ordering constraints. The org default (`playbooks/web-modular-monolith.md`, Go + Nuxt modular
 monolith, API-first, Fastify + Next.js alternate) maps eleven concerns and marks four `N/A`;
 `playbooks/mobile-flutter.md` maps twenty-one for a Flutter client against an existing API,
@@ -304,7 +306,7 @@ reversal-condition: <observable fact that would reopen this>
 specific sub-question: propose a policy, flag it as newly introduced rather than sourced,
 skip the depth requirement (nothing to diverge from), but still explain the choice.
 
-Agents draft ADRs in parallel (except where `decide-before:` serializes them) — always with `adr/playbook.md` as a fixed input, with the concern key and the exact applicable section(s) or `N/A` named per ADR so the drafter never has to infer it — the human decides sequentially (later ADRs depend on earlier ones). This gate is the bottleneck by design — budget real time for it, especially any divergence-from-default proposal.
+Agents draft ADRs in parallel (except where `decide-before:` serializes them) — always with `adr/playbook.md` as the authority the ADR cites, a short excerpt of it cut for that concern (`python3 scripts/playbook.py excerpt <concern>`, so a drafter does not read the whole 60 to 70 KB file), with the concern key and the exact applicable section(s) or `N/A` named per ADR so the drafter never has to infer it — the human decides sequentially (later ADRs depend on earlier ones). This gate is the bottleneck by design — budget real time for it, especially any divergence-from-default proposal.
 
 ### 6.3 GATE 3 — architecture lock
 
@@ -335,7 +337,7 @@ Mermaid because it diffs, renders in review, and states cardinality in notation 
 ### 7.3 Rules
 
 - **Coherence check before every Gate 4 lock, both directions:** every API resource maps to an entity or a named projection of entities; every entity is reachable from the API or annotated `%% internal` with a reason. One direction alone passes a half-built contract. Not scriptable — "maps to" is a judgment about naming and intent.
-- Data model drafted sequentially; contracts then drafted per context in parallel.
+- Data models draft in parallel, one per bounded context (`data-model-drafter`; their files are independent because cross-context references are by id only); they must all land and be reviewed before the contracts, which then draft per context in parallel.
 - Everything in G5 traces to contract elements; anything not in a contract does not exist.
 - After the gate: additive changes allowed; breaking changes reopen the gate for the affected contract only.
 
@@ -349,7 +351,7 @@ Mermaid because it diffs, renders in review, and states cardinality in notation 
 
 ### 8.1 Lane types
 
-1. **Specs + acceptance criteria** — one agent per module in the current slice. Each spec derives from the module's matrix features, their flows, their ground truth, and the relevant contracts. Every spec ends with **AC**: a testable behavior list (e.g. "inviting an already-registered email returns error E-409"). Each AC maps 1:1 to a test at the lowest level that can observe it; browser/device E2E is kept minimal — one smoke journey per checkpoint slice and at most one more per slice. Where behavior is ambiguous, the running reference instance is the arbiter — check it, don't guess. Specs pass propose-before-act review before code.
+1. **Specs + acceptance criteria** — one agent per module in the current slice. Each spec derives from the module's matrix features, their flows, their ground truth, and the relevant contracts. Every spec ends with **AC**: a testable behavior list (e.g. "inviting an already-registered email returns error E-409"). Each AC maps 1:1 to a test at the lowest level that can observe it; browser/device E2E is kept minimal — one smoke journey per checkpoint slice and at most one more per slice. Where behavior is ambiguous, the running reference instance is the arbiter — check it, don't guess. Specs pass propose-before-act review before code. Every criterion that implements a Rule Card carries its card's id as `rule_id:`, and the test that implements it names that id, which is the join that lets the parity report say "12 of 14 rules in `billing` are green" and not only count features. The spec-writer gets the module's cards in full plus an index of the rest (`python3 scripts/rules_for.py`), and an `invariant` card is cited from every module that writes its entities.
 2. **Backend** — one lane per bounded context touched by the slice (whether contexts are modules or separate services per Gate 3), building against contracts. Scaffolding and codegen first.
 3. **Frontend** — against the generated typed client; may split per feature area. For a `client-only` rebuild this lane *is* the build and lane 2 does not exist; it splits per feature module, and the on-device migration decided at Gate 3 is its own module in whichever slice first touches session or local data — never a task appended to a feature.
 4. **Infra** — CI/CD, environments, deployment. Mostly one lane; schema migrations serialize through a single migration queue regardless of lane count.
@@ -411,13 +413,15 @@ Checklist — each item verified by doing, not by asserting:
 | G6 | re-mining lanes | tests, parity diff, report | reading the report |
 | GP | checklist items | scans, backup jobs | **GATE 5**; restore & incident drills |
 
-Serialization points, by design: the five gates, the data model draft, the migration queue, cross-lane shared changes, and the human drills in GP. Everything else runs concurrently.
+Serialization points, by design: the five gates, the data models landing before the contracts, the migration queue, cross-lane shared changes, and the human drills in GP. Everything else runs concurrently.
 
 ## 12. Upgrading a workbench
 
 `rebuild_init.py` vendors the schemas and scripts into each workbench **at scaffold time**, on purpose — a workbench is a self-contained, versioned copy, and a project mid-G4 is not improved by its tooling changing underneath it. The cost is that a workbench scaffolded before a release does not get that release's new files, and a reference doc telling you to run `python3 scripts/<thing>.py` then names a path that does not exist.
 
-**From 0.17.0 there is a script for it.** Dry run first — it is the default and it copies nothing:
+**A workbench made by a 0.x release is not upgraded.** 1.x is a different plugin (`product-rebuild`): its scripts, its guards and the way its repos were created all differ, and there is no migration. `upgrade.py` refuses a workbench that has no `rebuild_major: 1` in `locks/pipeline.yaml` and says to finish that rebuild on the 0.x line.
+
+Within 1.x there is a script for it. Dry run first. It is the default and it copies nothing:
 
 ```sh
 python3 scripts/upgrade.py
@@ -431,70 +435,21 @@ It classifies every vendored file against `locks/tooling.json`, the provenance m
 | `new` | the plugin has it, this workbench does not | copies |
 | `stale` | pristine vendored copy, plugin has moved on | copies |
 | `modified` | differs from the plugin **and** from its recorded hash — someone edited it here | **refuses** |
-| `unknown` | differs from the plugin, no recorded hash to compare (scaffolded before 0.17.0) | **refuses** |
+| `unknown` | differs from the plugin, no recorded hash to compare (for example `locks/tooling.json` is missing) | **refuses** |
 | `kept` | a local version a human chose to hold, on the record | never copies |
 | `held` | safe to copy, but its script/schema pair is refused (e.g. `autopilot.py` with a locally edited `autopilot.schema.json`) | waits for the pair |
 | `current` | identical to the plugin | nothing |
 
-**From 0.27.0 it runs itself.** At the start of every pipeline session the skill runs the *plugin's* copy with `--auto`, so a plugin update reaches the workbench without anyone remembering to. `--auto` copies only `new` and `stale` files, only when no slice is `in-progress`, no autopilot run is engaged and the tree is clean, commits the upgrade as one commit, runs `validate`, and prints one line. Otherwise it defers to a later session start. It never forces and never keeps; refused files are named for a human to settle as below.
+**It runs itself.** At the start of every pipeline session (`SKILL.md` Step 2) the skill runs the *plugin's* copy with `--auto`, so a plugin update reaches the workbench without anyone remembering to. `--auto` copies only `new` and `stale` files, only when no slice is `in-progress`, no autopilot run is engaged and the tree is clean, commits the upgrade as one commit, runs `validate`, and prints one line. Otherwise it defers to a later session start. It never forces and never keeps; refused files are named for a human to settle as below.
 
 A refused file stays refused on every later run. That is deliberate: an earlier draft recorded the refused file's current hash as its new baseline, which made the next run classify it `stale` and `--apply` overwrite the edit that had just been protected. Settle one of three ways — port your change onto the plugin's version and re-run, take the plugin's with `--apply --force <path>`, or hold yours on the record with `--keep <path>`. Read the diff first: `python3 scripts/upgrade.py --diff <path>`.
 
-The script finds the plugin through `--plugin <path>`, then `.rebuild-plugin` at the workbench root (an absolute path, written at scaffold time), then `$CLAUDE_PLUGIN_ROOT`. A marker or env path inside the installed-plugin cache (`…/plugins/cache/…/<version>/`) is followed to the newest version installed beside it: the marker names the version that scaffolded the workbench, and read literally it would pin every later upgrade to that version. A workbench scaffolded before 0.17.0 has neither the marker nor the manifest, so bootstrap it once:
+The script finds the plugin through `--plugin <path>`, then `.rebuild-plugin` at the workbench root (an absolute path, written at scaffold time), then `$CLAUDE_PLUGIN_ROOT`. A marker or env path inside the installed-plugin cache (`…/plugins/cache/…/<version>/`) is followed to the newest version installed beside it: the marker names the version that scaffolded the workbench, and read literally it would pin every later upgrade to that version. A workbench scaffolded before 0.17.0 has neither the marker nor the manifest, so bootstrap it once: Every 1.x workbench has `upgrade.py` itself, so there is nothing to copy in by hand first.
 
-```sh
-cp "$CLAUDE_PLUGIN_ROOT/skills/rebuild-pipeline/scripts/upgrade.py" scripts/
-echo "$CLAUDE_PLUGIN_ROOT" > .rebuild-plugin
-python3 scripts/upgrade.py          # everything differing reads `unknown` — read the diffs
-```
+Two things worth knowing:
 
-With no manifest, every file that differs is `unknown` rather than `stale`, so the first run on an old workbench refuses almost everything and shows you why. That is the correct first answer: this script cannot tell an old vendored copy from your own edit, and guessing wrong deletes work. Walk the list with `--diff`, then `--apply --force` the ones you have checked.
-
-**The manual path still works** and is worth knowing, because `upgrade.py` itself has to arrive somehow. For **0.16.0** it was two files:
-
-```sh
-cp "$CLAUDE_PLUGIN_ROOT/skills/rebuild-pipeline/scripts/preflight.py" scripts/
-cp "$CLAUDE_PLUGIN_ROOT/skills/rebuild-pipeline/schemas/preflight.schema.json" schemas/
-```
-
-Either way, run the new scripts directly (`python3 scripts/preflight.py`, `python3 scripts/upgrade.py`): a workbench has no manifest of shortcuts to keep in step.
-
-Three things worth knowing before you do it:
-
-- **It is safe to skip.** Nothing fails on a missing `preflight.json`. `autopilot -- preflight` records it as a note and carries on; `validate.py` checks the file only if it exists; SKILL.md's phase detection falls back to the user's word, as it was before. Upgrade because you want the check, not because something is broken.
-- **A mid-project workbench will read Ready-with-gaps or Not-ready, and that is information, not a regression.** A project past G1 that gets `Not-ready` for a wrong `pinned_commit` has just learned that some of its lane-D citations do not resolve — worth knowing at G4 rather than never. It does not retroactively block anything: the verdict gates G1 dispatch, and G1 is behind you.
-- **`sources.yaml` gains an optional `reference.checkout:`** — the local path to the reference clone. Add it under `reference:`, or pass `--checkout <path>` each run. Without either, preflight looks in `./reference` and `../<reference name>` and reports Not-ready if it finds no git checkout, rather than guessing at a directory and comparing HEAD against an unrelated repo.
-
-The two new `license-posture.md` sections (`## Prior attempts`, `## Off-limits`) are in the scaffold for new workbenches only. Add them by hand to an existing one — preflight reports them as a gap until there is prose under each heading, and the headings alone do not count.
-
-`routing.py` (0.16.0) needs no copy either way: it takes `--root`, so the plugin's own copy resolves against any workbench. `SKILL.md` §4b has that command.
-
-### What 0.18.0 adds to an existing workbench
-
-`equiv.py` and the equivalence lane. `python3 scripts/upgrade.py --apply` copies the script; two things
-by hand:
-
-```json
-"equiv": "python3 scripts/equiv.py"
-```
-
-```sh
-echo "parity/equiv/.unlocked.yaml" >> .gitignore   # an active unlock must never be committed
-```
-
-`flows_guard.py` is a plugin hook, not a vendored script, so its new `parity/equiv/**` coverage
-is live as soon as the plugin is. The lane itself applies only to `reference.kind: own-code` with
-a preflight that says the reference runs — everywhere else `python3 scripts/equiv.py status` says so and
-nothing else changes.
-
-### What 0.17.0 adds to an existing workbench
-
-`rule.schema.json` and `findings/rules/` (lane R), `plan/specs/` for the module specs the `rule_id` contract lives in, and `runbook_guard.py` — which is a **plugin** hook, not a vendored script, so it is live as soon as the plugin is. Two things need a hand:
-
-- **`locks/gate-1.yaml`'s `protects:` list.** `gate.py lock` unions `findings/rules/` in at lock time and says so, so a gate-1 that is still open needs nothing. A gate-1 **already locked** does not retroactively protect the directory — reopen and re-lock if you are adding Rule Cards to a project past Gate 1.
-- **`.rebuild-workbench` in each code repo**, holding the live workbench path. Without it `runbook_guard.py` fails open and that repo is simply unguarded. One line: `echo "$(cd ../<name>-workbench && pwd)" > .rebuild-workbench`.
-
----
+- **`--apply` does not commit.** It prints "commit this in one go": a half-upgraded workbench is the state nothing else in the pipeline expects. `--auto` commits for you.
+- **New scripts arrive as `new`.** A release that adds a script (1.3.0 added `boundary.py`, 1.4.0 added `rules_for.py`, `cite_excerpts.py`, `gate_facts.py` and `evidence_bundle.py`) shows it under `new` in the dry run, and `--apply` copies it. Nothing else needs doing by hand.
 
 ## 13. Failure modes to watch
 

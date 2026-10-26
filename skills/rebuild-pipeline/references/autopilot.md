@@ -64,10 +64,6 @@ Two cases where it cannot work at all, and preflight says so rather than guessin
 means the status line has stopped rendering — **autopilot is interactive-session only**, so
 it cannot run headless or from a cron job.
 
-A workbench scaffolded before autopilot existed has no `scripts/autopilot.py`. Copy it and
-`schemas/autopilot.schema.json` from the plugin's `skills/rebuild-pipeline/`, same as the
-`erd.py` upgrade path — do not run the plugin's copy in place.
-
 ## Engaging
 
 1. Steps 1–3 of the orchestration protocol as normal — locate, `gate.py status`, report.

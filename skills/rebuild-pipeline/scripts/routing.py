@@ -141,7 +141,7 @@ ROLE_TIERS = {
     "build-lane": {
         "tier": "worker",
         "agent": "lane-worker",
-        "why": "implementation against a spec the user approved and contracts Gate 4 locked, in a repo whose patterns the scaffold set; the error it makes is the worker kind (didn't check its work), and the lane-verifier round after it is what catches that. A project whose lanes keep coming back FAIL moves to the frontier profile.",
+        "why": "implementation against a spec the user approved and contracts Gate 4 locked, in a repo whose patterns the scaffold set; the error it makes is the worker kind (didn't check its work), and the joint run and the slice review are what catch that (a lane-verifier audit is available on request). A project whose slices keep failing the joint run moves to the frontier profile.",
     },
     "lane-verifier": {
         "tier": "verifier",
