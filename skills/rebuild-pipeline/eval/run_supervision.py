@@ -148,13 +148,27 @@ check("a dead driver is named with its phase",
 check("the stall names the newest file and its age",
       bool(re.search(r"Newest file anywhere: .*(go\.log|status\.json), written \d+ min ago", r2["out"])), r2["out"])
 
+# --- 2b. watch: exits 2 with the same evidence on a stall -------------------------------------
+rw = run("lanes_check.py", "watch", "--interval", "0.1")
+check("watch exits 2 on a dead driver, with the evidence the plain check prints",
+      rw["code"] == 2 and bool(re.search(r"driver for parity/runs/[\d-]+-joint died during phase go", rw["out"]))
+      and bool(re.search(r"Newest file anywhere: ", rw["out"])), rw["out"])
+check("watch keeps the marker problem it saw, ahead of the stall", rw["out"].lstrip().startswith("MARKER: S2 in progress"), rw["out"][:300])
+check("watch refuses a bad interval", run("lanes_check.py", "watch", "--interval", "x")["code"] == 1)
+
 # --- 3. a live driver is a run in progress, even with no test process -------------------------
 sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"],
                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 w(f"{RUN}/status.json", json.dumps({"pid": sleeper.pid, "state": "running", "phase": "redeploy", "phases": ["redeploy"], "results": []}))
 r3 = run("lanes_check.py", "--idle", "0")
+t_watch = time.time()
+r3w = run("lanes_check.py", "watch", "--idle", "0", "--interval", "0.2", "--max-minutes", "0.03")
+watch_secs = time.time() - t_watch
 sleeper.kill()
 sleeper.wait()
+check("watch stays silent while a driver is alive, and exits 0 at its deadline with one line",
+      r3w["code"] == 0 and bool(re.search(r"watch ended after 0\.03 min", r3w["out"])) and "running phase" not in r3w["out"]
+      and 1.0 < watch_secs < 20, f"{watch_secs:.1f}s " + r3w["out"])
 check("a live driver is not a stall", r3["code"] == 0 and bool(re.search(r"running phase redeploy", r3["out"])), r3["out"])
 shutil.rmtree(os.path.join(wb, "parity/runs"))
 

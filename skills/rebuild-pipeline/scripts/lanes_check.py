@@ -4,17 +4,27 @@ Run from the workbench root.
 
   python3 scripts/lanes_check.py                   # evidence, per repo and worktree
   python3 scripts/lanes_check.py --idle 15         # minutes of silence before "looks stalled"
+  python3 scripts/lanes_check.py watch             # run_in_background: silent until a stall, then exit 2
   python3 scripts/lanes_check.py stamp             # record which code the joint run is about to test
   python3 scripts/lanes_check.py stamp --rerun     # the same, for the rerun of its failures
 
 WHY THIS EXISTS. A lane watched its 45-minute suite with a Monitor, which gives up after at
 most 30 minutes, then went idle "waiting for the notification". Nothing woke it: 2½ hours once,
 40 minutes once, several 10–20 minute gaps, over two days — and the orchestrator only noticed
-when the user asked for status. The orchestrator's 10-minute watchdog (g5-build.md, "Guardrails
+when the user asked for status. The orchestrator's watch (g5-build.md, "Guardrails
 you enforce as orchestrator") runs this, so the check is one cheap call and the same in every
 project, instead of a hand-assembled `ps | grep` that differs by machine. It is a script and
 not a line in a doc because the watchdog has to be the same call on every machine, and a
 hand-assembled process listing is not.
+
+WATCH. The orchestrator used to schedule this check as a session-scoped cron, every 10 minutes (every 5
+during the joint run). Each fire is a whole orchestrator turn that re-reads its entire context to look at
+one line that says "nothing to act on", 24 to 30 times a slice. `watch` is the same check in a loop inside
+ONE background process: it prints nothing while the answer is "nothing to act on", exits 2 with the
+evidence the moment the plain check would, and exits 0 after --max-minutes so a forgotten watcher cannot
+run for ever. The harness wakes the orchestrator when a background process exits, which is the only
+event the cron was there to produce. --interval is in seconds (default 300). A marker problem is printed
+with whatever the watch exits on, since it is not a stall and waiting for one would hide it.
 
 EXIT CODES. 0: nothing to act on. 2: a lane looks stalled — a run_phases.py driver died
 mid-phase, or no test process or driver is alive and nothing in any repo or run directory has
@@ -546,6 +556,42 @@ def _check(args):
     return 0
 
 
+def _watch(args):
+    """`watch`: _check in a loop, silent until it would exit 2. See WATCH in the header."""
+    import contextlib
+    import io
+
+    def opt(n, d):
+        if n in args:
+            i = args.index(n)
+            if i + 1 < len(args) and args[i + 1]:
+                return args[i + 1]
+        return d
+
+    interval = _js_number(opt("--interval", "300"))
+    max_min = _js_number(opt("--max-minutes", "480"))
+    if not math.isfinite(interval) or interval < 0 or not math.isfinite(max_min) or max_min <= 0:
+        print("lanes_check.py watch: --interval is seconds (>= 0) and --max-minutes a positive number.", file=sys.stderr)
+        return 1
+    deadline = time.time() + max_min * 60
+    marker_block = ""
+    while True:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = _check(args)
+        out = buf.getvalue()
+        m = re.search(r"^MARKER:.*?(?=^STALLED|^LOOKS STALLED|^Nothing to act on|\Z)", out, re.M | re.S)
+        if m and not marker_block:
+            marker_block = m.group(0).rstrip() + "\n"
+        if code == 2:
+            sys.stdout.write(marker_block + re.sub(r"^MARKER:.*?(?=^STALLED|^LOOKS STALLED)", "", out, flags=re.M | re.S).lstrip("\n"))
+            return 2
+        if time.time() >= deadline:
+            sys.stdout.write(marker_block + f"watch ended after {_js_num(max_min)} min with nothing to act on. Re-arm it if a lane still has a run open.\n")
+            return 0
+        time.sleep(max(0.0, min(interval, deadline - time.time())))
+
+
 def main(argv=None):
     for s in (sys.stdout, sys.stderr):
         try:
@@ -559,8 +605,10 @@ def main(argv=None):
     cmd = args[0] if args and args[0] and not args[0].startswith("-") else "check"
     if cmd == "stamp":
         return _stamp(args)
+    if cmd == "watch":
+        return _watch(args)
     if cmd != "check":
-        print(f'Unknown command "{cmd}". Usage: lanes_check.py [--idle <min>] | stamp [--rerun]', file=sys.stderr)
+        print(f'Unknown command "{cmd}". Usage: lanes_check.py [--idle <min>] | watch [--interval <s>] [--max-minutes <m>] | stamp [--rerun]', file=sys.stderr)
         return 1
     return _check(args)
 

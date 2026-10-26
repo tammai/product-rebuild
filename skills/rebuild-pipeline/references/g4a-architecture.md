@@ -174,9 +174,13 @@ divergence from the *reference* is still the thing that gates.
 
 Send drafts to the `adr-drafter` agent (one per ADR, parallel except where `decide-before:`
 serializes them), briefed per `subagent-briefs.md` — including part 6, the model
-`scripts/routing.py` resolved for this role, which is the architect tier. Pass
-`adr/playbook.md`'s path, the exact `concerns:` value for that
-concern (or `N/A`), and the concern key itself, alongside the per-ADR brief. Present each to
+`scripts/routing.py` resolved for this role, which is the architect tier. First cut the
+drafter's excerpt of the playbook, from the workbench root:
+`python3 scripts/playbook.py excerpt <concern> > plan/adr-excerpts/<concern>.md` (a drafter that reads
+the whole 60 to 70 KB playbook pays for it again on every turn; the excerpt is 2 to 17 KB. It lives
+under `plan/`, not `adr/`, because Gate 3 hashes `adr/`). Pass the excerpt's path, `adr/playbook.md`'s
+path (the authority the ADR cites), the exact `concerns:` value for that concern (or `N/A`), and the
+concern key itself, alongside the per-ADR brief. Present each to
 the user for decision IN DEPENDENCY ORDER; later ADRs cite earlier ones.
 
 ## Gate 3 review (present to user)

@@ -10,7 +10,8 @@ Every dispatch is self-contained — subagents share no conversational context. 
    `g1-mining.md`'s ground-truth graph step) so the miner queries it instead of grepping
    raw source cold. For adr-drafter (G4a): always include
    the workbench's **`adr/playbook.md`** as a fixed input alongside the per-ADR brief — the
-   vendored copy, never the plugin's registry file — plus the **concern key** and the exact
+   vendored copy, never the plugin's registry file — and the drafter's **excerpt** of it
+   (`playbook.py excerpt <concern>`, g4a-architecture.md "Dispatch"), which is what it reads, plus the **concern key** and the exact
    **section(s)** the playbook's `concerns:` map gives for it (or `N/A` where it has no
    answer). Never leave the drafter to infer the section itself: numbering is per-playbook,
    so an inferred section is wrong in a way that reads as right. For the decomposition/stack
@@ -27,28 +28,20 @@ Every dispatch is self-contained — subagents share no conversational context. 
    fact; passed only as a parameter it is not, and a dispatch that silently ran on the wrong
    rung looks exactly like one that ran on the right one.
 
-## Context budget (every brief, part 4 — verbatim)
+## Context budget (carried by the agent files; do not paste it)
 
 One audit day cost ~200M tokens, ~85M of it a single drafter that read the parent session's
 transcript. Every subagent turn re-bills the whole context so far, so one large read early in a
-run is paid again on every later turn. Put this in **every** brief's Boundaries, as written:
+run is paid again on every later turn. The three rules that prevent it are in the agent file of
+every role this pipeline dispatches (`miner`, `adr-drafter`, `spec-writer`, `rubric-judge`,
+`lane-worker`, `lane-verifier`): never read session transcripts or scratchpad dumps, keep every
+tool result under ~20K characters, read each file once. They used to be pasted into every brief as
+well, about 275 output tokens per dispatch written out by the orchestrator for text the agent
+already has. Dispatch each role by its agent (`subagent_type`), which is what carries them; a
+brief does not repeat them.
 
-- **Never read session transcripts or scratchpad dumps**: nothing under `~/.claude/projects/`
-  (`*.jsonl`), no scratchpad or temp-dir file you did not write in this run. What you need from
-  the conversation is in this brief; if it is not, report what is missing instead of looking
-  for it.
-- **No single tool result over ~20K characters.** Find with Grep, then read the range with
-  `sed -n 'A,Bp'` or Read `offset`/`limit`. Never `cat` or whole-read a file you only need
-  part of — contracts (`openapi.yaml`), ADR sets, route files, logs.
-- **Read each file once.** Write the facts you need (path:line plus the quoted text) into your
-  notes as you go and work from those; re-opening the same file for each criterion is the
-  failure this rule exists for.
-
-**Orchestrator side — state the context inline.** A gate-reopen proposal, an ADR draft or a
-lane brief carries what the agent needs *in the brief*: the decision being reopened and why,
-the paths and sections that matter, the relevant excerpt. "See the conversation above" is a
-brief that sends the agent to the transcript. If a lane would need a large input (a big log,
-a generated dump), cut it to the relevant range first and pass the path to that cut.
+Add the three rules to the brief only for an agent that is not one of those six (a helper a lane
+spawns, or a fork), since nothing else delivers them.
 
 ## The judge brief (`rubric-judge`, at every gate — Step 5.1b)
 
@@ -185,7 +178,7 @@ Implementer's test run: {the command the lane reported} → {its pass/fail line}
 Return only the verify-contract JSON.
 ```
 
-Then add the context budget (part 4, verbatim, as for every brief) and one line of pipeline
+Then add one line of pipeline
 context: "The spec section of PLAN.md is a module spec approved in a rebuild workbench. Its
 acceptance criteria are the task rows. A criterion with a `rule_id` must match that Rule Card's
 values, as quoted in the spec." Pass `subagent_type` and `model` exactly as

@@ -65,7 +65,8 @@ includes a regression test, or `[no-test]` with the reason.
   any full diff, then one file at a time. Grep hits or line ranges (`Read` with `offset`/`limit`),
   never a whole large file. Long command output goes to a log file you `tail` or `grep`. Never read
   session transcripts (`~/.claude/projects/**/*.jsonl`): your brief is the whole brief, and if it is
-  missing something, say so in your report.
+  missing something, say so in your report. Read each file once, note the lines you need, and work
+  from the notes.
 
 ## Output
 

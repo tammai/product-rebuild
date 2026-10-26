@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 
 # Every file this module reads is hand-edited, and one of them will be edited on Windows.
 # Splitting a CRLF file on "\n" leaves a `\r` on every line, and a `.` does not match it in the
@@ -219,6 +220,19 @@ def cited_sections(meta):
 _ADR_NON_ADR = {"playbook.md", "README.md", "readme.md"}
 
 
+def _adr_field(text, name):
+    """The value of an ADR header field, on a line of its own. Accepts `concern: x`, a bulleted
+    `- concern: x` and the bold forms `- **concern:** x` and `**concern**: x`.
+
+    WHY NOT JUST `^concern:`. In a blind A/B of the ADR drafter, 4 of 8 Opus drafts wrote their header
+    as a bulleted list (`- concern: observability`) and none of the 8 Sonnet drafts did. The strict
+    pattern read those as ADRs with no concern, and `gate.py lock gate-3` refuses to lock while a mapped
+    concern has no ADR, so half of one model's drafts would have failed the gate over punctuation. The
+    drafter's agent file now says to write bare lines; this accepts the forms models write anyway."""
+    m = re.search(r"^(?:[-*]\s+)?\**" + re.escape(name) + r"\**:\**[ \t]*(.+?)[ \t]*$", text, re.M)
+    return m.group(1) if m else None
+
+
 def read_adrs(root="."):
     """Every ADR in adr/, with the two fields the playbook mechanism reads."""
     d = _join(root, "adr")
@@ -230,12 +244,12 @@ def read_adrs(root="."):
         if not os.path.isfile(f):
             continue
         text = _read_text(f)
-        concern = re.search(r"^concern:\s*(.+)$", text, re.M)
-        org_default = re.search(r"^org-default:\s*(.+)$", text, re.M)
+        concern = _adr_field(text, "concern")
+        org_default = _adr_field(text, "org-default")
         out.append({
             "file": f,
-            "concern": _unquote(concern.group(1)) if concern else None,
-            "org_default": _unquote(org_default.group(1)) if org_default else None,
+            "concern": _unquote(concern.strip("`")) if concern else None,
+            "org_default": _unquote(org_default) if org_default else None,
         })
     return out
 
@@ -535,3 +549,90 @@ PLAYBOOK_REMEDY = (
     f"At G4a entry, copy the playbook named by sources.yaml's architecture.playbook from the "
     f"plugin's {REGISTRY_DIR}/ to {VENDORED_PLAYBOOK}, then draft one ADR per concern in its "
     f"concerns: map, each declaring `concern:` and `org-default:` (see references/g4a-architecture.md).")
+
+
+def excerpt(raw_text, concern):
+    """The part of a playbook one ADR drafter needs: its header facts, §1, the section(s) the
+    `concerns:` map gives for `concern`, and those of any concern it must be decided after.
+
+    WHY. Every `adr-drafter` dispatch used to read the whole vendored playbook (63 to 72 KB, 16 to 18K
+    tokens) to find the one to three sections its brief names, and a run's context is re-billed on every
+    turn. In the web playbook 65% of the bytes are in no concern's section map. The drafter is told
+    never to infer a section, so what it needs is exactly what the map names. This cuts the playbook at
+    those headings; the vendored file Gate 3 hashes is untouched, and a drafter that wants more can still
+    read it. Returns None when the playbook has no such concern."""
+    text = _strip_cr(raw_text)
+    meta = parse_playbook_meta(text)
+    if not meta or concern not in meta["concerns"]:
+        return None
+    wanted, seen = [], set()
+
+    def add(c):
+        if c in seen:
+            return
+        seen.add(c)
+        for dep in meta["decide_before"].get(c, []):
+            add(dep)
+        wanted.append(c)
+
+    add(concern)
+    lines = text.split("\n")
+    heads = []
+    for i, ln in enumerate(lines):
+        m = re.match(r"^(#{2,6})\s+([0-9]+(?:\.[0-9]+)*)[.):]?(?=\s)", ln)
+        if m:
+            heads.append((i, len(m.group(1)), m.group(2)))
+
+    def section(num):
+        for k, (i, lvl, n) in enumerate(heads):
+            if n == num:
+                end = len(lines)
+                for (j, lvl2, _n2) in heads[k + 1:]:
+                    if lvl2 <= lvl:
+                        end = j
+                        break
+                return "\n".join(lines[i:end]).rstrip()
+        return None
+
+    out = [f"# Playbook excerpt: concern `{concern}`", "",
+           "Cut from the vendored `adr/playbook.md` by `playbook.py excerpt`. That file is what Gate 3 hashes "
+           "and what the ADR cites; read it for anything this excerpt does not cover.", "",
+           f"playbook: {meta['playbook']}", f"stack: {meta['stack']}", f"target-shape: {meta['target_shape']}"]
+    for c in wanted:
+        out.append(f"concerns.{c}: {meta['concerns'][c]}")
+    if meta["decide_before"].get(concern):
+        out.append(f"decide-before: {concern} is decided after {', '.join(meta['decide_before'][concern])}")
+    out.append("")
+    taken = []
+    for num in ["1"] + [t for c in wanted for t in re.findall(r"§\s*([0-9]+(?:\.[0-9]+)*)", meta["concerns"][c])]:
+        if num in taken:
+            continue
+        taken.append(num)
+        body = section(num)
+        if body is None:
+            out.append(f"(section §{num} is named by the concerns map but has no heading in this playbook)")
+        else:
+            out += [body, ""]
+    if all(meta["concerns"][c].strip().upper() == "N/A" for c in wanted):
+        out.append(f"This playbook gives no default for `{concern}` (`N/A`): draft it against the reference alone.")
+    return "\n".join(out).rstrip() + "\n"
+
+
+def _cli(argv):
+    if len(argv) >= 2 and argv[0] == "excerpt":
+        path = argv[argv.index("--playbook") + 1] if "--playbook" in argv else _join("adr", "playbook.md")
+        if not os.path.exists(path):
+            print(f"playbook.py excerpt: no playbook at {path}. Run from the workbench root, or pass --playbook.", file=sys.stderr)
+            return 1
+        res = excerpt(_read_text(path), argv[1])
+        if res is None:
+            print(f"playbook.py excerpt: {path} has no concern named {argv[1]!r} in its concerns: map.", file=sys.stderr)
+            return 1
+        sys.stdout.write(res)
+        return 0
+    print("Usage: playbook.py excerpt <concern> [--playbook adr/playbook.md]", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(_cli(sys.argv[1:]))

@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-26
+
+A token and time audit of the pipeline (three read-only reviews, then checked against the source) and the
+cuts it supported. Counts of tokens per project are estimates; nothing was instrumented on a real rebuild.
+
+### Changed
+
+- **The G5 stall watch is one background process.** `lanes_check.py watch` loops inside a single
+  `run_in_background` process, prints nothing while there is nothing to act on, and exits 2 with the evidence
+  on a stall (0 after `--max-minutes`, default 8 hours). It replaces a session-scoped cron that ran the plain
+  check every 10 minutes, or every 5 during the joint run: a whole orchestrator turn per fire, 24 to 30 a
+  slice, to read "nothing to act on". `g5-build.md` and `autopilot.md` say so.
+- **ADR drafters read an excerpt, not the playbook.** `playbook.py excerpt <concern>` cuts the header facts,
+  §1 and the sections the `concerns:` map names (plus those of a concern it is decided after) into
+  `plan/adr-excerpts/<concern>.md`: 2 to 17 KB against 63 to 72 KB. `g4a-architecture.md`,
+  `subagent-briefs.md` and `adr-drafter.md` use it; `adr/playbook.md` stays the authority the ADR cites.
+- **The context-budget block is no longer pasted into every brief.** All six agent files carry it (`lane-worker`
+  gained its missing "read each file once"); the brief section now says so and keeps the 200M-token incident as
+  the reason.
+- **Session start and autopilot take fewer turns.** `SKILL.md` Step 2 is one chained call (release check,
+  `upgrade.py --auto`, `gate.py status`), and an autopilot unit's `log` is chained with the next `check`.
+
+### Fixed
+
+- **`playbook.read_adrs` read bulleted ADR headers as no concern.** 4 of 8 Opus drafts in a blind A/B wrote
+  `- concern: x` and `gate.py lock gate-3` would have refused them. The reader accepts bullet and bold headers,
+  and `adr-drafter.md` says to write bare `key: value` lines.
+
+### Added
+
+- `eval/fixtures/drafter-ab/`: the Sonnet-versus-Opus drafter comparison. Opus drafts scored 4.88 against
+  3.88 from a blind judge, met the same 23 of 24 checklist items, and cost 9% more tokens and 63% more time, so
+  the drafter stays on the architect tier. The README lists what the comparison does not cover.
+- `eval/playbook_excerpt.py`: every concern of both playbooks gets an excerpt with exactly its sections.
+
 ## [1.1.0] - 2026-10-26
 
 ### Changed

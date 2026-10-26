@@ -68,8 +68,9 @@ The workbench repo is the pipeline's state store. Look for `locks/pipeline.yaml`
 current directory, then in `./workbench/`. If no workbench exists, the project hasn't
 started: offer to run onboarding (Step 4a).
 
-**Then check which release made it.** Read `locks/pipeline.yaml`: a 1.x workbench says
-`rebuild_major: 1` (or higher). One with no `rebuild_major` was made by a 0.x release, and **this plugin
+**Then check which release made it.** The first line the call in Step 2 prints is `locks/pipeline.yaml`'s
+`rebuild_major` line: a 1.x workbench says `rebuild_major: 1` (or higher). One that prints nothing there has no
+`rebuild_major` and was made by a 0.x release, and **this plugin
 will not open it**: its scripts, its guards and the way its repos were created all differ, and there is
 no migration. Say so in one message, tell the user to finish that rebuild on the 0.x line
 (`product-rebuild-skills`, the plugin this one replaced), and stop. Do not offer to convert it, copy
@@ -78,19 +79,23 @@ one place a person is told why.
 
 ### Step 2 — Detect state
 
-Run, with the workbench root as cwd: `python3 scripts/gate.py status`
+Run **one** call, with the workbench root as cwd. Three commands in one call, not three tool turns, because
+every turn re-bills the whole context and a session starts this way every time:
 
-Always the workbench's own `scripts/` copy, never the plugin's. Every script except
+```sh
+grep -m1 '^rebuild_major' locks/pipeline.yaml; python3 ${CLAUDE_PLUGIN_ROOT}/skills/rebuild-pipeline/scripts/upgrade.py --auto --plugin ${CLAUDE_PLUGIN_ROOT}; python3 scripts/gate.py status
+```
+
+The first prints the release check from Step 1, the second brings the tooling up to date (below), and the
+third derives the state, after the upgrade so it reflects it. If the first prints nothing, stop at Step 1:
+the other two are read-only or refuse such a workbench, so running them did no harm.
+
+`gate.py status` is always the workbench's own `scripts/` copy, never the plugin's. Every script except
 `rebuild_init.py` reads and writes cwd-relative paths, and `validate.py`/`parity.py`
 use `yamlio.py`, `schemacheck.py` and `_vendor/pyyaml/` from the same directory, so nothing is installed.
 
-**First, bring the workbench's tooling up to the plugin you are running** — the one exception
-to "never the plugin's copy", because the workbench's own upgrader is as old as the rest:
-
-```sh
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/rebuild-pipeline/scripts/upgrade.py --auto --plugin ${CLAUDE_PLUGIN_ROOT}
-```
-
+**The second command brings the workbench's tooling up to the plugin you are running** — the one exception
+to "never the plugin's copy", because the workbench's own upgrader is as old as the rest.
 It prints one `TOOLING` line. It copies only the vendored files it can prove are unmodified,
 and only when no slice is in progress, no autopilot run is engaged, the tree is clean and no
 copy would break an import between scripts; otherwise it defers to a later session start. An

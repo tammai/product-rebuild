@@ -1,0 +1,38 @@
+{
+  "authn-authz": {
+    "allowed_decisions": ["diverge-from-default"],
+    "sections": ["§7"],
+    "checklist": [
+      "States that enterprise SSO (SAML 2.0 and/or OIDC) and SCIM provisioning are the reason the default is not enough, citing the reference's 140 enterprise tenants or the contract requirement.",
+      "Says explicitly which parts of the playbook's auth design it keeps (for example the BFF httpOnly-cookie session pattern, argon2id, short access tokens with rotating refresh tokens) and which it changes or adds.",
+      "Names a concrete way to deliver SAML/OIDC federation and SCIM (a library, a broker or an identity service) and states at least one cost or risk of it."
+    ]
+  },
+  "events-queues": {
+    "allowed_decisions": ["diverge-from-default"],
+    "sections": ["§7", "§8"],
+    "checklist": [
+      "Treats the telemetry stream (8,000 messages per second sustained, per-vehicle ordering, loss under 0.1%) as a different problem from business events, and says so.",
+      "Does NOT route the telemetry stream through the transactional-outbox relay or the Postgres-backed job queue, and gives the throughput or ordering reason.",
+      "Keeps the playbook's outbox, idempotent-consumer (inbox) and dead-letter rules for the business events, or states a reason for changing them."
+    ]
+  },
+  "storage": {
+    "allowed_decisions": ["mirror-default", "silent-default"],
+    "sections": ["§8"],
+    "checklist": [
+      "Adopts the playbook's data conventions (UUIDv7 keys, audit columns, soft delete with its companion rules, forward-only migrations) without inventing a divergence the reference's facts do not force.",
+      "Addresses moving from the legacy schema (640 tables, bigint keys, hard deletes) to these conventions: how legacy ids or deleted rows are handled, or an explicit statement that this is deferred and to where.",
+      "States something it deliberately does NOT change."
+    ]
+  },
+  "observability": {
+    "allowed_decisions": ["mirror-default", "silent-default"],
+    "sections": ["§10"],
+    "checklist": [
+      "Keeps the playbook's conventions (structured logs with request_id, module and user_id; /healthz and /readyz; RED metrics; X-Request-Id propagation) and maps them to the reference's existing Datadog rather than proposing a different backend.",
+      "Addresses the two gaps the reference's facts name: the request id is lost at the Celery boundary (so it must reach background jobs) and there is no readiness probe (so /readyz must check that migrations are applied).",
+      "States something it deliberately does NOT change."
+    ]
+  }
+}

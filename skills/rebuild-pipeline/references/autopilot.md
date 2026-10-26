@@ -97,10 +97,13 @@ Per unit of work:
 2. Do the unit. Delegate per `subagent-briefs.md`; run independent lanes in one turn. In G5 a
    unit's test evidence is the JUnit its lane wrote — never a suite you re-run after it to be
    sure (`g5-build.md`, "Test cadence within a slice"). While a lane has a long run open, the
-   `lanes_check.py` watchdog from that file's guardrails runs here too (every 10 minutes, every
-   5 while the joint run is open).
+   `lanes_check.py watch` from that file's guardrails runs here too, as one background process.
 3. Write the output to disk and commit it.
-4. `python3 scripts/autopilot.py log --unit "..." --outcome done|failed|skipped [--note "..."]`
+4. `python3 scripts/autopilot.py log --unit "..." --outcome done|failed|skipped [--note "..."]`,
+   chained with the next unit's check in the same call: `... log --unit "..." --outcome done && python3
+   scripts/autopilot.py check`. Two adjacent calls were two orchestrator turns per unit, each re-reading
+   the whole context, for one decision. The chain stops at the first failure and ends with `check`'s exit
+   code, so an exit 3 still means stop.
 
 Step 3 is the point of the whole design. A unit that ends with its output still in the
 conversation is a unit that did not happen — an unattended run cannot be asked to

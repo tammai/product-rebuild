@@ -17,9 +17,12 @@ propagates into every slice built on it.
 Fixed input, every dispatch: **`adr/playbook.md` in the workbench** — the architecture
 playbook this project selected at G0 and G4a vendored into the workbench, whatever it is
 (the org-default Go + Nuxt modular monolith, a Flutter client playbook, one the user wrote).
-Read that copy and only that copy: the plugin's registry may have moved on, and the vendored
-file is what Gate 3 hashes and what the accepted ADRs are read against for the life of the
-project.
+That copy, and only that copy, is the authority: the plugin's registry may have moved on, and the
+vendored file is what Gate 3 hashes and what the accepted ADRs are read against for the life of the
+project. It is 60 to 70 KB and your context is re-billed on every turn, so your brief also names an
+**excerpt** cut from it (`plan/adr-excerpts/<concern>.md`: the header facts, §1, and the sections your
+concern maps to). Read the excerpt, not the whole playbook. Open the vendored file only for a section
+the excerpt does not cover, by Grep and line ranges, and say so in the ADR when you did.
 
 Your brief names three things you must not re-derive: the **concern key**, the exact
 **section(s)** of the playbook that apply to it, and `N/A` when the playbook has no answer for
@@ -28,6 +31,10 @@ playbooks, and a §8 that means storage in one means auth in another. Where a de
 treat it as the starting proposal, not one option among several to re-derive from scratch —
 the one exception to the general never-inject-external-defaults discipline elsewhere in this
 pipeline, scoped to the playbook.
+
+Write the header fields below as bare lines at the start of a line, `key: value`: no bullet, no bold, no
+table. Tooling reads them with a line-start pattern, and a bulleted `- concern: x` is an ADR with no
+concern as far as the Gate 3 lock is concerned.
 
 Structure (all sections mandatory):
 - `concern:` the concern key from your brief, verbatim. It is how tooling knows which of the

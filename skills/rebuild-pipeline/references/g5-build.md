@@ -420,18 +420,22 @@ relaxed to compensate.
   JUnit the lane wrote and the report it sent; a failure worth investigating goes to that lane
   or to a fork. See "Test cadence within a slice".
 - **Watch the long runs, because nothing else will.** While any build lane has a run longer than
-  a few minutes open, schedule a recurring 10-minute check (CronCreate, session-scoped) that runs
-  `python3 scripts/lanes_check.py` from the workbench root; while the joint run is open, every 5
-  minutes, because its phases hand off to each other and each hand-off is a chance to stall. It
-  prints, per repo and worktree, the last commit, the dirty count and the live test processes,
-  each `run_phases.py` run's phase and driver state, and the newest results file. It exits 2
-  when a driver died mid-phase, or when no test process or driver is alive and nothing has
-  changed for more than 10 minutes, and then names the newest file anywhere and its age. On
-  exit 2, if a lane still has work, send it that evidence verbatim (file, age, status, counts)
-  and tell it to resume; tell the user in one line. Delete the check once every lane has sent
-  its final report. The failure this exists for is specific: a lane watching its run with a
-  Monitor, which expires after at most 30 minutes, then sitting idle "waiting for the
-  notification" — 2½ hours once, and several shorter gaps, noticed only when the user asked.
+  a few minutes open, start ONE background process from the workbench root with `run_in_background`:
+  `python3 scripts/lanes_check.py watch --interval 600` (use `--interval 300` while the joint run is
+  open, because its phases hand off to each other and each hand-off is a chance to stall). It checks on
+  its own schedule and prints nothing while there is nothing to act on, so it costs your context
+  nothing until it exits. It exits 2 with the evidence when a driver died mid-phase, or when no test
+  process or driver is alive and nothing has changed for more than 10 minutes, naming the newest file
+  anywhere and its age (per repo and worktree: the last commit, the dirty count, the live test
+  processes, each `run_phases.py` run's phase and driver state, and the newest results file). It exits
+  0 after 8 hours (`--max-minutes`), so a forgotten watcher ends itself. When it exits 2, if a lane still
+  has work, send that lane the evidence verbatim (file, age, status, counts) and tell it to resume;
+  tell the user in one line; then start the watch again. Stop it (TaskStop) once every lane has sent its
+  final report. It replaces a session-scoped cron that ran the plain check every 10 or 5 minutes, which
+  was a full orchestrator turn per fire (24 to 30 a slice) to read the words "nothing to act on". The
+  failure this exists for is specific: a lane watching its run with a Monitor, which expires after at
+  most 30 minutes, then sitting idle "waiting for the notification" — 2½ hours once, and several
+  shorter gaps, noticed only when the user asked.
   The same check names any code repo whose `.rebuild-workbench` marker is missing or points
   elsewhere while a slice is in progress (`pause_check.py` does too): `runbook_guard.py` fails
   open without it, so a repo created before the marker step existed had the guard off silently.
