@@ -276,34 +276,25 @@ then resolves against the code repo's own remote, so a fresh
      migrations are merged, so they apply once, in number order.
    - The runbook's `## Migration order` section records the tool's behavior and the reset
      command, so S2's lanes do not learn it the same way.
-4b. **The lane-verifier loop — every lane, before the joint run.** Until 0.30.0 the first
-   independent look at a lane's code was the joint run's test results, and those tests were
-   written by the same lane. A criterion implemented differently from its spec, or quietly left
-   out, is something the lane's own tests can agree with. You run the loop for each lane, because a
-   lane cannot spawn subagents of its own, and an implementer dispatched as `general-purpose`
-   would not carry `lane-worker`'s standing rules.
+4b. **No verifier loop by default.** Through 1.0.0 every lane went through an implement/verify loop,
+   capped at three rounds, before the joint run. It cost a fresh agent and a resumed lane per
+   round, on diffs the joint run and the slice review look at anyway, and 1.1.0 removed it. A lane is
+   done when it reports its rows `Done` and its own tests (per the test cadence) pass. The
+   independent checks that remain are the joint run, which is the evidence bar, and
+   `slice_review.py`, which names any lane whose approved `## Spec` changed.
 
    - **Dispatch every build lane as the `build-lane` role** (lanes 2–4 above), with the agent
      and model `scripts/routing.py --role build-lane` resolves (`lane-worker`). Pass both
-     on the Agent call, together with the build-lane brief and its worktree.
-   - **When a lane reports its rows `Done`**, dispatch a fresh `lane-verifier` (the agent and
-     model routing resolves, `lane-verifier`) with the verifier brief in
-     `subagent-briefs.md`. Pass it the worktree's `PLAN.md`, the lane's diff since it branched,
-     and the lane's own test run, and nothing the lane said about its work. Record the round:
-     `python3 scripts/lane_plan.py record-verify <Sn> <lane> --verdict PASS|FAIL --round <n> --issues <count>`.
-   - **On `FAIL`**, resume the *same* lane (SendMessage to its agent ID) with the issues list
-     verbatim, so it fixes only what was flagged. Then dispatch a **new** verifier against the
-     new diff, never a resumed one. Every verifier dispatch is a round, and the cap is 3.
-   - **On the third `FAIL`, stop.** That is a halt for the user: show the latest issues and ask
-     whether the plan is wrong (`Status: amending` and a re-approval, which restarts the count),
-     whether to raise the cap, or whether to take over. Autopilot halts here too.
-   - **When the verifier says the plan itself is wrong** rather than the code (a requirement
-     that moved), that is not a fix round. It goes to the amend path in step 1b.
-   - **On `PASS`** the lane is done, and its work is in the joint run below.
+     on the Agent call, together with the build-lane brief and its worktree. It is never
+     `general-purpose`: the standing rules live in the agent file.
+   - **An audit is the user's call, once.** If the user asks for one (a lane touching money or auth
+     is the usual reason), dispatch one fresh `lane-verifier` for that lane with the brief in
+     `subagent-briefs.md`, and show the user its JSON verdict. There is no automatic fix round,
+     no re-verify and no cap: what to do with a `FAIL` is the user's decision. Nothing records it.
+   - **A lane that finds the spec wrong** goes to the amend path in step 1b, as before.
 
-   A code review is not run per lane. Whether to review is the user's call at the slice
-   boundary, with the whole slice's diff in front of them. You only dispatch and read one JSON verdict per round, so the loop costs your context a
-   few lines per lane, not the diffs. `slice_review.py` names any lane with no recorded `PASS`.
+   A code review is not run per lane either. Whether to review is the user's call at the slice
+   boundary, with the whole slice's diff in front of them.
 5. **The joint run — once, at the end of the build.** One lane, named when the slice starts,
    runs the cumulative suite: every unit and integration/API suite in every repo, then the
    E2E set against the deployment — the latest checkpoint's smoke journey plus each slice's

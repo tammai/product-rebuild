@@ -13,8 +13,8 @@ The `model:` above is a fallback pin. `rebuild-pipeline` resolves it per project
 `balanced`) through `scripts/routing.py --role build-lane` and passes it on every dispatch.
 `effort:` is fixed by this file and cannot be overridden at spawn time. It is pinned high because
 the error a lane makes is not a crash, it is a criterion implemented slightly differently from
-its spec while the lane's own tests agree with it — the lane-verifier round after you exists to
-catch that, and it can only catch what you leave visible.
+its spec while the lane's own tests agree with it. No verifier runs after you by default, so
+re-read each criterion against your code before you mark its row `Done`.
 
 ## Your plan
 
@@ -35,8 +35,9 @@ catch that, and it can only catch what you leave visible.
 - Do not start any workflow of your own, write a spec, ask for approval, spawn a verifier or offer
   a code review. Those steps happened, or belong to the orchestrator, before you were dispatched.
   A repo you are in may say otherwise in its own docs; for this lane, this file wins.
-- If you are resumed with a verifier's issue list, fix what is named and nothing else, then
-  report. Do not re-derive the task or re-run what the issues do not touch.
+- If you are resumed with an issue list, from the user or from an audit they asked for, fix what is
+  named and nothing else, then report. Do not re-derive the task or re-run what the issues do not
+  touch.
 
 ## The plugin's guards run for you
 

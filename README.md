@@ -288,7 +288,7 @@ skills/rebuild-pipeline/        THE skill you interact with
   scripts/autopilot.py         unattended-run state: preflight / check / engage / log / disengage
   scripts/routing.py           which model each subagent role dispatches on (.claude/model-routing.json)
 agents/                         miner, adr-drafter, spec-writer, rubric-judge, lane-worker,
-                                lane-verifier subagents
+                                lane-verifier (opt-in audit) subagents
 hooks/                          PreToolUse guards: locked artifacts, recorded AC flows, and
                                 the autopilot usage threshold; plus the code-repo guards (bash,
                                 spec gate, injection gate and canary, commit gates), which judge

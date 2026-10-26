@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-26
+
+### Changed
+
+- **The per-lane verifier loop is gone.** G5 step 4b used to run an implement/verify loop on every
+  lane before the joint run, capped at three rounds, and it cost a fresh agent plus a resumed lane
+  per round for a look the joint run and the slice review already give. A lane is now done when it
+  reports its rows `Done` and its own tests pass. `lane-verifier` stays as a single audit the user
+  can ask for, with no fix round, no cap and no recording.
+- `lane_plan.py record-verify` and `VERIFY_CAP` are removed, and `slice_review.py` no longer
+  reports a missing verifier `PASS`. A `PLAN.md` record written before this change keeps its
+  `verify` rounds, which nothing reads.
+
+### Added
+
+- `eval/fixtures/verifier-ab/`: the A/B eval behind that decision (four arms: self-audit, fresh verifier,
+  implementer alone, implementer plus a script check), with hidden tests and mutants for six tasks. In
+  12 runs of Sonnet implementers on precisely specified lanes, up to 33 criteria in one lane, every arm
+  passed every hidden criterion and the fresh verifier found nothing, at about twice the tokens. The README
+  there says what the result does not cover (a cheaper implementer, or a spec that has drifted from the
+  legacy product) and how to rerun it.
+
 ## [1.0.0] - 2026-10-26 — standalone, and Python
 
 Part of the standalone pipeline in `specs/Spec Standalone pipeline without bigin-skills.md`.

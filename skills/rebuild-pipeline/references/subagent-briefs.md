@@ -168,12 +168,11 @@ run that could have produced it.
 **Dispatch** (part 6): a build lane runs as the `build-lane` role, on the agent *and* model
 `scripts/routing.py --role build-lane` resolves, passed as `subagent_type` and `model` on the
 Agent call. It is `lane-worker`, never `general-purpose`: the standing rules live in the agent
-file, and a hand-written stand-in prompt silently drops them. The lane-verifier round below
-assumes the lane carried them.
+file, and a hand-written stand-in prompt silently drops them.
 
-## The lane-verifier brief (`lane-verifier`, after each build lane — G5 step 4b)
+## The lane-verifier brief (`lane-verifier`, only when the user asks for an audit — G5 step 4b)
 
-A fresh dispatch per round. Never resume one, and never show it the lane's own report: an audit
+A single fresh dispatch, never resumed, and never shown the lane's own report: an audit
 that reads the implementer's account of its work is the failure it exists to catch. It is
 `lane-verifier`, whose agent file carries its rules and its output contract. The brief is
 its handoff, with the paths filled in:
@@ -193,8 +192,7 @@ values, as quoted in the spec." Pass `subagent_type` and `model` exactly as
 `scripts/routing.py --role lane-verifier` resolves them.
 
 Read the verdict, which is one JSON object (`{"verdict":"PASS"|"FAIL","issues":[...]}`), and
-record it with `lane_plan.py record-verify`. Relay a FAIL's issues to the lane verbatim, and
-nothing else of the verifier's.
+show it to the user. A FAIL does not start a fix round: what to do with it is the user's call.
 
 ## Which model each role runs on
 

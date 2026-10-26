@@ -54,10 +54,9 @@ are this plugin's own hooks (`hooks/scripts/`): a bash guard, a spec gate, the i
 canary, and the commit gates. Each judges only a repo listed in the workbench's `repos.yaml`. A
 block naming a guard is that guard's rule, never something to edit around. The spec gate is
 satisfied by the lane `PLAN.md` that `lane_plan.py` writes from the slice specs the user approved
-(`references/g5-build.md` step 1b). Build lanes run as this plugin's `lane-worker` agent, and each
-lane's diff is audited by its `lane-verifier` against that plan before the joint run (step 4b: an
-implement/verify loop run by you, capped at 3 rounds). Both are resolved through
-`scripts/routing.py` (`build-lane`, `lane-verifier`).
+(`references/g5-build.md` step 1b). Build lanes run as this plugin's `lane-worker` agent, resolved through
+`scripts/routing.py` (`build-lane`). There is no per-lane verifier loop; a `lane-verifier` audit
+is a single pass the user asks for (step 4b).
 
 ## Orchestration Protocol
 

@@ -7,7 +7,6 @@ is dispatched.
        --specs plan/specs/S3/billing.md,plan/specs/S3/invoicing.md
   python3 scripts/lane_plan.py S3 billing-backend --worktree ../app-S3-billing \\
        --specs plan/specs/S3/billing.md --amend --reason "AC 4 contradicted R-BILL-002"
-  python3 scripts/lane_plan.py record-verify S3 billing-backend --verdict PASS --round 1
   python3 scripts/lane_plan.py archive S3 billing-backend     # slice end: plan leaves the worktree
 
 WHY THIS EXISTS. The plugin's spec-gate-guard blocks any edit over ~20 lines in a code repo
@@ -24,7 +23,7 @@ THE FORMAT: `Status:` and `Branch:` are what the guard reads (`^Status:\\s*(\\S+
 `^Branch:\\s*(\\S+)` — hooks/scripts/hooklib.py PLAN_STATUS and PLAN_BRANCH). This script is
 vendored into each workbench and runs alone, so it cannot import them; PLAN_STATUS and
 PLAN_BRANCH below are its own copy, and eval/lane_plan.py imports both sides and fails if they
-stop agreeing. If you change one, change both. The lane-verifier and `archive` read the rest.
+stop agreeing. If you change one, change both. `archive` reads the rest.
 Tasks are one row per acceptance criterion, so `Done` means the same thing in the plan, in the
 AC→test mapping and in the per-rule parity report.
 
@@ -141,13 +140,6 @@ def _acceptance_criteria(text):
             for l in sec.split("\n")[1:] if re.match(r"^\s*(?:[0-9]+\.|[-*])\s+\S", l)]
 
 
-# `record-verify` (E18, 0.30.0): the orchestrator records each lane-verifier round here, so the
-# slice boundary can say whether every lane was audited and how it ended, instead of the claim
-# living in a conversation nobody re-reads. The cap of 3 is this pipeline's (g5-build.md step 4b):
-# every verifier dispatch on a plan is a round, and the third FAIL ends the loop with a halt for
-# the user.
-VERIFY_CAP = 3
-
 _REC_HEADER = "# Written by scripts/lane_plan.py; read by slice_review.py. Do not hand-edit.\n"
 
 _JS_NUMBER = re.compile(r"[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
@@ -215,38 +207,6 @@ def _die(prefix, msg):
 def _save_record(slice_id, rec):
     _write_text(os.path.join("plan", "lane-plans", f"{slice_id}.yaml"),
                 _REC_HEADER + json.dumps(rec, indent=2, ensure_ascii=False) + "\n")
-
-
-def _record_verify(args):
-    def die(msg):
-        return _die("lane-plan record-verify", msg)
-    slice_id, lane = (_positionals(args, ("--verdict", "--round", "--issues")) + [None, None])[:2]
-    verdict = (_opt(args, "--verdict") or "").upper()
-    rnd = _js_number(_opt(args, "--round"))
-    if not os.path.exists(os.path.join("locks", "pipeline.yaml")):
-        return die("no locks/pipeline.yaml here — run from the workbench root.")
-    if not slice_id or not lane or verdict not in ("PASS", "FAIL") or not math.isfinite(rnd) \
-            or rnd != int(rnd) or rnd < 1:
-        return die("usage: lane_plan.py record-verify <Sn> <lane> --verdict PASS|FAIL --round <n> [--issues <count>]")
-    rnd = int(rnd)
-    rec = read_lane_plans(slice_id)
-    lrec = ((rec or {}).get("lanes") or {}).get(lane)
-    if not lrec:
-        return die(f"no plan recorded for {slice_id} {lane} — a verifier audits a diff against a plan, so write the plan first.")
-    rounds = lrec.get("verify") or []
-    if rnd != len(rounds) + 1:
-        return die(f"round {rnd} out of order: {len(rounds)} round(s) already recorded for {lane}.")
-    if rnd > VERIFY_CAP:
-        return die(f"round {rnd} is past the cap of {VERIFY_CAP}. The loop ended at round {VERIFY_CAP}; that is a halt for the user, not another round.")
-    issues = _opt(args, "--issues")
-    rounds.append({"round": rnd, "verdict": verdict,
-                   "issues": _json_number(_js_number(issues) if issues else 0.0), "at": _iso_now()})
-    lrec["verify"] = rounds
-    _save_record(slice_id, rec)
-    cap_hit = verdict == "FAIL" and rnd == VERIFY_CAP
-    print(f"{slice_id} {lane}: verifier round {rnd}/{VERIFY_CAP} {verdict}" +
-          (" — cap reached. HALT: show the user the issues and ask whether to amend the plan, raise the cap, or take over." if cap_hit else ""))
-    return 0
 
 
 # `archive` (1.0.0): the slice-end half of a plan's life. Until 1.0.0 a finished PLAN.md left the
@@ -449,12 +409,7 @@ def _write_plan(args):
     lanes = rec.setdefault("lanes", {})
     prior = lanes.get(lane) or {}
     entry = {
-        # A new or amended plan restarts the verifier count: earlier rounds audited a plan that no
-        # longer exists. They are kept, not dropped, as history.
-        "verify": [],
     }
-    if amend and (prior.get("verify") or prior.get("verify_prior")):
-        entry["verify_prior"] = [*(prior.get("verify_prior") or []), *(prior.get("verify") or [])]
     try:
         rel_worktree = os.path.relpath(worktree, ".")
     except ValueError:
@@ -482,8 +437,6 @@ def main(argv=None):
         except Exception:
             pass
     argv = sys.argv[1:] if argv is None else list(argv)
-    if argv and argv[0] == "record-verify":
-        return _record_verify(argv[1:])
     if argv and argv[0] == "archive":
         return _archive(argv[1:])
     return _write_plan(argv)

@@ -188,34 +188,12 @@ sr = review()
 check("a hand-edited ## Spec is named in the review", re.search(r"no longer matches what lane_plan\.py wrote", sr), sr[:1200])
 
 
-# --- E18: verifier rounds recorded, capped, and surfaced -----------------------------------------
-def rv(*a):
-    return run_script("lane_plan.py", "record-verify", "S1", "api", *a)
-
-
+# --- the verifier loop is gone: nothing records, caps or demands a verifier round ----------------
 w(lane_path, "PLAN.md", plan2)  # undo the hand-edit above
+r = run_script("lane_plan.py", "record-verify", "S1", "api", "--verdict", "PASS", "--round", "1")
+check("record-verify no longer exists", r.returncode != 0, r.stdout + r.stderr)
 sr = review()
-check("a lane with no verifier round is named",
-      re.search(r"- api: .*no verifier round recorded", sr) and re.search(r"api has no recorded verifier PASS", sr), sr[:1400])
-r = rv("--verdict", "FAIL", "--round", "2")
-check("record-verify refuses a round out of order", r.returncode == 1 and re.search(r"out of order", r.stderr), r.stderr)
-check("round 1 FAIL recorded", rv("--verdict", "FAIL", "--round", "1", "--issues", "2").returncode == 0)
-check("round 2 FAIL recorded", rv("--verdict", "FAIL", "--round", "2", "--issues", "1").returncode == 0)
-r = rv("--verdict", "FAIL", "--round", "3", "--issues", "1")
-check("the third FAIL says HALT", r.returncode == 0 and re.search(r"cap reached\. HALT", r.stdout), r.stdout + r.stderr)
-r = rv("--verdict", "PASS", "--round", "4")
-check("a fourth round is refused", r.returncode == 1 and re.search(r"past the cap", r.stderr), r.stderr)
-sr = review()
-check("the review shows the last verdict", re.search(r"verifier FAIL at round 3/3", sr), sr[:1400])
-r = lane_plan_cli(*ARGS, "--amend", "--reason", "plan was wrong")
-rec = json.loads(re.sub(r"^#.*\n", "", read(os.path.join(wb, "plan/lane-plans/S1.yaml")), flags=re.M))
-check("an amended plan restarts the count and keeps prior rounds",
-      r.returncode == 0 and len(rec["lanes"]["api"]["verify"]) == 0 and len(rec["lanes"]["api"].get("verify_prior") or []) == 3,
-      json.dumps(rec["lanes"]["api"]))
-ok_round1 = rv("--verdict", "PASS", "--round", "1").returncode == 0
-sr_after = review()
-check("round 1 after an amendment is accepted, and PASS clears the review",
-      ok_round1 and re.search(r"verifier PASS at round 1/3", sr_after) and not re.search(r"has no recorded verifier PASS", sr_after))
+check("the review does not ask for a verifier PASS", not re.search(r"verifier", sr), sr[:1400])
 
 
 # --- archive: the plan leaves the worktree at slice end ------------------------------------------

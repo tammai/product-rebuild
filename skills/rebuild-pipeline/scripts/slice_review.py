@@ -446,23 +446,10 @@ def main(argv=None):
             sm = re.search(r"^Status:\s*(\S+)", plan, re.M)
             status = sm.group(1) if sm else "(none)"
             edited = plan_lib.spec_hash(plan) != rec.get("spec_sha256")
-            # The lane-verifier loop (E18). A lane with no PASS recorded reached the joint run unaudited,
-            # or its audit was never written down; either way the review names it rather than assuming.
-            rounds = _list(rec.get("verify"))
-            last = rounds[-1] if rounds else None
-            cap = getattr(plan_lib, "VERIFY_CAP", 3)
-            verify_note = ("no verifier round recorded" if not rounds
-                           else f"verifier {_show(last, 'verdict')} at round {_show(last, 'round')}/{cap}")
-            lane_plan_md.append(f"- {lane}: {done}/{len(rows)} task rows Done · Status: {status} · {verify_note} · approved @ workbench "
+            lane_plan_md.append(f"- {lane}: {done}/{len(rows)} task rows Done · Status: {status} · approved @ workbench "
                                 f"{_show(rec, 'workbench_commit')} by {_show(rec, 'approved_by')}"
                                 f"{' · ' + _str(rec['amendments']) + ' amendment(s)' if _truthy(rec.get('amendments')) else ''}"
                                 f"{' · **`## Spec` differs from what was approved**' if edited else ''}")
-            if hasattr(plan_lib, "VERIFY_CAP") and _get(last, "verdict") != "PASS":
-                last_round = _show(last, "round")
-                press(f"{lane}: {'last verifier round ' + last_round + ' was FAIL' if rounds else 'no verifier round recorded'}",
-                      f"- **{lane} has no recorded verifier PASS** ({str(len(rounds)) + ' round(s), last FAIL' if rounds else 'none recorded'}). "
-                      "Its diff reached the joint run without an independent audit against its PLAN.md, or the audit was never "
-                      "recorded (`lane_plan.py record-verify`).")
             if edited:
                 press(f"{lane}: its PLAN.md `## Spec` no longer matches the approved specs",
                       f"- **{lane}'s PLAN.md `## Spec` no longer matches what lane_plan.py wrote** from the specs approved @ "
