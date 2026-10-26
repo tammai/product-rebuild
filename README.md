@@ -14,7 +14,7 @@ client-only` and the existing backend API stays where it is, becoming mined grou
 pipeline freezes rather than a contract it designs. A messy old React Native app rebuilt in
 Flutter, backend untouched, is the same pipeline with three fields set differently at G0.
 
-**You interact with one thing only: the `rebuild-pipeline` skill** (or the `/rebuild`
+**You interact with one thing only: the `rebuild-pipeline` skill** (or the `/product-rebuild:rebuild`
 command). It detects where the project stands, reports progress, dispatches subagents
 for parallel work, and stops at every gate to ask for your decision. You never need to
 remember phase mechanics or file formats.
@@ -67,7 +67,7 @@ installs one for you. No other plugin is required.
 
 ### 1. Start
 
-In any directory, say **"start a rebuild project"** or run `/rebuild`. The skill
+In any directory, say **"start a rebuild project"** or run `/product-rebuild:rebuild` (the plugin-qualified name always works; a bare `/rebuild` may also, when no other plugin defines one). The skill
 interviews you:
 
 - **Which reference?** Name a product, or a category — it will propose candidates and
@@ -239,7 +239,7 @@ mid-slice, whether or not the unit felt nearly finished.
 
 It also watches its own context. Every turn re-bills the whole session, so once the
 orchestrator passes 250k tokens it stops at the next unit boundary and asks you to `/clear`
-and `/rebuild`. Everything is on disk by then, so a fresh session loses nothing.
+and `/product-rebuild:rebuild`. Everything is on disk by then, so a fresh session loses nothing.
 
 ```bash
 python3 scripts/autopilot.py preflight    # is this safe to start?
@@ -264,7 +264,7 @@ it won't touch is named in one line for you to decide.
 
 ```
 .claude-plugin/plugin.json      manifest
-commands/rebuild.md             /rebuild — run or resume the pipeline
+commands/rebuild.md             /product-rebuild:rebuild — run or resume the pipeline
 skills/rebuild-pipeline/        THE skill you interact with
   SKILL.md                      orchestration protocol (state → report → act, gate rules)
   references/g*.md              one file per phase, loaded only when that phase runs
