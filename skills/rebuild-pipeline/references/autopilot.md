@@ -154,12 +154,16 @@ scattered across the phase references; this is the whole list:
 - each ADR decision, in dependency order (G4a) — drafting is delegable, deciding is not
 - the G4b coherence and callee checks, including before a re-lock after a reopen
 - spec approval before any code is written (G5). Once the user approves, cutting each lane's
-  worktree and running `lane_plan.py` is autopilot's: the plan only carries the approval
+  worktree and running `lane_plan.py` is autopilot's: the record only carries the approval
   just given to the file the repo's spec gate reads (`g5-build.md` step 1b). So is
   `lane_plan.py --amend`, but only after the user has approved the corrected spec.
-- **a lane that reports `Status: amending`**, meaning it found its approved spec wrong.
+- **a lane that raised an `amend:` question**, meaning it found its approved spec wrong.
   Correcting the spec is a spec approval, so the halt is `needs-user-decision`, with the
   lane's report attached.
+- **the stops in a lane's sdlc Review** (G5 step 4b): the review choice on a high-risk lane, a
+  second review round that still fails, and a high finding the lane disputes. Running the
+  reviews sdlc's table picks for a low-risk lane, and sending a lane its findings, are autopilot's,
+  as they are sdlc's own autopilot's.
 - a block from a code repo's own guard (`spec-gate-guard`, `bash-guard`, …) that the lane
   cannot resolve within the repo's rules. It is the harness speaking, so never edit a guard
   or its registration to get past it.

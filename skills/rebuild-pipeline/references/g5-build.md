@@ -125,40 +125,49 @@ step 1 registers it. Read that file now if no code repo exists yet.
    code is written: one project found its two hardest deploy ACs unrunnable *after* the
    whole slice was built and pushed, for two independent reasons, one of which was a Gate 4
    reopen. Both were answerable in a minute at spec time.
-1b. **Lane plans — after spec approval, before any lane writes feature code.** The plugin's spec
-   gate (`hooks/scripts/spec_gate_guard.py`) allows no edit over ~20 lines in a code repo until
-   `PLAN.md` at the worktree root says `Status: approved`. It is a plugin hook, so it runs for
-   every pipeline tool call whatever directory the session started in (see "The guards run for
-   lanes" under Guardrails), and a lane with no plan is blocked on its first real edit. Your approval of the slice's specs is the approval the gate
-   wants, and this step carries it there:
+1b. **Lane records — after spec approval, before any lane writes feature code.** Each lane is one
+   sdlc feature in its own worktree, opened at sdlc's Build with your approval already in it
+   (`specs/Spec Wrap sdlc instead of porting it.md`). The plugin's spec gate
+   (`hooks/scripts/spec_gate_guard.py`) allows no edit over ~20 lines in a code repo until an active
+   sdlc feature in that worktree carries the approval for its branch, and sdlc itself has no such
+   block. It is a plugin hook, so it runs for every pipeline tool call whatever directory the session
+   started in (see "The guards run for lanes" under Guardrails). Your approval of the slice's specs is
+   the approval the gate wants, and this step carries it there:
 
    - **One worktree and one branch per lane**, `slice/<Sn>-<lane>`, cut from the repo's main
-     branch (`git -C <repo> worktree add -b slice/S3-billing-backend ../<repo>-S3-billing-backend`).
-     The gate reads `PLAN.md` per worktree, so two lanes sharing a checkout would share a plan.
-     On S1 the repo does not exist yet: run the repo checklist (`g5-first-slice.md`, step 0) first, then cut the
-     worktrees.
-   - **Write each lane's plan** with `python3 scripts/lane_plan.py <Sn> <lane> --worktree <path> --specs
-     <the specs this lane builds>`. It writes the `PLAN.md` the spec gate reads: `Status:
-     approved`, the lane's `Branch:`, an `Approved:` line (spec paths, workbench commit,
-     approver), the specs verbatim, and one task row per acceptance criterion. It refuses specs
-     with uncommitted changes, a worktree on the wrong branch, and an existing plan with
-     unfinished rows. It records each plan in `plan/lane-plans/<Sn>.yaml`.
-   - **Never let a lane write or approve its own plan.** `*.md` is exempt from the gate, so
-     nothing mechanical stops it. That is why the plan comes from this script at the approval
-     moment, and why `slice_review.py` re-hashes each plan's `## Spec` against what was
-     recorded and names any lane whose approved spec changed underneath it.
-   - **When a lane finds the spec wrong**, it sets `Status: amending`, which blocks its own
-     non-trivial edits, and reports. That is the only `Status:` edit a lane may make, because it
-     can only remove permission. Take it to the user. Once the corrected spec is approved and
-     committed, run `python3 scripts/lane_plan.py <Sn> <lane> --worktree <path> --specs <...> --amend
-     --reason "..."`. A row keeps its status only if its criterion text is unchanged, and the
-     reason is logged under `## Amendments`.
-   - **At slice end**, once every row is `Done` and the slice is deployed, `boundary.py <Sn>` (see "Between
-     slices") archives each lane; by hand it is `python3 scripts/lane_plan.py archive <Sn> <lane>`. It moves `PLAN.md` to `plan/lane-plans/archive/` in the
-     workbench, so the code repo's tree carries no plan after the slice (a plan left behind keeps
-     its `Status: approved`, which the gate would honour for the next lane cut from that tree). It
-     refuses a plan with unfinished rows, and it records an edited `## Spec` for the slice review
-     to name.
+     branch (`git -C <repo> worktree add -b slice/S3-billing ../<repo>-S3-billing`). The lane name
+     is lowercase letters, digits and dashes: it becomes part of the sdlc feature's name, and sdlc
+     refuses any other. The gate reads the approval per branch, so two lanes sharing a checkout would
+     share one. On S1 the repo does not exist yet: run the repo checklist (`g5-first-slice.md`,
+     step 0) first, then cut the worktrees.
+   - **Write each lane's record** with `python3 scripts/lane_plan.py <Sn> <lane> --worktree <path> --specs
+     <the specs this lane builds> [--risk high]`. `--risk high` when the lane touches auth, payments,
+     secrets, PII, a schema migration or a breaking change to a public API: sdlc's review table reads
+     it. The script writes the change file (one `AC-nnn` per criterion, verbatim, `rule_id` kept) and,
+     through sdlc's own `state.py`, the state file at Stage 4 with the approval (approver, specs,
+     workbench commit, branch) in its Gate log. It prints sdlc's install folder, which the lane's
+     brief names. It refuses specs with uncommitted changes, a worktree on the wrong branch, a repo
+     sdlc has not set up, and a lane whose record is still open. It records each lane in
+     `plan/lane-plans/<Sn>.yaml` with a hash of the approved criteria. It commits nothing in the code
+     repo: the lane's first commit carries the record.
+   - **The lane fills in the how, never the what.** The specs name criteria, not files or tests, so
+     the lane writes each task's files, the Public Surface and the Test and Run cells, as sdlc's own
+     Define would. It never edits a criterion. `*.md` is exempt from the gate, so nothing mechanical
+     stops it: sdlc's trust anchor reports an edit above `## Review` as it happens, and
+     `slice_review.py` re-hashes the criteria against what was recorded and names any lane whose
+     approved criteria changed underneath it.
+   - **When a lane finds the spec wrong**, it raises `state.py blocker <feature> raise "amend: …"`,
+     which freezes its own non-trivial edits through the gate, and reports. Take it to the user. Once
+     the corrected spec is approved and committed, run `python3 scripts/lane_plan.py <Sn> <lane> --worktree
+     <path> --specs <...> --amend --reason "..."`. An unchanged criterion keeps its id and its test; a
+     changed one takes a new id and starts at `TBD`. The reason is logged under `## Amendments` and in
+     the Gate log, and the lane's `amend:` question is resolved.
+   - **At slice end**, once sdlc has shipped every lane (`Status: done`) and the slice is deployed,
+     `boundary.py <Sn>` (see "Between slices") archives each lane; by hand it is `python3
+     scripts/lane_plan.py archive <Sn> <lane>`. It copies the lane's change and state files to
+     `plan/lane-plans/archive/` in the workbench, as evidence beside the specs. The record stays in the
+     code repo too: sdlc keeps it with the code, so `git blame` leads from a line to its criterion. It
+     refuses a lane sdlc has not shipped, and it records an edited criterion for the slice review to name.
 2. **Backend** — one lane per bounded context touched (module or service per Gate 3).
    On the first slice this is where the repo checklist in `g5-first-slice.md` runs (`scaffold-repo`), and the lane
    starts from the generated skeleton and the locked contracts; on every slice after, the repo
@@ -179,7 +188,7 @@ step 1 registers it. Read that file now if no code repo exists yet.
 
    - **Assign migration numbers when the slice starts.** For each lane whose spec changes the
      schema, take the next free number (or a range) on the repo's main branch, in lane order,
-     and write it into that lane's spec before you approve it, so it reaches `PLAN.md` verbatim.
+     and write it into that lane's spec before you approve it, so it is part of what was approved.
      Put the same number in the lane's brief (the brief names the number; the migration rules are in `lane-worker`'s agent file). A lane
      never picks its own: in one slice three lanes each added a migration at the same time.
    - **No lane runs `up` on a shared stack from a tree missing a lower-numbered migration.** A
@@ -191,25 +200,35 @@ step 1 registers it. Read that file now if no code repo exists yet.
      migrations are merged, so they apply once, in number order.
    - The runbook's `## Migration order` section records the tool's behavior and the reset
      command, so S2's lanes do not learn it the same way.
-4b. **No verifier loop by default.** Through 1.0.0 every lane went through an implement/verify loop,
-   capped at three rounds, before the joint run. It cost a fresh agent and a resumed lane per
-   round, on diffs the joint run and the slice review look at anyway, and 1.1.0 removed it. A lane is
-   done when it reports its rows `Done` and its own tests (per the test cadence) pass. The
-   independent checks that remain are the joint run, which is the evidence bar, and
-   `slice_review.py`, which names any lane whose approved `## Spec` changed.
+4b. **Build, then sdlc's Review, per lane.** A lane builds through sdlc's Build and reports; its review
+   is sdlc's too, run by you, because sdlc's Review stops for the user and a lane cannot ask one.
 
    - **Dispatch every build lane as the `build-lane` role** (lanes 2–4 above), with the agent
-     and model `scripts/routing.py --role build-lane` resolves (`lane-worker`). Pass both
-     on the Agent call, together with the build-lane brief and its worktree. It is never
-     `general-purpose`: the standing rules live in the agent file.
-   - **An audit is the user's call, once.** If the user asks for one (a lane touching money or auth
-     is the usual reason), dispatch one fresh `lane-verifier` for that lane with the brief in
-     `subagent-briefs.md`, and show the user its JSON verdict. There is no automatic fix round,
-     no re-verify and no cap: what to do with a `FAIL` is the user's decision. Nothing records it.
-   - **A lane that finds the spec wrong** goes to the amend path in step 1b, as before.
+     and model `scripts/routing.py --role build-lane` resolves (`lane-worker`). Pass both on the
+     Agent call, together with the build-lane brief, its worktree and the sdlc folder `lane_plan.py`
+     printed. It is never `general-purpose`: the standing rules live in the agent file. The lane
+     fills in the how, records every criterion red with `verify.py red`, builds, runs `verify.py`
+     once, commits and reports, at Stage 4.
+   - **Then run sdlc's Review for that lane, as sdlc's orchestrator would.** Read only the
+     `## Review (Stage 5)` section of sdlc's `skills/orchestrator/references/flow.md` and follow it
+     with the lane's worktree, change and state files: decide from sdlc's table (security on high
+     risk or sensitive paths, code on a large diff, a public surface or L, UI on UI paths), dispatch
+     each review once, fresh. The code review on an M lane is the built-in `code-review` skill, as
+     sdlc says; the others take the agent and model `scripts/routing.py --role lane-review` (code and
+     security) or `--role lane-ui-review` resolves, which are sdlc's reviewers on opus. A high finding
+     goes back to the same lane (resume it with the issue list), fixed test first, then the fixes are
+     checked once more. sdlc's stops are your stops with the user: the review choice on high risk, a
+     second round that still fails, a high finding the lane disputes. Nothing fires (a low-risk lane
+     with a small diff and no public surface): no review, as sdlc says.
+   - **Then ship the lane through sdlc**: `ship.py` from the lane's worktree. It reuses the passing
+     `verify.py`, sets `Status: done` and stages the record with the code. On the lane's own branch it
+     makes no new branch. Commit, and merge the lane into the repo's main branch the way the repo's
+     remote decision says (`g5-first-slice.md`, step 4). sdlc's Learn step files a lesson in the repo's
+     knowledge; the build runbook (between slices) is still where cross-lane lessons go.
 
-   A code review is not run per lane either. Whether to review is the user's call at the slice
-   boundary, with the whole slice's diff in front of them.
+   1.1.0 removed a per-lane implement/verify loop for cost; 2.0.0 brings a review back, because review
+   is what sdlc owns and this pipeline now wraps it. It costs about one opus review per lane whose diff
+   fires the table, and none for a lane that fires nothing.
 5. **The joint run — once, at the end of the build.** One lane, named when the slice starts,
    runs the cumulative suite: every unit and integration/API suite in every repo, then the
    E2E set against the deployment — the latest checkpoint's smoke journey plus each slice's
@@ -294,6 +313,12 @@ setting:
   says so before and after.
 - **The evidence bar does not move.** A criterion is PASS only if its test passed in the joint
   run or in its rerun, counted as `g6-parity.md` describes.
+- **sdlc's `verify.py` keeps this cadence by what the repo calls its test command.** It runs the
+  repo's whole verify plan every time, including `commands.test` in `.sdlc/config.json`. In a rebuild
+  repo that command is the **fast suite** (unit and fixture tests), which the scaffold records; the
+  integration, E2E and deploy suites are not sdlc commands and run only at the joint run. Each
+  criterion's own test still runs alone, through its Run cell. Never point `commands.test` at the full
+  suite to "be sure": every lane would then run it at every `verify.py`.
 - **Not configurable.** No project setting brings back a full suite after every batch. A suite
   that genuinely needs more ("always run the migration tests in full") is named in the build
   runbook as a per-suite exception with its reason, and every other suite keeps this cadence.
@@ -314,22 +339,24 @@ relaxed to compensate.
   `scaffold-repo` and keeps what it installed. Deleting its git hooks or CI, rewriting its
   `CLAUDE.md` pointer into a rules brief, or swapping the scaffolded stack for a hand-rolled one is
   a Gate 3 conversation (it contradicts the locked stack ADR), not a lane-level decision.
-- **The guards run for lanes, from the plugin.** Claude Code loads a repo's
-  `.claude/settings.json` hooks only when the session started in that repo, and rebuild sessions
-  start in the project's parent directory. So the guards are this plugin's own hooks, which load
-  wherever a session starts: a bash guard (`--no-verify`, force push, moving the git hooks), the
-  spec gate (no edit over ~20 lines without an approved `PLAN.md`), the injection gate and
-  canary, and the commit gates (Conventional subject; a `fix:` ships a test). In the linear
-  rebuild the equivalents were installed in every repo and inert for the whole build, because
-  nothing loaded them; only the repos' git hooks ran. Each guard judges only a repo listed in the
-  workbench's `repos.yaml` and ignores everything else. A block names its guard and why: it is
+- **The guards run for lanes, from both plugins.** Claude Code loads a repo's `.claude/settings.json`
+  hooks only when the session started in that repo, and rebuild sessions start in the project's parent
+  directory. So the guards are plugin hooks, which load wherever a session starts. This plugin's: the
+  spec gate (no edit over ~20 lines without an approved lane), the injection gate and canary, and the
+  commit gates (Conventional subject; a `fix:` ships a test). sdlc's (2.4 or later): its guardrails
+  (force push to main, `reset --hard`, secrets, sensitive files and the rest, from each repo's
+  `.claude/hookify/`) and its role guard, which reach a repo below the session's directory when that
+  repo is set up for sdlc and the call names it. Each of this plugin's guards judges only a repo listed
+  in the workbench's `repos.yaml` and ignores everything else. A block names its guard and why: it is
   the rule, so follow its message and never edit around it. A Bash command is judged only by the
   directory it names, which is why `lane-worker`'s agent file has lanes start commands with
-  `cd <worktree> &&`: a command that names none is not judged at all.
+  `cd <worktree> &&`: a command that names none is not judged at all. Your own shell is judged the same
+  way: while its directory is inside a set-up repo, sdlc's guardrails read your commands' text too, so
+  write documents with the file tools, never a heredoc that quotes a guarded command.
 - CI per lane: lint, tests, security scan, license scan, AC-coverage (every AC has a test).
-  The scaffold already wrote `.github/workflows/rebuild-verify.yml`, one job per package running
-  the recorded commands — this pipeline's extra jobs (license scan, AC-coverage) are **added to
-  that file**, not a second workflow written alongside it.
+  sdlc's setup wrote `.github/workflows/sdlc-verify.yml` from the repo's recorded commands — this
+  pipeline's extra jobs (license scan, AC-coverage) are **added to that file**, not a second workflow
+  written alongside it.
 - Cross-lane shared changes go through one serialized review path.
 - **You run no tests.** Not a suite, not "just to confirm" after a lane reports. Evidence is the
   JUnit the lane wrote and the report it sent; a failure worth investigating goes to that lane

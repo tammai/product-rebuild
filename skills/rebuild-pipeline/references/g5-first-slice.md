@@ -15,9 +15,12 @@ until they are:
    the scaffold manifest Gate 3 locked (`adr/playbook.scaffold.json`, or `adr/scaffold.json` for a
    project with no playbook), takes the stack from the locked ADRs, asks only what they leave open
    (an organisation name, a package name), shows you a proposal, and waits for your approval. Then it
-   runs the stack's own official generator, writes the five commands, path-scoped rules, git hooks,
-   CI and a thin `CLAUDE.md` pointer, and **runs the five commands on day one**: every one must exit 0
-   before the repo counts as created. Never scaffold conversationally and never hand-write the
+   runs the stack's own official generator, writes sdlc's config from the manifest (the five commands,
+   `test` as the fast suite), and runs **sdlc's setup** with the answers the workbench already holds:
+   sdlc checks the commands and **runs them on day one** (every one must exit 0 before the repo counts as
+   created), and writes its rules, guardrails and CI. The scaffold adds the git hooks and a thin
+   `CLAUDE.md` pointer, which sdlc does not write. The repo is an sdlc repo from then on: every lane in it
+   is an sdlc feature (`g5-build.md`, step 1b). Never scaffold conversationally and never hand-write the
    project files a generator would have produced: a repo made by hand diverges from every other repo
    the pipeline made, and its `lint` is the first thing to go missing.
 
@@ -44,8 +47,9 @@ until they are:
    - **Scaffold into the directory while it is still empty, then add the workbench submodule.**
      Official generators (`go mod init` aside) refuse or prompt on a non-empty directory, and a
      submodule is a non-empty directory. Submodule after, always.
-   - **The scaffold makes its own commits** (`chore(scaffold): <step>`), so step 2's
-     `gh repo create --source . --push` runs *after* it, against a repo that already has history.
+   - **The scaffold makes its own commits** (`chore(scaffold): <step>`), and sdlc's setup its own
+     (`chore(sdlc): setup – <step>`, on a `sdlc/setup` branch it merges into `main` locally), so step 2's
+     `gh repo create --source . --push` runs *after* both, against a repo that already has history.
    - **The repo is unguarded until step 1 registers it.** The plugin's guards judge only repos listed
      in the workbench's `repos.yaml`, so register it before any lane works there.
 

@@ -6,8 +6,10 @@
 WHY IT EXISTS. A scaffold fails quietly: the repo is created, the hook is installed, and the `lint`
 command is a TODO, so nothing is ever checked. This runs the real scaffold.py end to end against a
 manifest whose generators are stubs (a Python one-liner, so no network and no toolchain) and asserts
-the things that fail silently: the five-command contract, every exit recorded, a file a person
-edited never overwritten, a run that died resumable, and the git hooks actually blocking.
+the things that fail silently: sdlc's config written from the manifest with the fast suite as its
+`test`, the answers sdlc's setup is handed, a file a person edited never overwritten, a run that died
+resumable, and the git hooks actually blocking. The five-command contract and the day-one run are
+sdlc's setup's since 2.0.0 (sdlc's own tests cover them), so they are not re-tested here.
 
 It also validates the two shipped manifests with the same function Gate 3 uses. What it does NOT do
 is run the real generators (go, nuxi, create-next-app, flutter create): those need a network and
@@ -71,7 +73,6 @@ base = tempfile.mkdtemp(prefix="scaffold-repo-eval-")
 def manifest(**over) -> dict:
     m = {
         "ask": [{"key": "org", "prompt": "Owner", "suggest": "acme"}],
-        "rules": ["code-style", "tests", "ci"],
         "ci": {"os": ["ubuntu-latest"]},
         "packages": [{
             "name": "api", "path": ".", "monorepoPath": "apps/api",
@@ -171,59 +172,53 @@ check("…keeping the lock in .git/ until the skeleton exists (generators refuse
 r = sc(repo, "init", "--workbench", wb, "--choose", "api=go", "--set", "org=acme", "--approved-by", "Eval")
 check("a second init is refused", r.returncode == 1 and "already has a scaffold lock" in r.stderr, r.stderr)
 
-# --- generate, commands, contract, run-commands -------------------------------------------------
-print("\n# generate, contract, run")
+# --- generate, sdlc's config ---------------------------------------------------------------------
+print("\n# generate and sdlc config")
 r = sc(repo, "generate", "api")
 d = js(r) or {}
 check("generate runs the generator and renders the files", r.returncode == 0 and os.path.exists(os.path.join(repo, "generated.txt")) and
       d.get("files", {}).get("seeded.txt") == "created", r.stderr + r.stdout)
 check("[[org]] and [[repo]] are substituted in file content", open(os.path.join(repo, "seeded.txt")).read() == "seeded for acme in repo1\n")
 check("the skeleton step is recorded", "skeleton:api" in json.load(open(os.path.join(repo, ".git", "rebuild-scaffold.lock.json")))["steps"])
-r = sc(repo, "commands")
-check("commands writes .rebuild/commands.json", r.returncode == 0 and os.path.exists(os.path.join(repo, ".rebuild", "commands.json")), r.stderr)
-r = sc(repo, "contract")
-check("contract passes for five commands (null counts)", r.returncode == 0 and (js(r) or {}).get("ok") is True, r.stdout + r.stderr)
-cj = os.path.join(repo, ".rebuild", "commands.json")
-orig = open(cj).read()
-doc = json.loads(orig)
-del doc["packages"][0]["commands"]["lint"]
-open(cj, "w").write(json.dumps(doc))
-r = sc(repo, "contract")
-check("contract fails when a command is missing", r.returncode == 1 and "commands.lint is missing" in r.stdout, r.stdout)
-doc = json.loads(orig)
-doc["packages"][0]["commands"]["lint"] = "definitely-not-a-real-tool-xyz --check"
-open(cj, "w").write(json.dumps(doc))
-r = sc(repo, "contract")
-check("contract names a tool that is not installed, as a user decision", r.returncode == 1 and (js(r) or {}).get("tools_ok") is False and
-      "definitely-not-a-real-tool-xyz" in r.stdout, r.stdout)
-open(cj, "w").write(orig)
-r = sc(repo, "run-commands")
+r = sc(repo, "sdlc-config")
 d = js(r) or {}
-check("run-commands runs each command and records every exit", r.returncode == 0 and d.get("ok") is True and
-      sum(1 for x in d["results"] if x.get("exit") == 0) == 4 and any(x.get("skipped") for x in d["results"]), r.stdout + r.stderr)
-doc = json.loads(orig)
-doc["packages"][0]["commands"]["test"] = FAIL
-open(cj, "w").write(json.dumps(doc))
-r = sc(repo, "run-commands")
-check("a failing command fails the run and says to fix the skeleton, not the command", r.returncode == 1 and (js(r) or {}).get("ok") is False and "Fix the skeleton" in r.stdout, r.stdout)
-open(cj, "w").write(orig)
-sc(repo, "run-commands")
+cj = os.path.join(repo, ".sdlc", "config.json")
+cfg = json.load(open(cj)) if os.path.exists(cj) else {}
+check("sdlc-config writes .sdlc/config.json in sdlc's shape (docs_dir, root commands for one package at .)",
+      r.returncode == 0 and cfg.get("docs_dir") == "docs/sdlc" and set(cfg.get("commands", {})) == {"install", "build", "lint", "typecheck", "test"},
+      r.stderr + json.dumps(cfg))
+check("sdlc's `test` is the fast suite (the manifest's test_fast), and test_fast itself is not passed on",
+      cfg.get("commands", {}).get("test") == OK and "test_fast" not in cfg.get("commands", {}), json.dumps(cfg))
+check("a null command stays null (sdlc reads null as no such step)", cfg.get("commands", {}).get("typecheck") is None)
+check("the stack is sdlc's word for it: ci.setup none falls back to the option's name", cfg.get("project", {}).get("stack") == ["go"], json.dumps(cfg))
+ans = d.get("sdlc_setup_answers") or {}
+check("it hands sdlc's setup the workbench's answers (PRD, constitution, plugin keys, CI)",
+      all(k in ans for k in ("prd", "constitution", "plugin_keys", "ci", "finalize")) and "../wb1" in ans.get("prd", ""), json.dumps(ans))
+check("the config is the project's once written (class user)",
+      json.load(open(os.path.join(repo, ".git", "rebuild-scaffold.lock.json")))["files"][".sdlc/config.json"]["class"] == "user")
+open(cj, "w").write(json.dumps({**cfg, "commands": {**cfg["commands"], "lint": "my own lint"}}))
+sc(repo, "sdlc-config")
+check("a second sdlc-config never overwrites the commands sdlc's setup (or a person) changed", json.load(open(cj))["commands"]["lint"] == "my own lint")
+open(cj, "w").write(json.dumps(cfg))
+orig = json.dumps(cfg)
 
-# --- rules, hooks, ci, claude.md, ownership ----------------------------------------------------
+# --- hooks, claude.md, ownership ----------------------------------------------------------------
 print("\n# files and ownership")
-for step in ("rules", "git-hooks", "ci", "claude-md"):
+for step in ("git-hooks", "claude-md"):
     r = sc(repo, "render", step)
     check(f"render {step}", r.returncode == 0, r.stderr)
-check("rules are written under .claude/rules/rebuild-*", os.path.exists(os.path.join(repo, ".claude", "rules", "rebuild-code-style.md")))
-check("the rules carry path globs for the package", "paths:" in open(os.path.join(repo, ".claude", "rules", "rebuild-code-style.md")).read())
-ci = open(os.path.join(repo, ".github", "workflows", "rebuild-verify.yml")).read()
-check("CI runs the recorded commands", "- run: " + OK in ci and "working-directory: ." in ci, ci)
+for gone in ("rules", "ci"):
+    r = sc(repo, "render", gone)
+    check(f"render {gone} is gone: sdlc's setup renders them", r.returncode != 0)
+for gone in ("commands", "contract", "run-commands"):
+    check(f"`{gone}` is gone: sdlc's setup does it", sc(repo, gone).returncode != 0)
+check("no rules of this plugin's own are written", not os.path.exists(os.path.join(repo, ".claude", "rules")))
 check("the commit-msg check is the plugin's commit_rules.py, byte for byte (one source of the rule)",
       sha(os.path.join(repo, "scripts", "commit_msg.py")) == sha(os.path.join(ROOT, "hooks", "scripts", "commit_rules.py")))
 check("the launcher is vendored too", sha(os.path.join(repo, "scripts", "py.sh")) == sha(os.path.join(ROOT, "hooks", "py.sh")))
 claude_md = open(os.path.join(repo, "CLAUDE.md")).read()
-check("CLAUDE.md is the thin pointer: workbench path and the five commands, no rules brief",
-      "../wb1" in claude_md and "install, build, lint, typecheck, test" in claude_md and len(claude_md.splitlines()) <= 6, claude_md)
+check("CLAUDE.md is the thin pointer: workbench path, where the commands are, the full suite, no rules brief",
+      "../wb1" in claude_md and ".sdlc/config.json" in claude_md and f"`{OK}`" in claude_md and len(claude_md.splitlines()) <= 8, claude_md)
 
 seeded = os.path.join(repo, "seeded.txt")
 with open(seeded, "a") as f:
@@ -259,19 +254,23 @@ check("the commit-msg hook blocks a non-Conventional subject", r.returncode != 0
 r = git(repo, "commit", "-qm", "feat: add the thing")
 check("…and lets a Conventional one through the pre-commit gate", r.returncode == 0, r.stderr + r.stdout)
 doc = json.loads(orig)
-doc["packages"][0]["commands"]["lint"] = FAIL
+doc["commands"]["lint"] = FAIL
 open(cj, "w").write(json.dumps(doc))
 open(os.path.join(repo, "more.txt"), "w").write("x")
 git(repo, "add", "-A")
 r = git(repo, "commit", "-qm", "feat: second")
-check("the pre-commit gate runs lint and blocks when it fails", r.returncode != 0 and "lint failed" in (r.stderr + r.stdout), r.stderr + r.stdout)
+check("the pre-commit gate runs lint from sdlc's config and blocks when it fails", r.returncode != 0 and "lint failed" in (r.stderr + r.stdout), r.stderr + r.stdout)
 open(cj, "w").write(orig)
 git(repo, "reset", "-q")
 
 # --- resume, finalize, drift --------------------------------------------------------------------
 print("\n# resume and finalize")
 st = js(sc(repo, "status")) or {}
-check("status reports where setup stands", st.get("setup") == "in_progress" and st.get("next") == "finalize", json.dumps(st))
+check("status says sdlc's setup is next, and finalize waits for it", st.get("setup") == "in_progress" and st.get("next") == "sdlc-setup"
+      and sc(repo, "finalize").returncode == 1, json.dumps(st))
+sc(repo, "step-done", "sdlc-setup")
+st = js(sc(repo, "status")) or {}
+check("once sdlc's setup is recorded, finalize is next", st.get("next") == "finalize", json.dumps(st))
 r = sc(repo, "finalize")
 check("finalize moves the lock to .rebuild/ and marks setup complete", r.returncode == 0 and os.path.exists(os.path.join(repo, ".rebuild", "scaffold.lock.json"))
       and not os.path.exists(os.path.join(repo, ".git", "rebuild-scaffold.lock.json")), r.stderr)

@@ -257,8 +257,6 @@ def read_adrs(root="."):
 # The scaffold manifest contract. scaffold-repo reads the same file through this module, so what
 # Gate 3 accepts is exactly what G5 can run. See references/playbooks/README.md for the format.
 COMMAND_KEYS = ["install", "build", "lint", "typecheck", "test"]
-# Generic rule seeds scaffold-repo ships in skills/scaffold-repo/templates/rules/.
-RULE_SEEDS = ["code-style", "tests", "migrations", "sensitive", "ci"]
 CI_SETUPS = ["go", "node", "flutter", "none"]
 _FILE_CLASSES = ["generated", "seeded", "user"]
 _SLUG = re.compile(r"[a-z][a-z0-9-]*\Z")
@@ -297,7 +295,7 @@ def scaffold_problems(m):
     out = []
     if not _is_obj(m):
         return ["the scaffold manifest is not a JSON object"]
-    known = ["ask", "ci", "rules", "packages"]
+    known = ["ask", "ci", "packages"]
     for k in m:
         if k not in known:
             out.append(f'unknown key "{k}" (known: {", ".join(known)}) — a typo here is silently ignored otherwise')
@@ -321,10 +319,6 @@ def scaffold_problems(m):
             if v not in variables:
                 out.append(f"{where} uses {{{{{v}}}}}, which is neither an ask key nor one of {', '.join(BUILTIN_VARS)}")
 
-    rules = m.get("rules")
-    for r in (rules if isinstance(rules, list) else []):
-        if not (isinstance(r, str) and r in RULE_SEEDS):
-            out.append(f'rules: "{_js_str(r)}" is not a shipped seed ({", ".join(RULE_SEEDS)})')
     if "ci" in m:
         ci = m["ci"]
         ok = _is_obj(ci) and (

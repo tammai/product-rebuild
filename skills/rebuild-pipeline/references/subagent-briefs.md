@@ -2,7 +2,7 @@
 
 Every dispatch is self-contained — subagents share no conversational context. Include:
 
-1. **Role file**: point at the agent definition (`agents/<role>.md`: miner, adr-drafter, data-model-drafter, spec-writer, rubric-judge, lane-worker, lane-verifier).
+1. **Role file**: point at the agent definition (`agents/<role>.md`: miner, adr-drafter, data-model-drafter, spec-writer, rubric-judge, lane-worker). A lane's reviews are sdlc's agents, briefed the way sdlc's Review says (G5 step 4b).
 2. **Inputs** (absolute paths): the exact workbench files to read. Never "the matrix" —
    always `workbench/matrix/features.yaml`. For miners: the `sources.yaml` entries in
    scope and the pinned reference commit. For lane-D miners specifically, also include the
@@ -34,7 +34,7 @@ One audit day cost ~200M tokens, ~85M of it a single drafter that read the paren
 transcript. Every subagent turn re-bills the whole context so far, so one large read early in a
 run is paid again on every later turn. The three rules that prevent it are in the agent file of
 every role this pipeline dispatches (`miner`, `adr-drafter`, `data-model-drafter`, `spec-writer`,
-`rubric-judge`, `lane-worker`, `lane-verifier`): never read session transcripts or scratchpad dumps, keep every
+`rubric-judge`, `lane-worker`): never read session transcripts or scratchpad dumps, keep every
 tool result under ~20K characters, read each file once. They used to be pasted into every brief as
 well, about 275 output tokens per dispatch written out by the orchestrator for text the agent
 already has. Dispatch each role by its agent (`subagent_type`), which is what carries them; a
@@ -127,15 +127,18 @@ of this dispatch:
 - **Migrations:** this lane's migration number (or range) for the slice, `<N>`, if its spec changes the schema.
 - **Helpers:** whether this lane may run helper agents.
 
-**The plan and the guards** (part 4). `lane-worker`'s agent file carries the standing rules: work the
-task rows of the `PLAN.md` at the worktree root, edit only their Status and Notes, set `Status:
-amending` if the spec is wrong, follow a guard's block, and start every shell command with `cd
-<worktree> &&`. They are not pasted into each brief, because a rule that lives in every brief
-drifts between them. The brief carries what is true of this dispatch, as written:
+**The record and the guards** (part 4). `lane-worker`'s agent file carries the standing rules: the
+lane is an sdlc feature already at Build, so fill in the how (task files, Public Surface, the Test and
+Run cells) and never a criterion, run sdlc's Build from `verify.py red` to `verify.py`, raise an
+`amend:` question if the spec is wrong, stop after Build, follow a guard's block, and start every shell
+command with `cd <worktree> &&`. They are not pasted into each brief, because a rule that lives in
+every brief drifts between them. The brief carries what is true of this dispatch, as written:
 
-- You work in `<worktree>` on branch `slice/<Sn>-<lane>`, under the `PLAN.md` at its root. The
-  rebuild pipeline wrote that plan from the slice specs the user approved. Your standing rules for
-  it, and for the guards that run on this repo, are in your agent file.
+- You work in `<worktree>` on branch `slice/<Sn>-<lane>`. Your lane is the sdlc feature `<feature>`:
+  change file `<worktree>/<change>`, state file `<worktree>/<state>`. sdlc is installed at `<sdlc>`
+  (`lane_plan.py` printed all four). The rebuild pipeline wrote that record from the slice specs the
+  user approved. Your standing rules for it, and for the guards that run on this repo, are in your
+  agent file.
 
 Parallelism: dispatch independent lanes/modules in the same turn. On subagent output failing
 validation, send it back with the validator error — do not hand-fix, the fix must come from a
@@ -146,29 +149,19 @@ run that could have produced it.
 Agent call. It is `lane-worker`, never `general-purpose`: the standing rules live in the agent
 file, and a hand-written stand-in prompt silently drops them.
 
-## The lane-verifier brief (`lane-verifier`, only when the user asks for an audit — G5 step 4b)
+## A lane's review (sdlc's, run by the orchestrator — G5 step 4b)
 
-A single fresh dispatch, never resumed, and never shown the lane's own report: an audit
-that reads the implementer's account of its work is the failure it exists to catch. It is
-`lane-verifier`, whose agent file carries its rules and its output contract. The brief is
-its handoff, with the paths filled in:
+There is no review brief of this pipeline's own. sdlc's Review section (`flow.md`, `## Review (Stage 5)`)
+says what each review is told, and its `review-brief.md` is the brief: pass the paths it names (the
+lane's change file, state file, `git diff <Base> -- . ':!.sdlc'` from the lane's worktree, the
+criterion ids, the report path under `.sdlc/.work/findings/<feature>/`). Dispatch `sdlc:code-reviewer`
+and `sdlc:ui-reviewer` with the `subagent_type` and `model` that `scripts/routing.py --role
+lane-review` and `--role lane-ui-review` resolve (opus; sdlc's router denies a review below it). An M
+lane's code review is the built-in `code-review` skill, which picks its own model.
 
-```
-PLAN: {absolute path to <worktree>/PLAN.md}
-Diff: git -C {worktree} diff {base}   (base = git -C {worktree} merge-base <repo main branch> HEAD; covers committed and uncommitted work)
-Files: {git -C {worktree} diff --stat {base}, plus untracked files from git -C {worktree} status --porcelain}
-Implementer's test run: {the command the lane reported} → {its pass/fail line}
-Return only the verify-contract JSON.
-```
-
-Then add one line of pipeline
-context: "The spec section of PLAN.md is a module spec approved in a rebuild workbench. Its
-acceptance criteria are the task rows. A criterion with a `rule_id` must match that Rule Card's
-values, as quoted in the spec." Pass `subagent_type` and `model` exactly as
-`scripts/routing.py --role lane-verifier` resolves them.
-
-Read the verdict, which is one JSON object (`{"verdict":"PASS"|"FAIL","issues":[...]}`), and
-show it to the user. A FAIL does not start a fix round: what to do with it is the user's call.
+Add one line of pipeline context: "The criteria are a module spec approved in a rebuild workbench
+(paths in the change file's `## Why`). A criterion with a `rule_id` must match that Rule Card's
+values, as quoted in the spec."
 
 ## Which model each role runs on
 

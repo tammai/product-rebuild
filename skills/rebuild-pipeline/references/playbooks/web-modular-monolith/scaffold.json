@@ -6,13 +6,6 @@
       "suggest": "<your-github-org>"
     }
   ],
-  "rules": [
-    "code-style",
-    "tests",
-    "migrations",
-    "sensitive",
-    "ci"
-  ],
   "ci": {
     "os": [
       "ubuntu-latest"

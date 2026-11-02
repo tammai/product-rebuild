@@ -48,16 +48,17 @@ decided, asks only what they leave open, waits for approval, runs the stack's of
 proves the five commands pass before the repo counts as created (`references/g5-first-slice.md` step 0).
 Never scaffold conversationally and never hand-write a `CLAUDE.md` rules brief into a code repo.
 
-**The plugin's guards apply to pipeline work.** Claude Code loads a repo's hooks only when the
-session started in that repo, and rebuild sessions start in the project's parent, so the guards
-are this plugin's own hooks (`hooks/scripts/`): a bash guard, a spec gate, the injection gate and
-canary, and the commit gates (the locked-artifact, recorded-flow, autopilot and runbook guards cover the
-workbench itself). Each code-repo guard judges only a repo listed in the workbench's `repos.yaml`. A
-block naming a guard is that guard's rule, never something to edit around. The spec gate is
-satisfied by the lane `PLAN.md` that `lane_plan.py` writes from the slice specs the user approved
-(`references/g5-build.md` step 1b). Build lanes run as this plugin's `lane-worker` agent, resolved through
-`scripts/routing.py` (`build-lane`). There is no per-lane verifier loop; a `lane-verifier` audit
-is a single pass the user asks for (step 4b).
+**This plugin wraps sdlc, and both plugins' guards apply to pipeline work.** Claude Code loads a
+repo's hooks only when the session started in that repo, and rebuild sessions start in the project's
+parent, so the guards are plugin hooks. This plugin's (`hooks/scripts/`): a bash guard, a spec gate,
+the injection gate and canary, and the commit gates (the locked-artifact, recorded-flow, autopilot and
+runbook guards cover the workbench itself); each code-repo guard judges only a repo listed in the
+workbench's `repos.yaml`. sdlc's guardrails and role guard reach a set-up repo below the session (sdlc
+2.4 or later). A block naming a guard is that guard's rule, never something to edit around. Each build
+lane is an sdlc feature: `lane_plan.py` writes its record from the slice specs the user approved, and
+that approval is what the spec gate reads (`references/g5-build.md` step 1b). Build lanes run as this
+plugin's `lane-worker` agent, resolved through `scripts/routing.py` (`build-lane`), through sdlc's
+Build; each lane's review is sdlc's Review, which you run after the lane reports (step 4b).
 
 ## Orchestration Protocol
 

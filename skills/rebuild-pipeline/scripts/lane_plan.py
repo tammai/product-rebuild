@@ -518,7 +518,8 @@ def _write_record(args):
     _save_record(slice_id, rec)
     print(f"{'amended' if amend else 'wrote'} sdlc feature {feature} in {worktree}: {len(acs)} criteria, at Build, "
           f"approved @ workbench {commit} by {approver} for branch {branch}\n"
-          f"  change file: {change_rel}\n  state file:  {state_rel}\nrecorded in plan/lane-plans/{slice_id}.yaml")
+          f"  change file: {change_rel}\n  state file:  {state_rel}\n  sdlc:        {sdlc}\n"
+          f"recorded in plan/lane-plans/{slice_id}.yaml")
     return 0
 
 

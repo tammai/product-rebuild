@@ -11,12 +11,6 @@
       "suggest": "client"
     }
   ],
-  "rules": [
-    "code-style",
-    "tests",
-    "sensitive",
-    "ci"
-  ],
   "ci": {
     "os": [
       "ubuntu-latest"

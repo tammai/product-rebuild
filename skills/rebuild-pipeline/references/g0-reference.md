@@ -125,12 +125,13 @@ Goal: pick the reference and record the legal posture BEFORE any agent reads any
   whose build nobody has watched succeed.
 - **Say what G5 will do to a code repo**, so the user hears it at the start rather than at the
   first lane: the repo is created by this plugin's `scaffold-repo` skill from the locked
-  playbook's scaffold manifest (nothing else needs to be installed, and no stack is invented
-  at G5: Gate 3 refuses a playbook with no manifest). The plugin's own guards then run for every
-  lane, including a spec gate that blocks large edits until the worktree has an approved
-  `PLAN.md`. The pipeline writes each lane's plan from the slice specs the user approves. That
-  approval is the one the gate checks, and no second approval is asked for (`g5-build.md` step
-  1b). Say too that the scaffold is a skeleton whose five commands pass on day one, not a
+  playbook's scaffold manifest, then set up for sdlc, which this plugin depends on (no stack is
+  invented at G5: Gate 3 refuses a playbook with no manifest). Each lane is then an sdlc feature,
+  and the guards of both plugins run for every lane, including a spec gate that blocks large edits
+  until the lane's sdlc record carries the approval. The pipeline writes each lane's record from the
+  slice specs the user approves. That approval is the one the gate checks, and no second approval
+  is asked for (`g5-build.md` step 1b). sdlc then reviews each lane after it is built, by sdlc's own
+  table (step 4b). Say too that the scaffold is a skeleton whose five commands pass on day one, not a
   feature kit: the first slice builds the first real module.
 
 ## Exit criteria

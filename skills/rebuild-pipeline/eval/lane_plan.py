@@ -264,8 +264,14 @@ for label, needle in (
         ("long runs: skips bound", "no more than 10% skipped"),
         ("migrations: use only your number", "Use only the number"),
         ("migrations: not up on a shared stack", "Never run a migration `up` against a shared stack"),
-        ("helpers: own worktree and plan", "A helper's worktree needs its own plan"),
-        ("helpers: never copy PLAN.md", "Never copy your own `PLAN.md`")):
+        ("helpers: own worktree and record", "A helper's worktree needs its own approved sdlc"),
+        ("helpers: never copy the record", "Never copy your own record"),
+        ("sdlc: the build loop is sdlc's Build", "`## Build (Stage 4)` section"),
+        ("sdlc: Test is a file path (the spike)", "Test is the test **file path**"),
+        ("sdlc: red without advance 4 (the spike)", "Run only `verify.py red AC-001 AC-002 …`"),
+        ("sdlc: stub before red (the spike)", "Create the names a test imports first"),
+        ("sdlc: stop after Build, Review is the orchestrator's", "Stop after Build"),
+        ("sdlc: amend through a blocker", 'blocker <feature> raise "amend:')):
     check(f"lane-worker.md still says: {label}", needle in worker_md)
 briefs_md = read(os.path.join(ROOT, "skills", "rebuild-pipeline", "references", "subagent-briefs.md"))
 check("the build-lane brief no longer pastes the long-run rules", "Never `nohup`" not in briefs_md)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """scaffold.py — the bookkeeping half of the scaffold-repo skill: create a code repo from the
-locked playbook's scaffold manifest, record every step, and refuse to destroy anything a person
-changed.
+locked playbook's scaffold manifest, hand it to sdlc's setup with the answers the workbench already
+holds, record every step, and refuse to destroy anything a person changed.
 
 Run from the plugin (never vendored into a workbench: it runs once, at G5, and needs the plugin's
 templates), with `--workbench <path>` naming the workbench whose `adr/` holds the locked manifest
@@ -10,10 +10,8 @@ and `--dir <path>` (default: the current directory) the empty repo directory.
   scaffold.py plan   --workbench W [--packages api,web] [--choose api=go] [--monorepo] [--set k=v]...
   scaffold.py init   (same flags) --approved-by NAME     record the approved proposal; git init
   scaffold.py generate <package>        run the generator, render its files, run its `after`
-  scaffold.py render <rules|git-hooks|ci|claude-md>     write one group of files
-  scaffold.py commands                  write .rebuild/commands.json from the proposal
-  scaffold.py contract                  every package has all five commands; are the tools there?
-  scaffold.py run-commands              install, then build/lint/typecheck/test per package
+  scaffold.py sdlc-config               write .sdlc/config.json (the commands) and print sdlc setup's answers
+  scaffold.py render <git-hooks|claude-md>     write one group of files
   scaffold.py install-hooks             put the git hook shims in .git/hooks
   scaffold.py commit <step>             `chore(scaffold): <step>` for everything staged and new
   scaffold.py step-done <step>          record a step the skill did by hand
@@ -24,10 +22,18 @@ Every command prints JSON; exit 1 is an error, exit 2 is a refusal (a file someo
 
 WHY IT IS A SCRIPT AND NOT PROSE IN THE SKILL. A scaffold that is only instructions is redone from
 memory each time, and the failure is not a crash: it is a repo whose `lint` command is a TODO, so
-the pre-commit hook runs nothing and nobody notices. The script makes the five commands a
-checked contract, runs them on day one, and records each exit, so "the skeleton passes" is a fact
-in the lock and not a sentence in a summary. The skill keeps what needs judgement: the interview,
-and deciding what to do when a generator or a tool is missing.
+the pre-commit hook runs nothing and nobody notices. The script runs the manifest's generators and
+writes the five commands into sdlc's config from the manifest, so nothing is retyped. The skill keeps
+what needs judgement: the interview, and deciding what to do when a generator or a tool is missing.
+
+WHAT SDLC DOES INSTEAD (2.0.0). This plugin wraps sdlc. sdlc's setup checks the five commands
+(`contract`), runs them on day one (`run-commands`) and records each exit, and renders the rules,
+guardrails and CI; until 2.0.0 this script did all of that itself, in copies of sdlc's flow. What
+stays here is what sdlc has no way to take: the playbook's generators, `after` steps and seed files,
+the git hooks (sdlc installs none) and the thin `CLAUDE.md` pointer (sdlc's setup never writes
+CLAUDE.md). `sdlc-config` writes the commands sdlc then checks, with `test` set to the fast suite:
+the manifest's `test_fast` where it has one, else `test` (g5-build.md, "Test cadence"). The full
+`test` stays in this lock and in the pointer, for the joint run.
 
 WHY THE LOCK LIVES IN .git/ UNTIL THE SKELETON EXISTS. Official generators (create-next-app, nuxi,
 flutter create) refuse or prompt on a non-empty directory, and a `.rebuild/` folder is not on any
@@ -50,7 +56,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 
@@ -60,10 +65,11 @@ TEMPLATES = os.path.join(HERE, "..", "templates")
 sys.path.insert(0, os.path.join(PLUGIN, "skills", "rebuild-pipeline", "scripts"))
 import playbook  # noqa: E402  (reads the manifest and validates it: what Gate 3 accepted is what runs)
 
-STEPS_AFTER_SKELETON = ["commands", "run-commands", "rules", "git-hooks", "ci", "claude-md", "finalize"]
+STEPS_AFTER_SKELETON = ["sdlc-config", "git-hooks", "claude-md", "sdlc-setup", "finalize"]
 LOCK_WORKING = os.path.join(".git", "rebuild-scaffold.lock.json")
 LOCK_FINAL = os.path.join(".rebuild", "scaffold.lock.json")
-COMMANDS_FILE = os.path.join(".rebuild", "commands.json")
+SDLC_CONFIG = os.path.join(".sdlc", "config.json")
+SDLC_DOCS = "docs/sdlc"
 HOOK_MARKER = "# rebuild hook shim"
 
 
@@ -262,7 +268,6 @@ def build_proposal(args, root: str) -> dict:
         "playbook": pb_name, "manifest": os.path.relpath(mpath, args.workbench).replace("\\", "/"),
         "manifest_sha256": sha(open(mpath, "rb").read()), "layout": "monorepo" if args.monorepo else "polyrepo",
         "values": given, "repo": repo_name, "packages": pkgs,
-        "rules": manifest.get("rules", list(playbook.RULE_SEEDS)),
         "ci": {"os": (manifest.get("ci") or {}).get("os", ["ubuntu-latest"])},
         "templates_root": troot,
     }
@@ -428,34 +433,8 @@ def cmd_generate(args) -> None:
     out({"ok": True, "package": pkg["name"], "path": pkg["path"], "files": written, "ran": log})
 
 
-def globs(lock: dict) -> dict:
-    srcs = []
-    for p in lock["proposal"]["packages"]:
-        srcs.append("**" if p["path"] == "." else f"{p['path']}/**")
-    yl = lambda items: "\n".join(f'  - "{i}"' for i in items)  # noqa: E731
-    return {
-        "source_globs": yl(srcs),
-        "test_globs": yl(["**/tests/**", "**/test/**", "**/__tests__/**", "**/*_test.*", "**/*.test.*", "**/*.spec.*"]),
-        "ci_globs": yl([".github/**", "scripts/**", "Dockerfile*", "docker-compose*"]),
-        "migration_globs": yl(["**/migrations/**", "**/*.sql"]),
-        "sensitive_globs": yl(["**/.env*", "**/secrets/**", "**/*.pem", "**/*.key"]),
-    }
-
-
 def template(*parts: str) -> str:
     return read_text(os.path.join(TEMPLATES, *parts))
-
-
-def render_rules(root: str, lock: dict) -> dict:
-    g = globs(lock)
-    values = {"plugin_version": plugin_version(), "repo": lock["proposal"]["repo"], **g}
-    paths_key = {"code-style": "source_globs", "tests": "test_globs", "migrations": "migration_globs",
-                 "sensitive": "sensitive_globs", "ci": "ci_globs"}
-    items = []
-    for seed in lock["proposal"]["rules"]:
-        text = fill_content(template("rules", f"{seed}.md"), {**values, "paths": g[paths_key[seed]]})
-        items.append((f".claude/rules/rebuild-{seed}.md", text.encode("utf-8"), "generated", None))
-    return tracked_group(root, lock, items)
 
 
 def render_git_hooks(root: str, lock: dict) -> dict:
@@ -492,38 +471,11 @@ def install_hooks(root: str) -> dict:
     return result
 
 
-SETUP_STEPS = {
-    "go": lambda pkg: ["      - uses: actions/setup-go@v5", "        with:", f"          go-version-file: {pkg['path']}/go.mod"],
-    "node": lambda pkg: ["      - uses: actions/setup-node@v4", "        with:", f"          node-version: \"{pkg['ci'].get('version', '22')}\""],
-    "flutter": lambda pkg: ["      - uses: subosito/flutter-action@v2", "        with:", "          channel: stable"],
-}
-
-
-def render_ci(root: str, lock: dict) -> dict:
-    prop = lock["proposal"]
-    lines = ["# Written by the rebuild scaffold-repo skill from .rebuild/commands.json; every step is a command a person",
-             "# runs locally, so CI and local work cannot drift. Add jobs; do not weaken a step to get green.",
-             "name: verify", "on: [push, pull_request]", "jobs:"]
-    for pkg in prop["packages"]:
-        lines += [f"  {pkg['name']}:", "    runs-on: ${{ matrix.os }}", "    strategy:", "      matrix:",
-                  f"        os: [{', '.join(prop['ci']['os'])}]", "    defaults:", "      run:",
-                  f"        working-directory: {pkg['path']}", "    steps:", "      - uses: actions/checkout@v4"]
-        setup = pkg["ci"].get("setup", "none")
-        if setup in SETUP_STEPS:
-            lines += SETUP_STEPS[setup](pkg)
-        elif setup == "none":
-            lines.append("      # TODO: no toolchain setup action is known for this stack; add one.")
-        for pre in pkg["ci"].get("pre", []):
-            lines.append(f"      - run: {pre}")
-        for key in ("install", "build", "lint", "typecheck", "test"):
-            if pkg["commands"].get(key):
-                lines.append(f"      - run: {pkg['commands'][key]}")
-    data = ("\n".join(lines) + "\n").encode("utf-8")
-    return tracked_group(root, lock, [(".github/workflows/rebuild-verify.yml", data, "seeded", None)])
-
-
 def render_claude_md(root: str, lock: dict) -> dict:
-    text = fill_content(template("claude-md.md"), {"repo": lock["proposal"]["repo"], "workbench": lock.get("workbench_rel", "<the rebuild workbench>")})
+    full = "\n".join(f"- `{p['name']}` ({p['path']}): `{p['commands'].get('test')}`" for p in lock["proposal"]["packages"]
+                     if p["commands"].get("test"))
+    text = fill_content(template("claude-md.md"), {"repo": lock["proposal"]["repo"], "workbench": lock.get("workbench_rel", "<the rebuild workbench>"),
+                                                   "full_tests": full or "- none recorded"})
     return tracked_group(root, lock, [("CLAUDE.md", text.encode("utf-8"), "user", None)])
 
 
@@ -535,80 +487,77 @@ def cmd_render(args) -> None:
         for pkg in lock["proposal"]["packages"]:
             written.update(tracked_group(root, lock, file_items(root, lock, pkg)))
     else:
-        written = {"rules": render_rules, "git-hooks": render_git_hooks, "ci": render_ci, "claude-md": render_claude_md}[args.step](root, lock)
-        if args.step in ("rules", "git-hooks", "ci", "claude-md"):
-            step_done(lock, args.step)
+        written = {"git-hooks": render_git_hooks, "claude-md": render_claude_md}[args.step](root, lock)
+        step_done(lock, args.step)
     save_lock(root, lock)
     out({"ok": True, "step": args.step, "files": written})
 
 
-def commands_doc(lock: dict) -> dict:
-    return {"packages": [{"name": p["name"], "path": p["path"], "stack": p["option"], "commands": p["commands"]}
-                         for p in lock["proposal"]["packages"]]}
+def fast(commands: dict) -> dict:
+    """The five commands as sdlc runs them in a lane: `test` is the fast suite (the manifest's
+    `test_fast` where it defines one). verify.py runs `test` at every lane's verify, so the full suite
+    there would break the slice's test cadence."""
+    out_ = {k: commands.get(k) for k in playbook.COMMAND_KEYS}
+    if commands.get("test_fast"):
+        out_["test"] = commands["test_fast"]
+    return out_
 
 
-def cmd_commands(args) -> None:
+def sdlc_config(lock: dict) -> dict:
+    """.sdlc/config.json in sdlc's own shape: `commands` for one package at the repo root, else
+    `packages` (name, path, stack, commands), each run from its path."""
+    pkgs = lock["proposal"]["packages"]
+    cfg = {"docs_dir": SDLC_DOCS, "project": {"kind": "greenfield", "stack": sorted({stack_of(p) for p in pkgs})}}
+    if len(pkgs) == 1 and pkgs[0]["path"] == ".":
+        cfg["commands"] = fast(pkgs[0]["commands"])
+    else:
+        cfg["packages"] = [{"name": p["name"], "path": p["path"], "stack": [stack_of(p)], "commands": fast(p["commands"])}
+                           for p in pkgs]
+    ci = {}
+    if lock["proposal"]["ci"]["os"] != ["ubuntu-latest"]:
+        ci["os"] = lock["proposal"]["ci"]["os"]
+    versions = {p["ci"].get("version") for p in pkgs if p["ci"].get("setup") == "node" and p["ci"].get("version")}
+    if len(versions) == 1:
+        ci["node_version"] = versions.pop()
+    if ci:
+        cfg["ci"] = ci
+    return cfg
+
+
+def stack_of(pkg: dict) -> str:
+    """The package's toolchain in sdlc's vocabulary. The manifest's `ci.setup` (go, node, flutter) is
+    already that vocabulary, and sdlc's CI generator picks its setup action from it; `none` falls back
+    to the option's own name, for which sdlc writes a TODO step, as this scaffold's CI did."""
+    setup = (pkg.get("ci") or {}).get("setup")
+    return setup if setup and setup != "none" else pkg["option"]
+
+
+def cmd_sdlc_config(args) -> None:
     root = os.path.abspath(args.dir)
     lock = load_lock(root)
-    data = (json.dumps(commands_doc(lock), indent=2, ensure_ascii=False) + "\n").encode("utf-8")
-    result = tracked_group(root, lock, [(COMMANDS_FILE.replace("\\", "/"), data, "generated", None)])
-    step_done(lock, "commands")
+    data = (json.dumps(sdlc_config(lock), indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    # `user`: sdlc's own setup records commands as the project's data, and its `init` keeps a config
+    # that already exists. Written once here; from then on it is the repo's and sdlc's.
+    result = tracked_group(root, lock, [(SDLC_CONFIG.replace("\\", "/"), data, "user", None)])
+    step_done(lock, "sdlc-config")
     save_lock(root, lock)
-    out({"ok": True, "file": COMMANDS_FILE, "written": result})
-
-
-def executable_of(cmd: str) -> str:
-    return re.split(r"\s+", cmd.strip())[0] if cmd and cmd.strip() else ""
-
-
-def cmd_contract(args) -> None:
-    root = os.path.abspath(args.dir)
-    p = os.path.join(root, COMMANDS_FILE)
-    if not os.path.exists(p):
-        die(f"{COMMANDS_FILE} does not exist; run `commands` first.")
-    doc = json.load(open(p, encoding="utf-8"))
-    problems, missing_tools = [], []
-    for pkg in doc.get("packages", []):
-        for k in playbook.COMMAND_KEYS:
-            if k not in pkg["commands"]:
-                problems.append(f"{pkg['name']}: commands.{k} is missing (write the command, or null where the stack has no such step)")
-        for k, cmd in pkg["commands"].items():
-            exe = executable_of(cmd)
-            # A shell line may start with a builtin or an env assignment; only a bare program name is checked.
-            if exe and re.match(r"^[\w.+-]+$", exe) and "=" not in exe and exe not in ("cd", "echo", "exit", "set") and shutil.which(exe) is None:
-                missing_tools.append({"package": pkg["name"], "command": k, "tool": exe})
-    out({"ok": not problems, "tools_ok": not missing_tools, "problems": problems, "missing_tools": missing_tools,
-         "note": "A missing tool is a user decision (installing anything is a hard stop): ask, or change the command in the manifest." if missing_tools else ""})
-    sys.exit(0 if not problems and not missing_tools else 1)
-
-
-def cmd_run_commands(args) -> None:
-    root = os.path.abspath(args.dir)
-    lock = load_lock(root)
-    doc = json.load(open(os.path.join(root, COMMANDS_FILE), encoding="utf-8"))
-    results, failed = [], False
-    for pkg in doc["packages"]:
-        cwd = os.path.join(root, pkg["path"])
-        for key in ("install", "build", "lint", "typecheck", "test"):
-            cmd = pkg["commands"].get(key)
-            if not cmd:
-                results.append({"package": pkg["name"], "command": key, "skipped": True})
-                continue
-            r = run_shell(cmd, cwd)
-            row = {"package": pkg["name"], "command": key, "cmd": cmd, "exit": r.returncode}
-            if r.returncode != 0:
-                failed = True
-                row["tail"] = (r.stdout + r.stderr)[-1500:]
-            results.append(row)
-            lock["runs"].append({"step": "run-commands", **{k: v for k, v in row.items() if k != "tail"}, "at": now()})
-    ran = [r for r in results if not r.get("skipped")]
-    ok = bool(ran) and not failed
-    if ok:
-        step_done(lock, "run-commands")
-    save_lock(root, lock)
-    out({"ok": ok, "results": results,
-         "note": "" if ok else "Fix the skeleton, never the command: a command changed to pass is a skeleton that does not."})
-    sys.exit(0 if ok else 1)
+    wb = lock.get("workbench_rel", "<the rebuild workbench>")
+    out({"ok": True, "file": SDLC_CONFIG, "written": result,
+         "sdlc_setup_answers": {
+             "mode": "brownfield (the generator wrote source), on the commands above; do not re-derive them",
+             "docs_dir": SDLC_DOCS,
+             "prd": f"a pointer to the workbench's product docs ({wb}/matrix/features.yaml and the gate-2 artifacts), "
+                    "written from sdlc's PRD template with every section linking there; never a restatement",
+             "constitution": f"from the Gate 3 ADRs ({wb}/adr/): each ADR's decision is a principle; add nothing they do not say",
+             "design_system": "from the UI ADR and the playbook, when the repo has UI; else not applicable",
+             "plugin_keys": "the team file (.claude/settings.json), so every session on this repo has sdlc",
+             "ci": "sdlc's (builtin:ci) from these commands; this pipeline's license-scan and AC-coverage jobs are added to that file",
+             "ci_pre": {p["name"]: p["ci"]["pre"] for p in lock["proposal"]["packages"] if p["ci"].get("pre")} or None,
+             "ci_pre_note": "sdlc's workflow has no pre-install step: add each package's lines after its toolchain setup in "
+                            ".github/workflows/sdlc-verify.yml (the file is seeded, so sdlc's upgrade will show you the diff)",
+             "context_diet": "declined: a rebuild session needs both plugins",
+             "finalize": "merge sdlc/setup into main locally: the repo has no remote until checklist step 2",
+         }})
 
 
 def cmd_commit(args) -> None:
@@ -689,9 +638,9 @@ def main(argv=None) -> int:
     p.add_argument("--dir", default=".")
     p.add_argument("--force", action="store_true")
     p = sub.add_parser("render")
-    p.add_argument("step", choices=["files", "rules", "git-hooks", "ci", "claude-md"])
+    p.add_argument("step", choices=["files", "git-hooks", "claude-md"])
     p.add_argument("--dir", default=".")
-    for name in ("commands", "contract", "run-commands", "install-hooks", "finalize"):
+    for name in ("sdlc-config", "install-hooks", "finalize"):
         p = sub.add_parser(name)
         p.add_argument("--dir", default=".")
     p = sub.add_parser("commit")
@@ -704,8 +653,8 @@ def main(argv=None) -> int:
     p.add_argument("--dir", default=".")
     p.add_argument("--drift", action="store_true")
     args = ap.parse_args(argv)
-    handlers = {"plan": cmd_plan, "init": cmd_init, "generate": cmd_generate, "render": cmd_render, "commands": cmd_commands,
-                "contract": cmd_contract, "run-commands": cmd_run_commands, "commit": cmd_commit, "step-done": cmd_step_done,
+    handlers = {"plan": cmd_plan, "init": cmd_init, "generate": cmd_generate, "render": cmd_render, "sdlc-config": cmd_sdlc_config,
+                "commit": cmd_commit, "step-done": cmd_step_done,
                 "finalize": cmd_finalize, "status": cmd_status,
                 "install-hooks": lambda a: out({"ok": True, "hooks": install_hooks(os.path.abspath(a.dir))})}
     try:
