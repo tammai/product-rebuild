@@ -1,7 +1,9 @@
 # product-rebuild
 
-> **1.x of the pipeline formerly published as `product-rebuild-skills`.** It is a different plugin: it does not
-> update from 0.x and it does not open a rebuild a 0.x release started. Finish those on the 0.x line.
+> **2.x wraps [sdlc](https://github.com/tammai/sdlc)**: every build lane is an sdlc feature, built, verified,
+> reviewed and shipped by sdlc's own flow. It does not open a rebuild a 1.x release started (1.x lanes work under
+> `PLAN.md`), nor one from the pipeline formerly published as `product-rebuild-skills` (0.x). Finish those on
+> the release that made them; there is no migration.
 
 A Claude Code plugin for rebuilding an existing product end-to-end — to learn the full
 product development lifecycle by doing it. Point it at a reference product (usually OSS:
@@ -49,19 +51,18 @@ Three ideas carry everything:
 ## Install
 
 ```bash
-# add sdlc's marketplace first: this plugin depends on sdlc and sdlc-extras (2.4 or later)
+# product-rebuild is published in sdlc's marketplace; sdlc and sdlc-extras (2.4 or later) install with it
 /plugin marketplace add tammai/sdlc
-# then this repo's marketplace, and install; sdlc and sdlc-extras install with it
-/plugin marketplace add tammai/product-rebuild
-/plugin install product-rebuild@product-rebuild
+/plugin install product-rebuild@sdlc
 
 # or for local development, load your working copy and sdlc's for one session:
 claude --plugin-dir /path/to/sdlc --plugin-dir /path/to/product-rebuild
 ```
 
-Claude Code installs the dependencies itself, but only from a marketplace you have added, so add `tammai/sdlc`
-first. Without it the install finishes without sdlc and this plugin is then disabled with a dependency error
-(`claude plugin list` names it). sdlc already installed and enabled, at 2.4 or later, is enough.
+Claude Code installs the dependencies itself, from the same marketplace. Without them this plugin is disabled
+with a dependency error (`claude plugin list` names it). An install of `product-rebuild@product-rebuild` (1.x,
+from this repo's own marketplace, which 2.0.0 removed) stops updating: uninstall it and install
+`product-rebuild@sdlc`.
 
 Requires Python ≥ 3.9 (standard library only: there is nothing to `pip install`, and the YAML reader
 ships inside the plugin), git, and Docker (you will run the reference product locally — it's
@@ -157,8 +158,14 @@ is done when it's **deployed** and its `done_means` is demonstrably true.
 
 Code repos are created by this plugin's `scaffold-repo` skill from the scaffold manifest your
 locked playbook ships: it takes the stack from the Gate 3 ADRs, asks only what they leave open,
-shows you a proposal, runs the stack's own generator, and proves the five commands pass on day one.
-The result is a skeleton, not a feature kit; the first slice builds the first real module. For a
+shows you a proposal and runs the stack's own generator; then sdlc's setup, given the answers the
+workbench already holds, proves the five commands pass on day one and writes the rules, guardrails
+and CI. The result is a skeleton, not a feature kit; the first slice builds the first real module.
+
+Each lane is an **sdlc feature**: when you approve a slice's specs, the pipeline writes each lane's
+sdlc record from them (the criteria, your approval), the lane builds through sdlc's Build (every
+criterion's test seen failing, then passing, through `verify.py`), and sdlc's Review and Ship follow,
+reviews chosen by sdlc's own table. For a
 client-only rebuild this lane *is*
 the build, split per feature module, and "deployed" means a build a real person can install
 from an internal track — not a simulator run.
@@ -289,10 +296,10 @@ skills/rebuild-pipeline/        THE skill you interact with
   scripts/acsuite.py           JUnit reader shared by parity and slice-review; counts a rerun once
   scripts/lanes_check.py       is a build lane still working? `watch` runs the check as one background process; `stamp` records which commits a test run saw
   scripts/run_phases.py        a several-phase test run as one tracked background process
-  scripts/lane_plan.py         a lane's PLAN.md, written from the slice specs you approved
+  scripts/lane_plan.py         a lane's sdlc record (change file, state at Build), written from the slice specs you approved
   scripts/sequence.py          slice execution order — the logged-decision reorder mechanism
   scripts/slice_review.py      the between-slices standing report (generated, advisory)
-  scripts/boundary.py          the slice boundary in one call: archive lane plans, parity, slice review, re-mine due?
+  scripts/boundary.py          the slice boundary in one call: archive lane records, parity, slice review, re-mine due?
   scripts/rules_for.py         a spec-writer's Rule Cards: the module's in full, every other card as an index line
   scripts/cite_excerpts.py     each transcribed citation's source line beside its claim, for the rubric judge
   scripts/gate_facts.py        the ERD-orphan and per-domain / per-slice counts the gate 1 and 2 rubrics ask for
@@ -305,8 +312,8 @@ skills/rebuild-pipeline/        THE skill you interact with
   scripts/schemacheck.py       the JSON-schema checker validate.py uses (no third-party dependency)
   scripts/autopilot.py         unattended-run state: preflight / check / engage / log / disengage
   scripts/routing.py           which model each subagent role dispatches on (.claude/model-routing.json)
-agents/                         miner, adr-drafter, data-model-drafter, spec-writer, rubric-judge, lane-worker,
-                                lane-verifier (opt-in audit) subagents
+agents/                         miner, adr-drafter, data-model-drafter, spec-writer, rubric-judge, lane-worker
+                                subagents (a lane's reviews are sdlc's agents)
 hooks/                          PreToolUse guards: locked artifacts, recorded AC flows, the
                                 autopilot usage threshold and the build runbook; the code-repo
                                 guards (bash, spec gate, injection gate, commit gates), which

@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-11-03
+
+This plugin now wraps sdlc instead of carrying copies of it: every build lane is an sdlc feature, built,
+verified, reviewed and shipped by sdlc's own flow (`specs/Spec Wrap sdlc instead of porting it.md`).
+**Breaking, with no migration:** a rebuild started on 1.x (lanes under `PLAN.md`) or 0.x is not opened by
+2.x; finish it on the release that made it.
+
+### Changed
+
+- **A lane is an sdlc feature.** `lane_plan.py` writes, at the moment you approve a slice's specs, the lane's
+  sdlc change file (one `AC-nnn` per approved criterion, verbatim, `rule_id` kept) and, through sdlc's own
+  `state.py`, its state file at Build with your approval in the Gate log. The lane fills in the how (task
+  files, Public Surface, each criterion's test) and builds through sdlc's Build: every criterion recorded
+  failing with `verify.py red`, then `verify.py` once. A lane that finds its spec wrong raises an `amend:`
+  question; `--amend` re-approves, keeping an unchanged criterion's id and test. `archive` copies the record
+  to the workbench once sdlc has shipped the lane.
+- **The spec gate reads the lane's sdlc state file**, not `PLAN.md`: an active feature at Build or later,
+  approved for this worktree's branch, with no open `amend:` question. sdlc has no such gate, so it stays
+  this plugin's.
+- **Each lane gets sdlc's Review**, run by the orchestrator after the lane reports, with sdlc's own table
+  (security on high risk, code on a large diff or public surface, UI on UI paths) and sdlc's reviewers on
+  opus. 1.1.0 had removed per-lane review for cost, and it is back for nearly every lane: sdlc's code review
+  fires whenever a lane's Public Surface lists anything, which a module almost always does. Then sdlc's
+  `ship.py` records the lane done, committing under the change file's title, which `lane_plan.py` writes as
+  a Conventional subject (`feat(<lane>): rebuild slice <Sn>`) so the repo's commit hook accepts it.
+- **`lane-worker` runs sdlc's Build** and keeps only the rules sdlc has none for (migrations, the test
+  cadence, long runs, helpers). sdlc's `verify.py` runs the repo's `test` command, which in a rebuild repo is
+  the fast suite, so the once-per-slice cadence holds.
+- **`scaffold-repo` hands setup to sdlc.** It still runs the playbook's generators and seed files and
+  writes the git hooks and the thin `CLAUDE.md` pointer, which sdlc does not. New `sdlc-config` writes
+  `.sdlc/config.json` from the manifest (`test` = the manifest's `test_fast` where it has one) and prints the
+  answers sdlc's setup takes from the workbench (PRD pointer, constitution from the Gate 3 ADRs, plugin keys
+  in the team file, CI). sdlc's setup then checks and runs the five commands on day one and writes the
+  rules, guardrails and CI. The pre-commit hook reads sdlc's config.
+- **`routing.py`**: the `verifier` tier is now `reviewer`, opus in every profile, for the new `lane-review`
+  (`sdlc:code-reviewer`) and `lane-ui-review` (`sdlc:ui-reviewer`) roles; an override below opus is ignored
+  with a warning, because sdlc's model router would deny it.
+- **Workbenches are marked `rebuild_major: 2`**, and the guards, `upgrade.py` and `scaffold.py` leave a
+  1.x or 0.x workbench alone.
+- **Installed as `product-rebuild@sdlc`**, from sdlc's marketplace; sdlc and sdlc-extras install with it.
+
+### Removed
+
+- `agents/lane-verifier.md` and its A/B fixture: review is sdlc's.
+- `scaffold.py`'s `commands`, `contract`, `run-commands`, `render rules` and `render ci`, the rule seeds,
+  and the manifest's `rules` key: sdlc's setup does them.
+- This repo's `.claude-plugin/marketplace.json`. An install of `product-rebuild@product-rebuild` stops
+  updating; reinstall as `product-rebuild@sdlc`.
+
+### Kept, and why
+
+- The bash guard and commit gates: sdlc's guardrails block a force push to main only, and have no rule for
+  `--no-verify`, `core.hooksPath`, a force push to another branch, a Conventional subject or a `fix:`
+  shipping a test. `hooks/py.sh`: a plugin's hooks cannot launch through another plugin's folder.
+
+### Not run before release
+
+- A whole slice in a real rebuild: scaffold with sdlc's setup, several lanes, sdlc's Review per lane, the
+  joint run. The pieces are covered by the evals and by two runs on 2026-11-03: a lane spike, and an end-to-end
+  lane (`lane_plan.py` → a subagent on this release's `lane-worker` → `verify.py` → `ship.py` → `archive`),
+  in which the review sdlc's table fired was recorded but not run.
+
 ## [1.6.0] - 2026-11-02
 
 ### Added

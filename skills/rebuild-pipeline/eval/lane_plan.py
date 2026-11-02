@@ -178,6 +178,10 @@ check("one criterion per spec criterion, verbatim, rule_id kept",
       re.search(r"^- \*\*AC-001\*\* — `billing`: A negative amount is rejected with 422\. rule_id: R-BILL-001$", ch1, re.M)
       and re.search(r"^- \*\*AC-002\*\* — `billing`: Totals round half-even to 2 dp\.$", ch1, re.M), ch1)
 check("the test cells are the lane's to fill", ch1.count("| TBD | `TBD` |") == 2, ch1)
+import commit_rules  # noqa: E402  (hooks/scripts: the subject rule the commit gate and the git hook apply)
+title = ch1.split("\n", 1)[0].lstrip("# ").strip()
+check("the change file's title is a Conventional subject (sdlc's ship.py makes it the commit subject)",
+      title == "feat(api): rebuild slice S1" and commit_rules.subject_problem(title) is None, title)
 check("the task names its criteria and leaves its files to the lane",
       re.search(r"\*\*billing\*\* — AC-001 AC-002", st1) and "`TBD`" in st1, st1)
 check("nothing is committed in the code repo", sh(lane_path, "git", "log", "--oneline").count("\n") == 2)

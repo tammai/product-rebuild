@@ -32,7 +32,8 @@ folder your brief names), and follow it. Type sdlc's scripts in full every time,
 1. **Fill in the how first, in one turn.** The approved specs say what, not how, so three things
    were left for you. In the change file, **only** the Test and Run cells of `## Acceptance tests`:
    Test is the test **file path** (`verify.py` finds nothing else), Run is a command that runs only
-   that test. In the state file, each task's `Files:` line (it says `TBD`) and `## Public Surface`
+   that criterion's test. Several criteria may share one test file: their Test cells name the same
+   file and their Run commands name different tests. In the state file, each task's `Files:` line (it says `TBD`) and `## Public Surface`
    (the exports, endpoints and dependencies the specs ask for, each with its criterion). Nothing
    else above `## Review` in the change file, ever: the criteria are approved text, and the slice
    review re-hashes them.

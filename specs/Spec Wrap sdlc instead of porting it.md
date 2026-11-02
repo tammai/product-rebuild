@@ -38,22 +38,25 @@ Claude Code resolves plugin dependencies natively (`plugin.json` → `dependenci
 - Skills and agents keep sdlc's namespace: this plugin calls `sdlc:orchestrator`, `sdlc:setting-up-projects`, `sdlc:code-reviewer` and so on. No rename, no aliases.
 - **What 1.6.0 changes at runtime.** sdlc's hooks now load in every rebuild session. A 1.x workbench and its code repos have no `.sdlc/`, so they stay silent: `model_router`, the session status line and the stop hooks act only on an active sdlc feature, and hookify looks below the session only into a folder with `.sdlc/config.json`. `role_guard` still holds sdlc's own agents to their role wherever they run; 1.x never dispatches one. Checked against the installed 2.4.1 with a workbench parent over a repo without `.sdlc/`.
 
-## Overlap map
+## Overlap map (as built in 2.0.0)
 
-| Here today | sdlc owner | Becomes |
+The first column is what 1.x had. "As built" is what 2.0.0 did, and where it differs from the plan this spec started with, why.
+
+| 1.x | sdlc owner | As built |
 |---|---|---|
-| `skills/scaffold-repo/` (10 files) | `sdlc:setting-up-projects`, `scripts/scaffold.py` | **Shrinks to a generate step** (spike finding 1): the playbook manifest's generator, `after` and seed files stay here, then sdlc setup runs on the result by its brownfield path. The interview, commands, rules, guardrails, CI and pointer rendering go. |
-| `agents/lane-worker.md` | sdlc Build phase, `sdlc:test-driven-development` | Deleted. What is specific to a rebuild lane (migration numbers, the test cadence, `run_phases.py` long runs, the `amending` stop) moves into the lane brief and a seeded `.claude/rules/` file in the code repo. |
-| `agents/lane-verifier.md` | `scripts/verify.py`, `sdlc:code-reviewer`, `sdlc:qa-tester` | Deleted. The user-requested audit at step 4b becomes an sdlc review. |
-| `hooks/scripts/bash_guard.py`, `commit_gates.py`, `commit_rules.py` | sdlc `pretooluse.py` guardrails, hookify rules | Deleted in phase 3, after phase 2 shows sdlc's guardrails catch the same calls from a workbench session (sdlc 2.4 made them reach the repo; spike finding 2). |
-| `hooks/scripts/spec_gate_guard.py` + `lane_plan.py` | sdlc state and change files, `verify.py` plan drift | Replaced. `lane_plan.py` writes the lane's sdlc change and state files from the approved spec instead of `PLAN.md`. |
-| `hooks/py.sh` | `hooks/sg-python.sh` | Deleted. |
-| `routing.py` model ladder | sdlc `model_router.py` (PreToolUse on Agent) | Compatible with a rule (spike finding 3): `model_router` denies, never overrides. `routing.py` must keep `haiku` and sonnet-reviewers off sdlc agents. |
-| `autopilot.py` | sdlc `--autopilot`, `scripts/autopilot.py` | **Nesting.** Rebuild autopilot is the outer loop and halts at gates. sdlc's never asks. The lane brief must say which applies. |
+| `skills/scaffold-repo/` | `sdlc:setting-up-projects` | **Shrunk** (spike finding 1). Stays: the playbook manifest's generators, `after` steps and seed files; the git hooks (sdlc installs none); the thin `CLAUDE.md` pointer (sdlc's setup never writes one). New `sdlc-config` writes `.sdlc/config.json` from the manifest (`test` = the fast suite, D1) and prints the answers sdlc's setup gets from the workbench (D3). Gone to sdlc: `commands`, `contract`, `run-commands`, the rule seeds and the CI renderer; the manifest's `rules` key is gone with them. |
+| `agents/lane-worker.md` | sdlc's Build | **Kept, slimmed**, not deleted as first planned: an agent file is what carries a lane's standing rules (the plan's "seeded rules file" would load only in a session started in the repo, which a rebuild session never is). It now points the build loop at sdlc's Build and keeps only what sdlc has no rule for: migrations, the test cadence, long runs, helpers, and the lane-specific differences the spike found. |
+| `agents/lane-verifier.md` | sdlc's Review | **Deleted**, with its A/B fixture. Review is sdlc's, run by the orchestrator per lane (D2); `routing.py` resolves `lane-review` and `lane-ui-review` to sdlc's reviewers on opus. |
+| `hooks/scripts/bash_guard.py`, `commit_gates.py`, `commit_rules.py` | sdlc's guardrails | **Kept**, against the plan. Compared rule by rule with sdlc 2.4.1's 15 guardrails: sdlc blocks a force push to main only, and has no rule for `--no-verify` or `commit -n`, for moving `core.hooksPath`, for a force push to any other branch, for a Conventional subject, or for a `fix:` shipping a test. Those are not overlap, so the wrapper principle keeps them; deleting them would have removed protection sdlc does not give. |
+| `hooks/scripts/spec_gate_guard.py` + `lane_plan.py` | sdlc's state and change files | **Repointed.** `lane_plan.py` writes the lane's sdlc record; the gate reads its approval line and freezes on an open `amend:` question. sdlc has no "no code before an approved plan" block, so the gate stays this plugin's. |
+| `hooks/py.sh` | `hooks/sg-python.sh` | **Kept**, against the plan: it launches this plugin's remaining hooks, and a plugin's `hooks.json` can only name files under its own folder, so it cannot launch through sdlc's copy. |
+| `routing.py` model ladder | sdlc's `model_router.py` | **Compatible** (spike finding 3). The `verifier` tier became `reviewer`, opus in every profile; an override below opus is ignored with a warning, because sdlc's router would deny it. |
+| `autopilot.py` | sdlc's `--autopilot` | **Nested.** Rebuild's autopilot stays the outer loop. `autopilot.md` now lists sdlc Review's stops as halts and the reviews a low-risk lane's table picks as autopilot's to run. |
+| `.claude-plugin/marketplace.json` | the `sdlc` marketplace | **Deleted** in 2.0.0, as planned: installs are `product-rebuild@sdlc`. |
 
 **Stays, because sdlc has nothing like it:** every gate, the workbench and its locks (`gate_guard`, `flows_guard`, `autopilot_guard`, `runbook_guard`), mining, the feature matrix, slicing, ADRs and contracts, the injection scan, gate and canary, parity and the joint run, `slice_review.py`, `boundary.py`, the playbooks and the vendored PyYAML.
 
-## G5 after the change (phase 2 design, draft 2026-11-03)
+## G5 after the change (phase 2 design, 2026-11-03)
 
 **One lane is one sdlc feature in its worktree, entered at Build.** You approve a slice's specs exactly as today. At that moment `lane_plan.py` writes the lane's sdlc record instead of `PLAN.md`: the change file (`## Why` points to the approved spec paths; one `AC-nnn` per spec criterion, each keeping its `rule_id` and test level) and the state file via sdlc's own `state.py new`, advanced to Build with the approval in its Gate log (approver, spec paths, workbench commit). The lane starts at sdlc's Build: it writes each criterion's test, records it red with `verify.py red`, writes the code, then runs `verify.py` once. The record is sdlc's from then on: `git blame` leads from a line to the change file, and the change file to the rebuild spec.
 
@@ -86,7 +89,7 @@ Decided 2026-11-03, all three as recommended:
 
 ## What it costs
 
-- **Breaking:** `lane-worker`, `lane-verifier` and `scaffold-repo` disappear, and `PLAN.md` stops being the lane contract. Ships as **2.0.0**.
+- **Breaking:** `lane-verifier` disappears, `scaffold-repo` loses its commands, rules and CI steps to sdlc, `PLAN.md` stops being the lane contract, workbenches are marked `rebuild_major: 2`, and this repo's marketplace is gone. Ships as **2.0.0**.
 - Every code repo gets sdlc's `.sdlc/` scaffold and its hooks. A rebuild in flight on 1.x has `PLAN.md` lanes and is not carried over: no migration, no detection, no compat code.
 - sdlc's hooks (`UserPromptSubmit`, `Stop`, `PreToolUse` on Agent, Read, Grep, Glob) now run in rebuild sessions too.
 
@@ -119,9 +122,13 @@ Still open, for phase 2: `model_router` denies an sdlc reviewer below opus, `hai
 
 0. **Spike.** Done: findings above, and option A shipped in sdlc 2.4. A lane then ran as an sdlc feature from a session above the repo (2026-11-03, result in "G5 after the change").
 1. **Dependency.** `plugin.json` dependencies, the allowlist in this repo's `marketplace.json`, README install section. Ships as 1.6.0 and changes nothing else. Then the `product-rebuild` entry in the `sdlc` marketplace (a change in `tammai/sdlc`).
-2. **G5 swap.** `g5-build.md`, `g5-first-slice.md`, `subagent-briefs.md`, `lane_plan.py`, `slice_review.py`, `parity.py`, `acsuite.py`, `routing.py`, and the autopilot nesting.
-3. **Delete.** Superseded agents, skills, hooks and scripts; this repo's `marketplace.json`; NOTICE.md, licenses/ and CHANGELOG; release 2.0.0.
+2. **G5 swap.** Done (2026-11-03): `lane_plan.py`, the spec gate, `slice_review.py`, `boundary.py`, `routing.py`, `lane-worker`, `g5-build.md` steps 1b and 4b, `g5-first-slice.md`, `subagent-briefs.md`, `autopilot.md`, the major fence. `parity.py` and `acsuite.py` needed no change: the joint run and its JUnit are unchanged, and a lane's sdlc record is not what they read.
+3. **Delete and release.** Done (2026-11-03): `lane-verifier` and its fixture, `scaffold-repo`'s commands/rules/CI, this repo's `marketplace.json`; NOTICE.md and CHANGELOG; 2.0.0. The bash guard, commit gates and `py.sh` stay (overlap map).
 
 ## Evals
 
-Lane R (`agents/miner.md`, `schemas/rule.schema.json`) is untouched, so the rules-recall fixture does not apply. The existing preflight, validate and lane-plan checks stay green at each phase. Phase 2 adds one end-to-end check: a lane built through sdlc produces the same `parity/<date>-ac.xml` the joint run consumes today.
+Lane R (`agents/miner.md`, `schemas/rule.schema.json`) is untouched, so the rules-recall fixture does not apply. Every eval passes at each commit. `eval/lane_plan.py` drives sdlc's own `state.py` (so it needs sdlc installed): the record, its refusals, amend with stable ids, the slice review naming an edited criterion or an open `amend:` question, archive only after sdlc shipped, and the routing roles. `eval/lane_guards.py` covers the gate on sdlc state files (both layouts, branch, Define, done, `amend:`), `eval/v0_fence.py` covers 1.x and 0.x workbenches, and `eval/scaffold_repo.py` covers `sdlc-config`.
+
+**End-to-end lane (2026-11-03).** On a workbench made by this release: `lane_plan.py` wrote the record; a subagent following this release's `lane-worker.md` filled in the how, recorded three criteria red, built, passed `verify.py` and committed (11 tool calls, about a minute); `ship.py` shipped it on the lane branch (no new branch, `Status: done`); `archive` copied the record. It found one bug, fixed before release: `ship.py` takes the commit subject from the change file's title, and `S1 pricing: rebuild build lane` is not a Conventional subject, so the repo's commit hook would have refused the commit. The title is now `feat(<lane>): rebuild slice <Sn>`. It also showed that sdlc's code review fires on nearly every lane (any Public Surface); that review was not run.
+
+The end-to-end check planned here, a lane built through sdlc producing the joint run's `parity/<date>-ac.xml`, was not built: the joint run is unchanged by this spec, and the lane spike showed a lane building through sdlc from a session above the repo. **Not run before release:** a whole slice in a real rebuild (scaffold with sdlc's setup, two lanes, sdlc's Review per lane, the joint run). That is the first thing a 2.x rebuild exercises.

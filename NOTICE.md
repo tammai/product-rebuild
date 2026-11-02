@@ -14,21 +14,20 @@ at bigin-skills 1.110.1 (commit `1ade544`), for 1.0.0, then ported from Node to 
 | `hooks/scripts/spec_gate_guard.py` | `spec-gate-guard.mjs` | Same scoping; refusal messages rewritten for the lane-plan flow; `Status: amending` has its own message. |
 | `hooks/scripts/commit_gates.py`, `commit_rules.py` | `commit-msg-guard.mjs`, `bugfix-test-guard.mjs` | Merged into one hook; the subject rule is a standalone file so the git `commit-msg` hook can vendor it. |
 | `hooks/scripts/injection_scan_guard.py`, `injection_gate_guard.py`, `canary_seed.py` | the same names | Run only in a session with a workbench near its root; temp-file prefix is `rebuild-`. |
-| `agents/lane-verifier.md` | `agents/verifier.md` | Rewritten for this pipeline's loop and output contract. |
 
 The injection guards follow a pattern from Lasso Security's open-source PostToolUse Defender:
 <https://www.lasso.security/blog/the-hidden-backdoor-in-claude-coding-assistant>.
 
 ## sdlc (MIT, tammai/sdlc)
 
-`licenses/sdlc-MIT.txt`. The scaffold-repo skill follows its `setting-up-projects` flow: an
-interview that proposes before it generates, official generators over hand-written project files,
-the project's own commands recorded and run on day one, files classed by who owns them, and a lock
-that refuses to overwrite an edited file. `hooks/py.sh` is adapted from `hooks/sg-python.sh` (the
-interpreter probe, the Windows Store stub, MSYS path conversion), cut to what this plugin needs. The
-rule seeds in `skills/scaffold-repo/templates/rules/` are adapted from `templates/project/rules/`,
-with the test rule rewritten for the once-per-slice test cadence. `agents/lane-verifier.md` takes
-that plugin's verifier rules on reporting only what can be evidenced.
+`licenses/sdlc-MIT.txt`. Since 2.0.0 this plugin depends on sdlc and runs it, rather than carrying
+copies of it: each build lane is an sdlc feature, and a code repo is set up by sdlc's own setup. What
+remains adapted from it: `hooks/py.sh` is adapted from `hooks/sg-python.sh` (the interpreter probe,
+the Windows Store stub, MSYS path conversion), cut to what this plugin needs, because a plugin's hooks
+cannot launch through another plugin's folder; and `skills/scaffold-repo/scripts/scaffold.py` keeps
+that plugin's setup conventions for the files it still writes (a proposal before anything is
+generated, official generators over hand-written project files, files classed by who owns them, a
+lock that refuses to overwrite an edited file).
 
 ## PyYAML 6.0.3 (MIT, Copyright (c) 2017-2021 Ingy döt Net, 2006-2016 Kirill Simonov)
 

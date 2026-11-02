@@ -270,8 +270,11 @@ def _change_text(slice_id, lane, branch, specs, commit, approver, date, acs, tes
     """acs: [(id, module, criterion)]; tests: {id: (test, run)}."""
     approved = ", ".join(f"`{s}`" for s in specs)
     rows = [f"| {i} | {tests.get(i, ('TBD', '`TBD`'))[0]} | {tests.get(i, ('TBD', '`TBD`'))[1]} |" for i, _, _ in acs]
+    # The title is a Conventional subject on purpose: sdlc's ship.py makes it the commit subject, and the
+    # repo's commit-msg hook and this plugin's commit gate refuse any other (the 2026-11-03 e2e run's
+    # "S1 pricing: rebuild build lane" would have been refused in a real rebuild repo).
     return "\n".join([
-        f"# {slice_id} {lane}: rebuild build lane",
+        f"# feat({lane}): rebuild slice {slice_id}",
         "",
         "## Why",
         "",

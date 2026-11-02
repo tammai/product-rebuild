@@ -227,8 +227,10 @@ step 1 registers it. Read that file now if no code repo exists yet.
      knowledge; the build runbook (between slices) is still where cross-lane lessons go.
 
    1.1.0 removed a per-lane implement/verify loop for cost; 2.0.0 brings a review back, because review
-   is what sdlc owns and this pipeline now wraps it. It costs about one opus review per lane whose diff
-   fires the table, and none for a lane that fires nothing.
+   is what sdlc owns and this pipeline now wraps it. Expect nearly every lane to get one: sdlc's code
+   review fires whenever `## Public Surface` is not `- none`, and a module almost always exports
+   something (the 2026-11-03 end-to-end lane, one function and one exception, fired it). On an M lane
+   that review is the built-in `code-review` skill; on L, or for security or UI, an opus agent.
 5. **The joint run — once, at the end of the build.** One lane, named when the slice starts,
    runs the cumulative suite: every unit and integration/API suite in every repo, then the
    E2E set against the deployment — the latest checkpoint's smoke journey plus each slice's
