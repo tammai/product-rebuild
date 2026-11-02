@@ -53,11 +53,36 @@ Claude Code resolves plugin dependencies natively (`plugin.json` → `dependenci
 
 **Stays, because sdlc has nothing like it:** every gate, the workbench and its locks (`gate_guard`, `flows_guard`, `autopilot_guard`, `runbook_guard`), mining, the feature matrix, slicing, ADRs and contracts, the injection scan, gate and canary, parity and the joint run, `slice_review.py`, `boundary.py`, the playbooks and the vendored PyYAML.
 
-## G5 after the change
+## G5 after the change (phase 2 design, draft 2026-11-03)
 
-One lane (a slice's work in one repo, one worktree) is one sdlc feature in that repo. The approved module specs become the change file's criteria, one test per criterion, each keeping its `rule_id`. `lane_plan.py` writes both files at the approval moment, and the lane never writes its own. The lane runs sdlc's Build, then its Review, then reports. Lanes touching several modules use sdlc's backlog parts. What the workbench reads back (`slice_review.py`, `parity.py`, `acsuite.py`) is repointed from `PLAN.md` rows to the sdlc state file and `verify.py`'s recorded results.
+**One lane is one sdlc feature in its worktree, entered at Build.** You approve a slice's specs exactly as today. At that moment `lane_plan.py` writes the lane's sdlc record instead of `PLAN.md`: the change file (`## Why` points to the approved spec paths; one `AC-nnn` per spec criterion, each keeping its `rule_id` and test level) and the state file via sdlc's own `state.py new`, advanced to Build with the approval in its Gate log (approver, spec paths, workbench commit). The lane starts at sdlc's Build: it writes each criterion's test, records it red with `verify.py red`, writes the code, then runs `verify.py` once. The record is sdlc's from then on: `git blame` leads from a line to the change file, and the change file to the rebuild spec.
 
-Unchanged: the joint run, the rerun of failures only, the evidence bar, migration serialization, the boundary.
+Found while preparing the phase 2 lane spike (2026-11-03):
+- **sdlc feature names are lowercase** (`state.py new` refuses `S1`). A lane's feature is `<date>-<track>-s<n>-<lane>`, e.g. `2026-11-03-m-s1-pricing`; the git branch keeps `slice/S1-<lane>`.
+- **`lane_plan.py` must not rewrite history after `state.py new`.** The state records `Base:` as the HEAD at that moment; the spike amended the record commit and left `Base` pointing at a commit that no longer existed (fixed with `state.py set <f> Base`).
+- **A feature that `lane_plan.py` advanced to Build is already at Stage 4**, and `state.py advance <f> 4` on it is refused. sdlc's Build step 1 runs `$S advance <f> 4 … && $V red …`, so the lane brief says to run only the `$V red` half.
+- **The acceptance tests table is the lane's to fill.** The spec names each criterion's level, not its test, so `lane_plan.py` writes the Test and Run cells as `TBD` and the lane fills only those cells.
+
+**Lane spike result (2026-11-03): a lane runs as an sdlc feature.** One `general-purpose` subagent on sonnet, dispatched from a session whose project directory has no `.sdlc/`, built a two-criterion lane in a worktree below it from the record `lane_plan.py` would write. It wrote the tests, `verify.py red AC-001 AC-002` recorded both red, it wrote the code, and `verify.py` passed (the fast suite, each criterion's own test, the drift check). It made one Conventional commit naming the change file: 13 tool calls, about a minute. It edited only the Test and Run cells of the change file. sdlc's force-push guardrail blocked its force push to main, which is the 2.4 fix reaching a lane. What it found:
+- **The Test cell is a test file path**, not `file::test`; `verify.py red` reports anything else as not found. The test id goes in the Run cell.
+- **`## Public Surface` must be written by `lane_plan.py`.** The approved spec names the module's public names; left as `- none`, every new export is drift, and the lane logs deviations for names the spec itself asked for.
+- **Red needs the names to exist.** The lane wrote a stub raising `NotImplementedError` so its tests failed rather than errored; the brief says so.
+- **Type the sdlc script paths in full**, as sdlc's own flow says: zsh does not word-split `$S`.
+- **sdlc's guardrails judge command text in any session whose shell sits inside a set-up repo,** including the orchestrator's own: a spec edit quoting the force-push command was blocked while the shell's directory was the lane worktree. The orchestrator writes documents with its file tools, as sdlc's flow already says.
+
+Fixed by constraints, not choices:
+- **The orchestrator runs sdlc's Review, not the lane.** A lane cannot ask the user, and sdlc's Review stops for the user (the choice on high risk, a failed round 2, a disputed high finding). The spike showed the Agent tool *is* listed for a lane subagent, so this rests on the stops, not on a missing tool.
+- **The approval is written by script, never by the lane** (unchanged reasoning from `lane_plan.py`). Calling sdlc's `state.py` needs sdlc's install path: `lane_plan.py` takes it from `installed_plugins.json`, overridable with `--sdlc-root`.
+- **The spec gate stays, repointed.** sdlc has no "no code before an approved plan" block, so `spec_gate_guard.py` keeps that job, reading the sdlc state file (`Status: active`, past Define, the approval line in the Gate log) instead of `PLAN.md`. sdlc's trust anchor also reports an edit to the change file's criteria, which joins `slice_review.py`'s hash check.
+- **`lane-worker` stays, slimmed.** It keeps only what sdlc has no word for: migration numbers, long runs and `run_phases.py`, the joint run and rerun, `cd <worktree> &&`. The build loop itself is sdlc's (`flow.md`, Build). `lane-verifier` goes.
+
+Decided 2026-11-03, all three as recommended:
+
+**D1. Test cadence: the fast suite.** `verify.py` runs the repo's whole verify plan (lint, typecheck, build, `commands.test`) every time, which rebuild forbids per lane. Chosen: **define `commands.test` as the fast suite** (unit and fixture tests) in each code repo's `.sdlc/config.json`; integration, E2E and the deploy suites live outside sdlc's commands and run only at the joint run, which stays rebuild's. Each criterion's own test still runs alone through its `Run` command. No sdlc change. Alternative: ask sdlc for a scoped `verify.py` (an upstream change).
+
+**D2. Reviews: sdlc's table, per lane.** sdlc's table fires a code review on any diff over 5 files or 300 lines, so nearly every lane would get an opus review; 1.1.0 removed per-lane verification for cost. Chosen: **the orchestrator runs sdlc's Review per lane, after the lane reports, using sdlc's table unchanged** (security on high risk, code on large diffs, UI on UI paths), because review is overlap and sdlc owns it. Alternative: lanes stop at Build and review stays the user's call at the slice boundary, as today.
+
+**D3. Repo setup: prefilled from the workbench.** sdlc setup stops for the PRD, constitution, design system, plugin keys, CI and the merge. Chosen: **the scaffold answers what the workbench already decided** (PRD: a pointer to the workbench's product docs; constitution: from the Gate 3 ADRs; plugin keys: the team file; CI: sdlc's, with rebuild's license and AC-coverage jobs added) and asks only what is left, in one batch.
 
 ## What it costs
 
@@ -92,7 +117,7 @@ Still open, for phase 2: `model_router` denies an sdlc reviewer below opus, `hai
 
 ## Phasing
 
-0. **Spike.** Done: findings above, and option A shipped in sdlc 2.4. Remaining for phase 2: one lane run through a live `/sdlc:start` from a workbench session.
+0. **Spike.** Done: findings above, and option A shipped in sdlc 2.4. A lane then ran as an sdlc feature from a session above the repo (2026-11-03, result in "G5 after the change").
 1. **Dependency.** `plugin.json` dependencies, the allowlist in this repo's `marketplace.json`, README install section. Ships as 1.6.0 and changes nothing else. Then the `product-rebuild` entry in the `sdlc` marketplace (a change in `tammai/sdlc`).
 2. **G5 swap.** `g5-build.md`, `g5-first-slice.md`, `subagent-briefs.md`, `lane_plan.py`, `slice_review.py`, `parity.py`, `acsuite.py`, `routing.py`, and the autopilot nesting.
 3. **Delete.** Superseded agents, skills, hooks and scripts; this repo's `marketplace.json`; NOTICE.md, licenses/ and CHANGELOG; release 2.0.0.
