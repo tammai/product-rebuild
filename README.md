@@ -49,19 +49,25 @@ Three ideas carry everything:
 ## Install
 
 ```bash
-# add this repo as a marketplace, then install the plugin from it
+# add sdlc's marketplace first: this plugin depends on sdlc and sdlc-extras (2.4 or later)
+/plugin marketplace add tammai/sdlc
+# then this repo's marketplace, and install; sdlc and sdlc-extras install with it
 /plugin marketplace add tammai/product-rebuild
 /plugin install product-rebuild@product-rebuild
 
-# or for local development, point at your working copy instead:
-/plugin marketplace add /path/to/product-rebuild
+# or for local development, load your working copy and sdlc's for one session:
+claude --plugin-dir /path/to/sdlc --plugin-dir /path/to/product-rebuild
 ```
+
+Claude Code installs the dependencies itself, but only from a marketplace you have added, so add `tammai/sdlc`
+first. Without it the install finishes without sdlc and this plugin is then disabled with a dependency error
+(`claude plugin list` names it). sdlc already installed and enabled, at 2.4 or later, is enough.
 
 Requires Python ≥ 3.9 (standard library only: there is nothing to `pip install`, and the YAML reader
 ships inside the plugin), git, and Docker (you will run the reference product locally — it's
 mandatory, not optional). The code repos you scaffold at G5 need whatever their own stack needs
 (Go, Node, Flutter), and the scaffold tells you before it starts if a tool is missing. It never
-installs one for you. No other plugin is required.
+installs one for you. The one other plugin it needs is sdlc, above.
 
 ## Walkthrough: start to finish
 

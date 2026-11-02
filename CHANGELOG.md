@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-02
+
+### Added
+
+- **Depends on sdlc and sdlc-extras, `^2.4`** (`plugin.json` → `dependencies`). This is the first step of
+  wrapping sdlc instead of carrying copies of it (`specs/Spec Wrap sdlc instead of porting it.md`); nothing in the
+  pipeline calls sdlc yet. 2.4 is the floor because it is the first sdlc whose hookify guardrails and role guard
+  reach a repo below a session started in the workbench's parent directory, which is where rebuild sessions start.
+  sdlc lives in its own marketplace, so `marketplace.json` allows dependencies on it
+  (`allowCrossMarketplaceDependenciesOn`); without that the install would finish without sdlc and this plugin
+  would fail to load. Install `tammai/sdlc`'s marketplace first (README, Install).
+
+### Changed
+
+- sdlc's hooks now load in rebuild sessions. A workbench and the code repos 1.x scaffolds have no `.sdlc/`, so
+  sdlc's guardrails, model router and feature hooks stay silent there. Its role guard still holds sdlc's own
+  agents (`sdlc:code-reviewer`, `sdlc:qa-tester`, …) to their role wherever they run, which 1.x never dispatches.
+  Checked against the installed sdlc 2.4.1 with a workbench parent session over a repo without `.sdlc/`.
+
 ## [1.5.0] - 2026-10-26
 
 ### Changed
