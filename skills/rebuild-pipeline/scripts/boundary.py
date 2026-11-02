@@ -80,9 +80,9 @@ def _boundary(slice_id):
         try:
             lanes = sorted(((json.loads(body) or {}).get("lanes") or {}).keys())
         except ValueError:
-            print(f"== lane plans: {rec_path} is not readable JSON; archive each lane with lane_plan.py by hand.")
+            print(f"== lane records: {rec_path} is not readable JSON; archive each lane with lane_plan.py by hand.")
             attention = True
-    print(f"== {slice_id}: archive lane plans ({len(lanes)} recorded)")
+    print(f"== {slice_id}: archive lane records ({len(lanes)} recorded)")
     for lane in lanes:
         r = _run("lane_plan.py", "archive", slice_id, lane)
         text = (r.stdout + r.stderr).strip()

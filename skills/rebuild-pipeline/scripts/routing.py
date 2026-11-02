@@ -2,7 +2,7 @@
 """routing.py — resolves which MODEL each pipeline subagent runs on. Run from the workbench root.
 
 Usage:
-  python3 scripts/routing.py                     # all seven roles, as JSON
+  python3 scripts/routing.py                     # all eight roles, as JSON
   python3 scripts/routing.py --role miner        # one role
   python3 scripts/routing.py --agents <dir>      # read effort pins from real agent frontmatter
 
@@ -25,10 +25,11 @@ re-derive from prose on every dispatch.
 THE LADDER
 
 Two profiles, `balanced` (default) and `frontier`, over three tiers — worker · architect ·
-verifier — each resolving to a model. `balanced` runs volume and verification on sonnet and
-reserves opus for architecture, where a wrong call propagates into every slice built on it;
-`frontier` also moves the worker tier to opus, for a project whose lanes keep coming back FAIL
-or whose miners keep missing rules. A profile is a project decision, so it lives in the
+reviewer — each resolving to a model. `balanced` runs volume on sonnet and reserves opus for
+architecture, where a wrong call propagates into every slice built on it, and for sdlc's
+reviews, which sdlc runs on the top tier only; `frontier` also moves the worker tier to opus,
+for a project whose lanes keep failing review or the joint run, or whose miners keep missing
+rules. A profile is a project decision, so it lives in the
 workbench's config, not in an agent file.
 
 What is NOT per-dispatch is the tier assignment. A router could score each task to pick a
@@ -50,15 +51,21 @@ model. Disagreements are EXPECTED and not a problem to fix: under the default `b
 architect tier runs at medium while adr-drafter is pinned high, and under `frontier` the worker
 tier runs at medium while miner, rubric-judge, spec-writer and lane-worker are pinned high.
 
-BUILD LANES ARE THIS PLUGIN'S AGENTS
+BUILD LANES ARE THIS PLUGIN'S AGENTS; THEIR REVIEWS ARE SDLC'S
 
-`build-lane` and `lane-verifier` resolve to `lane-worker` and `lane-verifier`, shipped in
-agents/ beside the miner and the rest. Until 1.0.0 they were another plugin's agents, and
-the effort followed that plugin's profile; they are ordinary roles now, pinned like every
-other, with the same warning where the profile disagrees. A role's name and its agent file's
-name differ for the lane worker, so ROLE_TIERS carries `agent:` where they do. The config keys
-(`build-lane`, `lane-verifier`) are unchanged from 0.x, so a model-routing.json that overrides
-either keeps working.
+`build-lane` resolves to `lane-worker`, shipped in agents/ beside the miner and the rest, and
+pinned like every other role. A role's name and its agent file's name differ there, so
+ROLE_TIERS carries `agent:` where they do.
+
+Since 2.0.0 a lane is an sdlc feature, and its review is sdlc's (specs/Spec Wrap sdlc instead
+of porting it.md): `lane-review` is `sdlc:code-reviewer` (code and security reviews) and
+`lane-ui-review` is `sdlc:ui-reviewer`. They are another plugin's agents, so ROLE_TIERS carries
+`plugin: sdlc`; their effort is sdlc's agent files' business, not a pin read here. They sit on
+the `reviewer` tier, which is opus in every profile because sdlc's model router denies any
+review dispatched below opus, and an override may only raise them to fable. On sdlc's M track
+the code review is Claude Code's built-in `code-review` skill, which picks its own model, so
+these roles are dispatched for L, for security, and for UI. `lane-verifier` is gone: sdlc's
+review replaced it.
 
 CONFIG
 
@@ -66,8 +73,8 @@ CONFIG
   { "profile": "frontier", "models": { "miner": "haiku", "architect": "fable" } }
 
 `profile` picks a ladder; `models` overrides on top of it and accepts either a TIER key
-(worker · architect · verifier) or a ROLE key (miner · rubric-judge · spec-writer · data-model-drafter ·
-adr-drafter · build-lane · lane-verifier), with a role key winning over the tier it belongs to. Per-role exists because the
+(worker · architect · reviewer) or a ROLE key (miner · rubric-judge · spec-writer · data-model-drafter ·
+adr-drafter · build-lane · lane-review · lane-ui-review), with a role key winning over the tier it belongs to. Per-role exists because the
 most likely real override in this pipeline is a single role: G1 dispatches miners many at a
 time and nothing else in the pipeline fans out like it. Fable is in no profile; it is reachable
 only as an override (a tier or role key set to "fable").
@@ -102,14 +109,19 @@ CONFIG = ".claude/model-routing.json"
 DEFAULT_PROFILE = "balanced"
 
 PROFILES = {
-    "balanced": {"worker": "sonnet", "architect": "opus", "verifier": "sonnet"},
-    "frontier": {"worker": "opus", "architect": "opus", "verifier": "sonnet"},
+    "balanced": {"worker": "sonnet", "architect": "opus", "reviewer": "opus"},
+    "frontier": {"worker": "opus", "architect": "opus", "reviewer": "opus"},
 }
+
+# The models sdlc's model router lets a review run on (hooks/model_router.py in sdlc: every review
+# on the top tier, fable only by the user's choice). An override below them is ignored, with a
+# warning, because sdlc would deny the dispatch anyway.
+REVIEW_MODELS = ("opus", "fable")
 
 # Informational only — used to report where a profile's effort disagrees with a role's pin.
 PROFILE_EFFORTS = {
-    "balanced": {"worker": "high", "architect": "medium", "verifier": "high"},
-    "frontier": {"worker": "medium", "architect": "high", "verifier": "high"},
+    "balanced": {"worker": "high", "architect": "medium", "reviewer": "high"},
+    "frontier": {"worker": "medium", "architect": "high", "reviewer": "high"},
 }
 
 MODELS = ["fable", "opus", "sonnet", "haiku"]
@@ -141,11 +153,19 @@ ROLE_TIERS = {
     "build-lane": {
         "tier": "worker",
         "agent": "lane-worker",
-        "why": "implementation against a spec the user approved and contracts Gate 4 locked, in a repo whose patterns the scaffold set; the error it makes is the worker kind (didn't check its work), and the joint run and the slice review are what catch that (a lane-verifier audit is available on request). A project whose slices keep failing the joint run moves to the frontier profile.",
+        "why": "implementation against a spec the user approved and contracts Gate 4 locked, as an sdlc feature whose verify.py proves every criterion red then green; the error it makes is the worker kind (didn't check its work), and sdlc's review, the joint run and the slice review are what catch that. A project whose slices keep failing the joint run moves to the frontier profile.",
     },
-    "lane-verifier": {
-        "tier": "verifier",
-        "why": "the independent audit of a lane's diff against its PLAN.md; a false PASS silently voids the only check between the approved criteria and the code, so it never runs cheaper than the verifier tier.",
+    "lane-review": {
+        "tier": "reviewer",
+        "plugin": "sdlc",
+        "agent": "code-reviewer",
+        "why": "sdlc's code and security review of one lane, dispatched by the orchestrator when sdlc's review table fires; sdlc runs every review once, fresh, on the top tier, and its model router denies one below opus.",
+    },
+    "lane-ui-review": {
+        "tier": "reviewer",
+        "plugin": "sdlc",
+        "agent": "ui-reviewer",
+        "why": "sdlc's UI review of one lane against the project's design system, when the diff touches its UI paths; the top tier for the same reason as lane-review.",
     },
 }
 
@@ -158,13 +178,17 @@ PIN_FALLBACK = {
     "adr-drafter": "high",
     "data-model-drafter": "high",
     "build-lane": "high",
-    "lane-verifier": "high",
 }
 
 
 # The agent file a role dispatches to, which is its own name unless ROLE_TIERS says otherwise.
 def _agent_of(role):
     return ROLE_TIERS[role].get("agent", role)
+
+
+# A role served by another plugin's agent (sdlc's reviewers): no file here, no pin read here.
+def _external(role):
+    return ROLE_TIERS[role].get("plugin")
 
 
 # A config value interpolated into a warning, spelled as the Node original's template string
@@ -207,7 +231,7 @@ def _read_pins(agents_dir, warnings):
     pins = {}
     for f in files:
         agent = re.sub(r"\.md\Z", "", f)
-        role = next((r for r in ROLE_TIERS if _agent_of(r) == agent), None)
+        role = next((r for r in ROLE_TIERS if _agent_of(r) == agent and not _external(r)), None)
         if not role:
             continue
         text = _read_text(os.path.join(agents_dir, f))
@@ -218,7 +242,7 @@ def _read_pins(agents_dir, warnings):
         else:
             warnings.append(f"{f} declares no effort: — it will run at the model's default")
     for role in ROLE_TIERS:
-        if role not in pins:
+        if role not in pins and not _external(role):
             warnings.append(f'no agent file found for role "{role}" in {agents_dir} — using this script\'s pin table')
             pins[role] = PIN_FALLBACK[role]
     return {"pins": pins, "source": agents_dir}
@@ -323,7 +347,13 @@ def resolve_(root, agents_dir):
 
         ladder_effort = PROFILE_EFFORTS[_js_str(profile)][tier]
         effort = pins.get(role)
-        agent = f"{plugin_name}:{_agent_of(role)}"
+        agent = f"{_external(role) or plugin_name}:{_agent_of(role)}"
+        if tier == "reviewer" and model not in REVIEW_MODELS:
+            warnings.append(f"{role} cannot run on {model}: sdlc's model router denies a review below opus — using opus.")
+            model, frm = "opus", f"floor:{frm}"
+        if _external(role):
+            roles[role] = {"tier": tier, "agent": agent, "model": model, "effort": None, "modelFrom": frm, "why": why}
+            continue
 
         # Haiku 4.5 accepts no effort level, so a role routed to it runs with its pin inert. Not an
         # error — but on a role whose whole argument for `high` was that its mistakes are omissions,

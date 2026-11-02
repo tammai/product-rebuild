@@ -397,11 +397,11 @@ project: @@NAME@@
 # (that version or newer) or a warning (older workbenches, which cannot be retro-enforced).
 # Bump it by hand after backfilling.
 schema_version: "0.4.0"
-# Which major release of this plugin made the workbench. The 1.x guards and scripts act ONLY on a
-# workbench that says 1 here, and refuse (or fail open) on one that says nothing, because a 0.x
-# workbench was built under different scripts, different guards and a different way of creating
-# repos, and there is no migration between them. Do not edit.
-rebuild_major: 1
+# Which major release of this plugin made the workbench. The 2.x guards and scripts act ONLY on a
+# workbench that says 2 here, and refuse (or fail open) on any other, because a 0.x or 1.x
+# workbench was built under different scripts, different guards and a different lane contract
+# (1.x: PLAN.md; 2.x: an sdlc feature per lane), and there is no migration between them. Do not edit.
+rebuild_major: 2
 created: @@NOW@@
 '''
 

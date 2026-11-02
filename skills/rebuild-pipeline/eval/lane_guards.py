@@ -70,7 +70,7 @@ wb = os.path.join(proj, "p-workbench")
 app = os.path.join(proj, "app")
 other = os.path.join(proj, "other")
 lane = os.path.join(proj, "app-lane")
-w(wb, "locks/pipeline.yaml", "rebuild_major: 1\n")
+w(wb, "locks/pipeline.yaml", "rebuild_major: 2\n")
 w(wb, "repos.yaml", "repos:\n  - name: app\n    path: ../app\n")
 init_repo(app)
 init_repo(other)
@@ -82,7 +82,7 @@ init_repo(os.path.join(lone, "repo"))
 
 # A project whose repos.yaml cannot be read, to make a guard crash.
 broken = os.path.join(base, "broken")
-w(broken, "wb/locks/pipeline.yaml", "rebuild_major: 1\n")
+w(broken, "wb/locks/pipeline.yaml", "rebuild_major: 2\n")
 os.makedirs(os.path.join(broken, "wb", "repos.yaml"), exist_ok=True)
 init_repo(os.path.join(broken, "app"))
 
@@ -167,8 +167,21 @@ print("\n# spec gate")
 big = lines(40)
 
 
-def plan_of(status, branch=None):
-    return f"# Plan\n\nStatus: {status}\n{f'Branch: {branch}{chr(10)}' if branch else ''}"
+STATE = os.path.join(".sdlc", "state", "2026-11-03-m-s1-api.md")
+
+
+def state_of(status="active", branch="main", stage=4, amend=False):
+    """A lane's sdlc state file, as lane_plan.py leaves it: active, at Build, approved for a branch."""
+    approval = f"- 2026-11-03 Stage 1: pass — rebuild-approval: branch {branch}; specs plan/specs/S1/a.md @ workbench abc1234; approved by Eval\n" if branch else ""
+    question = "- amend: AC-002 contradicts R-X-001\n" if amend else "-\n"
+    return (f"# 2026-11-03-m-s1-api\nStatus: {status}\nProcess: 2\nCurrent: Stage {stage} – Build\n\n"
+            f"## Gate log\n{approval}\n## Deviations\n-\n\n## Open questions\n{question}")
+
+
+def no_state(root):
+    p = os.path.join(root, STATE)
+    if os.path.exists(p):
+        os.unlink(p)
 
 
 w(app, "src/big.go", lines(30, "a"))
@@ -176,8 +189,8 @@ sh(app, "git", "add", "-A")
 sh(app, "git", *git_id, "commit", "-qm", "chore: add big")
 
 no_plan = write(os.path.join(app, "src/a.go"), big)
-check("an over-threshold Write with no PLAN.md is blocked", blocked(no_plan), no_plan["err"])
-check("the refusal tells a lane not to approve its own plan", re.search(r"Never write or approve your own", no_plan["err"]) is not None, no_plan["err"])
+check("an over-threshold Write with no approved lane is blocked", blocked(no_plan), no_plan["err"])
+check("the refusal tells a lane not to approve its own record", re.search(r"Never write or approve your own", no_plan["err"]) is not None, no_plan["err"])
 check("a small edit needs no plan", silent(edit(os.path.join(app, "src/a.go"), "a", "b")))
 check("a tests/ directory is exempt", silent(write(os.path.join(app, "tests/a.go"), big)))
 # Ported as it was: only directory-named tests and *_test.dart are exempt, so a long foo_test.go
@@ -188,24 +201,33 @@ check("a file in an unlisted repo is not judged", silent(write(os.path.join(othe
 check("a file in no repo is not judged", silent(write(os.path.join(base, "scratch.go"), big)))
 check("a project with no workbench is not judged", silent(write(os.path.join(lone, "repo/a.go"), big, root=lone)))
 
-w(app, "PLAN.md", plan_of("approved", "main"))
-check("Status: approved with a matching Branch: allows it", silent(write(os.path.join(app, "src/a.go"), big)))
-w(app, "PLAN.md", plan_of("approved", "slice/other"))
+w(app, STATE, state_of())
+check("an active sdlc feature approved for this branch allows it", silent(write(os.path.join(app, "src/a.go"), big)))
+w(app, STATE, state_of(branch="slice/other"))
 wrong_branch = write(os.path.join(app, "src/a.go"), big)
-check("a plan for another branch blocks it", blocked(wrong_branch) and re.search(r"leftover plan|wrong worktree", wrong_branch["err"]) is not None, wrong_branch["err"])
-w(app, "PLAN.md", plan_of("amending", "main"))
+check("an approval for another branch blocks it", blocked(wrong_branch) and re.search(r"another lane's record|wrong worktree", wrong_branch["err"]) is not None, wrong_branch["err"])
+w(app, STATE, state_of(amend=True))
 amending = write(os.path.join(app, "src/a.go"), big)
-check("Status: amending freezes non-trivial edits and says why", blocked(amending) and re.search(r"amending", amending["err"]) is not None, amending["err"])
-w(app, "PLAN.md", plan_of("draft", "main"))
-check("Status: draft is not approved", blocked(write(os.path.join(app, "src/a.go"), big)))
-w(app, "PLAN.md", plan_of("approved", "main"))
+check("an open amend: question freezes non-trivial edits and says why", blocked(amending) and re.search(r"amend:", amending["err"]) is not None, amending["err"])
+w(app, STATE, state_of(stage=1))
+check("a feature still in Define is not approved", blocked(write(os.path.join(app, "src/a.go"), big)))
+w(app, STATE, state_of(status="done"))
+check("a finished feature (Status: done) approves nothing", blocked(write(os.path.join(app, "src/a.go"), big)))
+w(app, STATE, state_of(branch=None))
+check("an active feature with no rebuild approval line is not approved", blocked(write(os.path.join(app, "src/a.go"), big)))
+legacy = os.path.join(".sdlc", "2026-11-03-m-s1-api", "state.md")
+no_state(app)
+w(app, legacy, state_of())
+check("sdlc's legacy layout (.sdlc/<f>/state.md) is read too", silent(write(os.path.join(app, "src/a.go"), big)))
+os.unlink(os.path.join(app, legacy))
+w(app, STATE, state_of())
 
 # Whole-file Write sizing: replacing a 30-line file with 30 different lines is a 30-line change.
 same_ok = silent(write(os.path.join(app, "src/big.go"), lines(30, "a")))
-w(app, "PLAN.md", "# none\n")
+no_state(app)
 check("a whole-file Write of equal length but different content is sized by what it changes",
       same_ok and blocked(write(os.path.join(app, "src/big.go"), lines(30, "b"))))
-w(app, "PLAN.md", "# none\n")
+no_state(app)
 check("a one-line change to that file is allowed without a plan", silent(write(os.path.join(app, "src/big.go"), lines(30, "a").replace("a3\n", "a3 changed\n"))))
 
 gate_edit = edit(os.path.join(app, ".husky/pre-commit"), "a", "b")
@@ -213,13 +235,13 @@ check("an edit to a gate file asks, whatever the size", gate_edit["code"] == 0 a
 settings_edit = write(os.path.join(app, ".claude/settings.json"), "{}")
 check(".claude/settings.json is a gate file (disableAllHooks would switch every guard off)", settings_edit["decision"] == "ask", json.dumps(settings_edit["out"]))
 
-# A lane's own worktree reads its own plan, never the main checkout's.
-w(app, "PLAN.md", plan_of("approved", "main"))
-check("a lane worktree with no plan is blocked even though the main checkout has an approved one", blocked(write(os.path.join(lane, "src/a.go"), big)))
-w(lane, "PLAN.md", plan_of("approved", "slice/S1-api"))
-check("the worktree's own approved plan allows its edits", silent(write(os.path.join(lane, "src/a.go"), big)))
-w(app, "PLAN.md", "# none\n")
-check("a lane's plan does not unlock the main checkout", blocked(write(os.path.join(app, "src/a.go"), big)))
+# A lane's own worktree reads its own record, never the main checkout's.
+w(app, STATE, state_of())
+check("a lane worktree with no record is blocked even though the main checkout has an approved one", blocked(write(os.path.join(lane, "src/a.go"), big)))
+w(lane, STATE, state_of(branch="slice/S1-api"))
+check("the worktree's own approved record allows its edits", silent(write(os.path.join(lane, "src/a.go"), big)))
+no_state(app)
+check("a lane's record does not unlock the main checkout", blocked(write(os.path.join(app, "src/a.go"), big)))
 
 # ================================ commit gates ==================================================
 print("\n# commit gates")

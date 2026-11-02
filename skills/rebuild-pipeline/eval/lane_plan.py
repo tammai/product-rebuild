@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""lane_plan.py (eval) — E17b, 0.29.0: does lane_plan.py write a PLAN.md the plugin's spec gate
-accepts, refuse what it must, amend without losing progress, and does slice_review notice a
-lane editing its own approved spec?
+"""lane_plan.py (eval) — 2.0.0: does lane_plan.py write the sdlc record the spec gate accepts,
+refuse what it must, amend without losing a lane's work, and does slice_review notice a lane
+editing its own approved criteria?
 
   python3 skills/rebuild-pipeline/eval/lane_plan.py
 
-Scaffolds a throwaway workbench with rebuild_init.py and a code repo with a lane worktree, then
-runs the REAL scripts (the copies rebuild_init vendored into the workbench) and asserts on the
-files they write. The spec gate's two patterns are imported from hooks/scripts/hooklib.py
-(PLAN_STATUS, PLAN_BRANCH), the same ones spec_gate_guard.py reads; lane_plan.py is vendored
-into workbenches and cannot import them, so this eval is what fails if the two stop agreeing.
-Needs no node and no install step: the scripts are standard-library Python.
+Scaffolds a throwaway workbench with rebuild_init.py and a code repo set up for sdlc with a lane
+worktree, then runs the REAL scripts (the copies rebuild_init vendored into the workbench) and
+sdlc's own state.py (found the way lane_plan.py finds it: needs sdlc installed, or
+SDLC_PLUGIN_ROOT). The spec gate's approval format is imported from hooks/scripts/hooklib.py
+(APPROVAL_NOTE, AMEND_PREFIX); lane_plan.py is vendored into workbenches and cannot import them,
+so this eval is what fails if the two stop agreeing.
 """
 from __future__ import annotations
 
@@ -29,7 +29,11 @@ sys.path.insert(0, os.path.realpath(SCRIPTS))
 import hooklib  # noqa: E402
 import lane_plan  # noqa: E402
 
-GUARD_STATUS, GUARD_BRANCH = hooklib.PLAN_STATUS, hooklib.PLAN_BRANCH
+SDLC = lane_plan.sdlc_root([])
+if not SDLC:
+    print("FAIL  sdlc is not installed (no sdlc@sdlc in installed_plugins.json, no SDLC_PLUGIN_ROOT): "
+          "this eval drives sdlc's own state.py.")
+    sys.exit(1)
 
 base = tempfile.mkdtemp(prefix="lane-plan-eval-")
 subprocess.run([sys.executable, os.path.join(SCRIPTS, "rebuild_init.py"), "lp", "--dir", base],
@@ -74,31 +78,53 @@ SPEC_V1 = ("---\ndomains: [billing]\n---\n# Billing\n\nWhat it does.\n\n## Accep
 w(wb, "plan/specs/S1/billing.md", SPEC_V1)
 commit_all(wb, "specs approved")
 
-# The code repo and the lane's worktree.
+# The code repo, set up for sdlc the minimal way (its config), and the lane's worktree.
 app = os.path.join(base, "app")
 os.mkdir(app)
 sh(app, "git", "init", "-q", "-b", "main")
+sh(app, "git", "config", "user.email", "eval@x")
+sh(app, "git", "config", "user.name", "Eval Lane")
 w(app, "README.md", "app\n")
 commit_all(app, "init")
+plain_path = os.path.join(base, "app-S1-plain")
+sh(app, "git", "worktree", "add", "-q", "-b", "slice/S1-plain", plain_path)
+w(app, ".sdlc/config.json", json.dumps({"docs_dir": "docs/sdlc", "commands": {"test": "true"}}))
+commit_all(app, "sdlc config")
 lane_path = os.path.join(base, "app-S1-api")
 sh(app, "git", "worktree", "add", "-q", "-b", "slice/S1-api", lane_path)
 
 
 def run_script(name, *a):
     return subprocess.run([sys.executable, os.path.join("scripts", name), *a], cwd=wb, capture_output=True,
-                          text=True, encoding="utf-8")
+                          text=True, encoding="utf-8", env={**os.environ, "SDLC_PLUGIN_ROOT": SDLC})
 
 
 def lane_plan_cli(*a):
     return run_script("lane_plan.py", *a)
 
 
+def state_py(*a):
+    return subprocess.run([sys.executable, os.path.join(SDLC, "scripts", "state.py"), "--root", lane_path, *a],
+                          capture_output=True, text=True, encoding="utf-8")
+
+
 ARGS = ["S1", "api", "--worktree", lane_path, "--specs", "plan/specs/S1/billing.md"]
 
 
-def plan_text():
-    p = os.path.join(lane_path, "PLAN.md")
-    return read(p) if os.path.exists(p) else ""
+def record():
+    return json.loads(re.sub(r"^#.*\n", "", read(os.path.join(wb, "plan/lane-plans/S1.yaml")), flags=re.M))["lanes"]["api"]
+
+
+def change_text():
+    d = os.path.join(lane_path, "docs", "sdlc", "changes")
+    files = sorted(os.listdir(d)) if os.path.isdir(d) else []
+    return read(os.path.join(d, files[0])) if files else ""
+
+
+def state_text():
+    d = os.path.join(lane_path, ".sdlc", "state")
+    files = sorted(f for f in os.listdir(d) if f.endswith(".md")) if os.path.isdir(d) else []
+    return read(os.path.join(d, files[0])) if files else ""
 
 
 failures = 0
@@ -113,11 +139,6 @@ def check(name, ok, detail=""):
             print("      " + str(detail).replace("\n", "\n      "))
 
 
-def group1(rx, text):
-    m = rx.search(text)
-    return m.group(1) if m else None
-
-
 # --- refusals before anything is written -------------------------------------------------------
 w(wb, "plan/specs/S1/billing.md", SPEC_V1 + "3. An uncommitted criterion.\n")
 r = lane_plan_cli(*ARGS)
@@ -126,98 +147,107 @@ w(wb, "plan/specs/S1/billing.md", SPEC_V1)
 
 r = lane_plan_cli("S1", "api", "--worktree", app, "--specs", "plan/specs/S1/billing.md")
 check("refuses a worktree on the wrong branch", r.returncode == 1 and re.search(r"expected 'slice/S1-api'", r.stderr), r.stderr)
-check("nothing written by a refusal", not plan_text())
+r = lane_plan_cli("S1", "plain", "--worktree", plain_path, "--specs", "plan/specs/S1/billing.md")
+check("refuses a repo sdlc has not set up", r.returncode == 1 and re.search(r"not set up for sdlc", r.stderr), r.stderr)
+r = lane_plan_cli("S1", "API", "--worktree", lane_path, "--specs", "plan/specs/S1/billing.md")
+check("refuses a lane name sdlc would refuse", r.returncode == 1 and re.search(r"lowercase", r.stderr), r.stderr)
+check("nothing written by a refusal", not change_text() and not state_text())
 
-# --- the plan the gate reads -------------------------------------------------------------------
+# --- the record the gate reads -----------------------------------------------------------------
 r = lane_plan_cli(*ARGS)
-plan1 = plan_text()
-check("writes PLAN.md", r.returncode == 0 and plan1, r.stderr)
+ch1, st1 = change_text(), state_text()
+check("writes the change file and the state file", r.returncode == 0 and ch1 and st1, r.stderr)
 with open(os.path.join(SCRIPTS, "lane_plan.py"), encoding="utf-8") as f:
     lane_plan_src = f.read()
-check("lane_plan.py carries the same Status:/Branch: patterns the gate reads (change both together)",
-      GUARD_STATUS.pattern in lane_plan_src and GUARD_BRANCH.pattern in lane_plan_src
-      and lane_plan.PLAN_STATUS.pattern == GUARD_STATUS.pattern and lane_plan.PLAN_STATUS.flags == GUARD_STATUS.flags
-      and lane_plan.PLAN_BRANCH.pattern == GUARD_BRANCH.pattern and lane_plan.PLAN_BRANCH.flags == GUARD_BRANCH.flags,
-      f"hooklib: {GUARD_STATUS.pattern!r} {GUARD_BRANCH.pattern!r}; lane_plan: {lane_plan.PLAN_STATUS.pattern!r} {lane_plan.PLAN_BRANCH.pattern!r}")
-check("the spec gate reads Status: approved", (group1(GUARD_STATUS, plan1) or "").lower() == "approved")
-check("the spec gate reads the lane's branch", group1(GUARD_BRANCH, plan1) == "slice/S1-api")
+check("lane_plan.py carries the approval format the gate reads (change both together)",
+      lane_plan.APPROVAL_NOTE.pattern == hooklib.APPROVAL_NOTE.pattern and lane_plan.AMEND_PREFIX == hooklib.AMEND_PREFIX
+      and hooklib.APPROVAL_NOTE.pattern in lane_plan_src,
+      f"hooklib: {hooklib.APPROVAL_NOTE.pattern!r} {hooklib.AMEND_PREFIX!r}; "
+      f"lane_plan: {lane_plan.APPROVAL_NOTE.pattern!r} {lane_plan.AMEND_PREFIX!r}")
+appr = hooklib.APPROVAL_NOTE.search(st1)
+check("the gate reads an approval for the lane's branch", appr and appr.group(1) == "slice/S1-api", st1)
 head = sh(wb, "git", "rev-parse", "--short", "HEAD").strip()
-check("Approved: names the spec, the workbench commit and the approver",
-      re.search(rf"^Approved: plan/specs/S1/billing\.md @ workbench {head} — Eval Approver, ", plan1, re.M),
-      "\n".join(plan1.split("\n")[:6]))
-rows1 = [l for l in plan1.split("\n") if re.match(r"^\|\s*\d+\s*\|", l)]
-check("one task row per acceptance criterion", len(rows1) == 2, "\n".join(rows1))
-check("rule_id carried into its row", re.search(r"\| 1 \| billing AC1: .*rule_id: R-BILL-001 \| Not started \|", plan1))
-check("spec headings demoted, so ## Tasks is the only h2 after ## Spec",
-      not re.search(r"^## Acceptance criteria", plan1, re.M) and re.search(r"^#### Acceptance criteria", plan1, re.M))
-check("recorded in plan/lane-plans/S1.yaml", os.path.exists(os.path.join(wb, "plan/lane-plans/S1.yaml")))
+check("the approval names the spec, the workbench commit and the approver",
+      re.search(rf"specs plan/specs/S1/billing\.md @ workbench {head}; approved by Eval Approver", st1), st1)
+check("the feature is active, at Build, in sdlc's own format",
+      re.search(r"^Status: active", st1, re.M) and re.search(r"^Current: Stage 4", st1, re.M)
+      and re.search(r"^Process: 2", st1, re.M), st1[:600])
+check("the feature name is sdlc's: date, track, lowercase slice, lane",
+      re.fullmatch(r"\d{4}-\d\d-\d\d-m-s1-api", record()["feature"]), record()["feature"])
+check("one criterion per spec criterion, verbatim, rule_id kept",
+      re.search(r"^- \*\*AC-001\*\* — `billing`: A negative amount is rejected with 422\. rule_id: R-BILL-001$", ch1, re.M)
+      and re.search(r"^- \*\*AC-002\*\* — `billing`: Totals round half-even to 2 dp\.$", ch1, re.M), ch1)
+check("the test cells are the lane's to fill", ch1.count("| TBD | `TBD` |") == 2, ch1)
+check("the task names its criteria and leaves its files to the lane",
+      re.search(r"\*\*billing\*\* — AC-001 AC-002", st1) and "`TBD`" in st1, st1)
+check("nothing is committed in the code repo", sh(lane_path, "git", "log", "--oneline").count("\n") == 2)
+rec1 = record()
+check("recorded with the criteria's hash and the specs' hashes",
+      rec1["ac_sha256"] == lane_plan.ac_hash(ch1) and list(rec1["spec_sha256"]) == ["plan/specs/S1/billing.md"], json.dumps(rec1))
 
-# --- never overwrite unfinished work -----------------------------------------------------------
+# --- never open a second record over an open one ----------------------------------------------
 r = lane_plan_cli(*ARGS)
-check("refuses to overwrite a plan with unfinished rows", r.returncode == 1 and re.search(r"unfinished rows", r.stderr), r.stderr)
+check("refuses a second record for an open lane", r.returncode == 1 and re.search(r"already has an open sdlc feature", r.stderr), r.stderr)
 
-# --- amend: progress kept where the criterion is unchanged -------------------------------------
-w(lane_path, "PLAN.md", re.sub(r"^Status: approved$", "Status: amending",
-                               re.sub(r"^(\| 1 \|.*\|) Not started \|", r"\1 Done |", plan1, count=1, flags=re.M),
-                               count=1, flags=re.M))
+# --- amend: the lane's work kept where the criterion is unchanged ------------------------------
+feature = rec1["feature"]
+check("the lane can raise an amend: question", state_py("blocker", feature, "raise", "amend: AC-002 rounds per line").returncode == 0)
+w(lane_path, rec1["change"], ch1.replace("| AC-001 | TBD | `TBD` |", "| AC-001 | tests/test_neg.py | `pytest tests/test_neg.py` |"))
 r = lane_plan_cli(*ARGS, "--amend")
 check("--amend without --reason is refused", r.returncode == 1 and re.search(r"needs --reason", r.stderr), r.stderr)
 w(wb, "plan/specs/S1/billing.md", SPEC_V1.replace("half-even to 2 dp", "half-even to 2 dp, per line"))
 commit_all(wb, "spec amended")
 r = lane_plan_cli(*ARGS, "--amend", "--reason", "rounding is per line")
-plan2 = plan_text()
-check("--amend re-approves", r.returncode == 0 and group1(GUARD_STATUS, plan2) == "approved", r.stderr)
-check("an unchanged criterion keeps Done", re.search(r"\| 1 \| billing AC1: .* \| Done \|", plan2), plan2)
-check("a changed criterion goes back to Not started", re.search(r"\| 2 \| billing AC2: .*per line\. \| Not started \|", plan2))
-check("the amendment is logged",
-      re.search(r"^## Amendments\n\n- .*rounding is per line \(rows added 1, dropped 1\)$", plan2, re.M),
-      plan2.split("## Amendments")[-1])
+ch2, st2 = change_text(), state_text()
+check("--amend re-approves", r.returncode == 0 and len(hooklib.APPROVAL_NOTE.findall(st2)) == 2, r.stderr + st2)
+check("an unchanged criterion keeps its id and its test", "| AC-001 | tests/test_neg.py | `pytest tests/test_neg.py` |" in ch2, ch2)
+check("a changed criterion takes a new id and starts at TBD",
+      re.search(r"^- \*\*AC-003\*\* — `billing`: Totals round half-even to 2 dp, per line\.$", ch2, re.M)
+      and "| AC-003 | TBD | `TBD` |" in ch2 and "AC-002" not in ch2.split("## Amendments")[0], ch2)
+check("the amendment is logged", re.search(r"^- .*rounding is per line \(criteria added 1, dropped 1\)$", ch2, re.M), ch2)
+check("the lane's amend: question is resolved", "amend:" not in st2.split("## Open questions")[-1], st2.split("## Open questions")[-1])
+check("the record counts the amendment", record()["amendments"] == 1)
 
 
-# --- slice-review sees a lane editing its own approved spec ------------------------------------
+# --- slice-review sees a lane editing its own approved criteria --------------------------------
 def review():
     run_script("slice_review.py", "S1")
     return read(os.path.join(wb, "plan/slice-reviews/S1.md"))
 
 
 sr = review()
-check("slice-review lists the lane plan", re.search(r"- api: 1/2 task rows Done · Status: approved", sr), sr[:900])
-check("an untouched spec raises nothing", not re.search(r"no longer matches what lane_plan\.py wrote", sr))
-w(lane_path, "PLAN.md", plan2.replace("rejected with 422", "rejected with 400"))
+check("slice-review lists the lane's sdlc record", re.search(r"- api: sdlc `.*-m-s1-api` · Status: active · Stage 4 · 1/2 criteria with a named test", sr), sr[:1200])
+check("an untouched record raises nothing about criteria", not re.search(r"no longer matches what lane_plan\.py wrote", sr))
+check("a lane sdlc has not shipped is pressed", re.search(r"api's sdlc feature is `Status: active` at Stage 4", sr), sr[:1500])
+w(lane_path, record()["change"], ch2.replace("rejected with 422", "rejected with 400"))
 sr = review()
-check("a hand-edited ## Spec is named in the review", re.search(r"no longer matches what lane_plan\.py wrote", sr), sr[:1200])
-
-
-# --- the verifier loop is gone: nothing records, caps or demands a verifier round ----------------
-w(lane_path, "PLAN.md", plan2)  # undo the hand-edit above
-r = run_script("lane_plan.py", "record-verify", "S1", "api", "--verdict", "PASS", "--round", "1")
-check("record-verify no longer exists", r.returncode != 0, r.stdout + r.stderr)
+check("a hand-edited criterion is named in the review", re.search(r"no longer matches what lane_plan\.py wrote", sr), sr[:1500])
+state_py("blocker", feature, "raise", "amend: something else")
 sr = review()
-check("the review does not ask for a verifier PASS", not re.search(r"verifier", sr), sr[:1400])
+check("an open amend: question is named in the review", re.search(r"api raised an `amend:` question", sr), sr[:1500])
+state_py("blocker", feature, "resolve", "amend: something else")
 
 
-# --- archive: the plan leaves the worktree at slice end ------------------------------------------
+# --- archive: only a lane sdlc shipped ---------------------------------------------------------
 def arch():
     return run_script("lane_plan.py", "archive", "S1", "api")
 
 
-live = plan_text()
-w(lane_path, "PLAN.md", re.sub(r"^(\| 1 \|.*\|) Not started \|", r"\1 Done |", live.replace("| Done |", "| Not started |"),
-                               count=1, flags=re.M))
 r = arch()
-check("archive refuses a plan with unfinished rows", r.returncode == 1 and re.search(r"not Done", r.stderr), r.stderr)
-w(lane_path, "PLAN.md", live.replace("rejected with 422", "rejected with 400").replace("| Not started |", "| Done |"))
+check("archive refuses a lane sdlc has not shipped", r.returncode == 1 and re.search(r"Status: active", r.stderr), r.stderr)
+check("sdlc ships the lane (Status: done)", state_py("set", feature, "Status", "done").returncode == 0)
 r = arch()
-check("archive moves the plan to the workbench and warns about an edited spec",
-      r.returncode == 0 and not plan_text() and os.path.exists(os.path.join(wb, "plan/lane-plans/archive/S1-api.md"))
-      and re.search(r"WARNING: the plan's ## Spec differs", r.stdout), r.stdout + r.stderr)
-rec2 = json.loads(re.sub(r"^#.*\n", "", read(os.path.join(wb, "plan/lane-plans/S1.yaml")), flags=re.M))
-archived = rec2["lanes"]["api"].get("archived") or {}
-check("the archive is recorded, with the edit flagged",
-      archived.get("path") == "plan/lane-plans/archive/S1-api.md" and archived.get("spec_edited") is True, json.dumps(archived))
+rec2 = record()
+archived = rec2.get("archived") or {}
+check("archive copies the record to the workbench and warns about an edited criterion",
+      r.returncode == 0 and os.path.exists(os.path.join(wb, archived.get("change", "-")))
+      and os.path.exists(os.path.join(wb, archived.get("state", "-")))
+      and re.search(r"WARNING: its acceptance criteria differ", r.stdout), r.stdout + r.stderr)
+check("the archive is recorded, with the edit flagged", archived.get("ac_edited") is True, json.dumps(archived))
+check("the record stays in the code repo (sdlc keeps it)", os.path.exists(os.path.join(lane_path, rec2["change"])))
 sr = review()
-check("slice-review still sees the lane from its archive, and names the edited spec",
-      re.search(r"- api: 2/2 task rows Done", sr) and re.search(r"no longer matches what lane_plan\.py wrote", sr), sr[:1400])
+check("slice-review reads the lane from its archive, and names the edited criterion",
+      re.search(r"- api: sdlc `.*` · Status: done", sr) and re.search(r"no longer matches what lane_plan\.py wrote", sr), sr[:1500])
 r = arch()
 check("a lane is archived once", r.returncode == 1 and re.search(r"already archived", r.stderr), r.stderr)
 
@@ -251,7 +281,7 @@ src_before = read(src_path) if os.path.exists(src_path) else ""
 w(wb, "sources.yaml", "reference:\n  kind: third-party\n  upstream: active\n")
 r = boundary("S1")
 check("boundary runs archive, parity, slice review and the re-mine check in one call",
-      all(h in r.stdout for h in ("== S1: archive lane plans (1 recorded)", "api: already archived", "== parity", "== slice review"))
+      all(h in r.stdout for h in ("== S1: archive lane records (1 recorded)", "api: already archived", "== parity", "== slice review"))
       and os.path.exists(os.path.join(wb, "parity")) and "Upstream re-mine: DUE. None is recorded" in r.stdout, r.stdout[:1500] + r.stderr)
 check("a due re-mine exits 2", r.returncode == 2, r.returncode)
 check("remine-done records today's date", boundary("remine-done").returncode == 0
@@ -275,28 +305,36 @@ if src_before:
     w(wb, "sources.yaml", src_before)
 
 
-# --- routing resolves build lanes to this plugin's agents -----------------------------------------
+# --- routing resolves build lanes to this plugin's agent and reviews to sdlc's ------------------
 def route(cfg):
     if cfg:
         w(wb, ".claude/model-routing.json", json.dumps(cfg))
-    return json.loads(run_script("routing.py", "--agents", os.path.join(ROOT, "agents")).stdout)["roles"]
+    return json.loads(run_script("routing.py", "--agents", os.path.join(ROOT, "agents")).stdout)
 
 
-roles = route(None)
+out = route(None)
+roles = out["roles"]
 check("balanced: build-lane is the lane-worker agent on sonnet at high",
       re.search(r"^[\w-]+:lane-worker$", roles["build-lane"].get("agent", "")) and roles["build-lane"]["model"] == "sonnet"
       and roles["build-lane"]["effort"] == "high", json.dumps(roles["build-lane"]))
-check("balanced: lane-verifier is the lane-verifier agent",
-      re.search(r"^[\w-]+:lane-verifier$", roles["lane-verifier"].get("agent", "")) and roles["lane-verifier"]["effort"] == "high")
-check("no role resolves to another plugin's agent",
-      all(re.search(r"^[\w-]+:[\w-]+$", x["agent"]) and not x["agent"].startswith("bigin") for x in roles.values()))
-roles = route({"profile": "frontier", "models": {"lane-verifier": "opus"}})
+check("lane-verifier is gone", "lane-verifier" not in roles)
+check("lane-review is sdlc's code-reviewer on opus, lane-ui-review sdlc's ui-reviewer on opus",
+      roles["lane-review"]["agent"] == "sdlc:code-reviewer" and roles["lane-review"]["model"] == "opus"
+      and roles["lane-ui-review"]["agent"] == "sdlc:ui-reviewer" and roles["lane-ui-review"]["model"] == "opus",
+      json.dumps({k: roles[k] for k in ("lane-review", "lane-ui-review")}))
+check("no warning about sdlc's agents having no file here", not any("lane-review" in x for x in out["warnings"]), out["warnings"])
+check("no role resolves to bigin's agents", all(not x["agent"].startswith("bigin") for x in roles.values()))
+out = route({"profile": "frontier", "models": {"lane-review": "sonnet", "lane-ui-review": "fable"}})
+roles = out["roles"]
 check("frontier: build-lane runs on opus, and its effort stays at the agent file's pin",
       roles["build-lane"]["model"] == "opus" and roles["build-lane"]["effort"] == "high", json.dumps(roles["build-lane"]))
-check("a lane-verifier role override applies",
-      roles["lane-verifier"]["model"] == "opus" and roles["lane-verifier"]["modelFrom"] == "override:role:lane-verifier")
-check("every agent a role names is a file in agents/",
-      all(os.path.exists(os.path.join(ROOT, "agents", x["agent"].split(":")[1] + ".md")) for x in roles.values()))
+check("a review cannot be routed below opus (sdlc would deny it), and says so",
+      roles["lane-review"]["model"] == "opus" and any("lane-review cannot run on sonnet" in x for x in out["warnings"]),
+      json.dumps(out["warnings"]))
+check("a review can be raised to fable", roles["lane-ui-review"]["model"] == "fable")
+check("every agent of this plugin a role names is a file in agents/",
+      all(os.path.exists(os.path.join(ROOT, "agents", x["agent"].split(":")[1] + ".md"))
+          for x in roles.values() if not x["agent"].startswith("sdlc:")))
 
 shutil.rmtree(base, ignore_errors=True) if not failures else None
 print(f"\n{failures} failure(s). Workbench left at {base}" if failures else "\nall passed")

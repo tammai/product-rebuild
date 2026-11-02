@@ -420,45 +420,42 @@ def main(argv=None):
             f"- {_str(i)} {_str(_lookup(feature_name, i) or '(not in matrix/features.yaml)')} — **{_str(fp) if _truthy(fp) else 'no progress entry'}**" +
             ("" if _truthy(fp) else " *(falls back to the gate-1 mining status, which is about the REFERENCE)*"))
 
-    # --- 2b. lane plans ------------------------------------------------------
-    # Each lane worked under a PLAN.md that lane_plan.py wrote from the approved specs (E17b). The
-    # spec gate cannot stop a lane rewriting its own approved spec — `*.md` is exempt from it — so
-    # this is where that edit becomes visible: the `## Spec` section is re-hashed against
-    # what lane_plan.py recorded. Advisory like everything here, but named, because a lane that
-    # rewrote the spec it was approved against is the failure the plan exists to prevent.
+    # --- 2b. lane records --------------------------------------------------
+    # Each lane is an sdlc feature whose record lane_plan.py wrote from the approved specs (2.0.0).
+    # The spec gate cannot stop a lane rewriting its own approved criteria — `*.md` is exempt from
+    # it — so this is where that edit becomes visible: the change file's `## Acceptance criteria`
+    # is re-hashed against what lane_plan.py recorded. Advisory like everything here, but named,
+    # because a lane that rewrote what it was approved against is the failure the record prevents.
     lane_plan_md = []
     lane_plans = plan_lib.read_lane_plans(slice_id) if plan_lib else None
     if lane_plans:
         for lane, rec in _dict(lane_plans.get("lanes") or {}).items():
-            # A finished lane's plan was moved to the workbench by `lane_plan.py archive`; the copy is
-            # checked exactly as the live one would have been, so archiving cannot hide an edited spec.
-            live = os.path.join(rec["worktree"], "PLAN.md")
-            archived = _get(rec, "archived")
-            archived_path = _get(archived, "path")
-            plan_path = archived_path if (not os.path.exists(live) and _truthy(archived_path) and os.path.exists(archived_path)) else live
-            if not os.path.exists(plan_path):
-                lane_plan_md.append(f"- {lane}: no PLAN.md in `{rec['worktree']}` and no archive recorded, so it was removed "
-                                    f"by hand. Approved @ workbench {_show(rec, 'workbench_commit')} by {_show(rec, 'approved_by')}.")
+            # A finished lane's record was copied to the workbench by `lane_plan.py archive`; the copy
+            # is checked exactly as the live one would have been, so archiving cannot hide an edit.
+            st = plan_lib.lane_state(rec)
+            if st.get("missing"):
+                lane_plan_md.append(f"- {lane}: {st['missing']}, so it was removed by hand. Approved @ workbench "
+                                    f"{_show(rec, 'workbench_commit')} by {_show(rec, 'approved_by')}.")
                 continue
-            plan = _read_text(plan_path)
-            rows = plan_lib.task_rows(plan)
-            done = len([r for r in rows if r["status"] == "Done"])
-            sm = re.search(r"^Status:\s*(\S+)", plan, re.M)
-            status = sm.group(1) if sm else "(none)"
-            edited = plan_lib.spec_hash(plan) != rec.get("spec_sha256")
-            lane_plan_md.append(f"- {lane}: {done}/{len(rows)} task rows Done · Status: {status} · approved @ workbench "
+            lane_plan_md.append(f"- {lane}: sdlc `{_show(rec, 'feature')}` · Status: {st['status']} · Stage {st['stage']} · "
+                                f"{st['tested']}/{st['acs']} criteria with a named test · approved @ workbench "
                                 f"{_show(rec, 'workbench_commit')} by {_show(rec, 'approved_by')}"
                                 f"{' · ' + _str(rec['amendments']) + ' amendment(s)' if _truthy(rec.get('amendments')) else ''}"
-                                f"{' · **`## Spec` differs from what was approved**' if edited else ''}")
-            if edited:
-                press(f"{lane}: its PLAN.md `## Spec` no longer matches the approved specs",
-                      f"- **{lane}'s PLAN.md `## Spec` no longer matches what lane_plan.py wrote** from the specs approved @ "
-                      f"workbench {_show(rec, 'workbench_commit')}. The spec gate cannot stop that edit, so this is the only place it shows. "
-                      f"Diff `{plan_path}` against those specs; a legitimate change goes through `lane_plan.py --amend`.")
-            if status != "approved":
-                press(f"{lane}: PLAN.md is `Status: {status}`",
-                      f"- **{lane}'s PLAN.md is `Status: {status}`**, so the spec gate blocks its non-trivial edits. "
-                      "`amending` means the lane found the spec wrong and is waiting on a re-approval.")
+                                f"{' · **criteria differ from what was approved**' if st['ac_edited'] else ''}")
+            if st["ac_edited"]:
+                press(f"{lane}: its acceptance criteria no longer match the approved specs",
+                      f"- **{lane}'s change file `## Acceptance criteria` no longer matches what lane_plan.py wrote** from the "
+                      f"specs approved @ workbench {_show(rec, 'workbench_commit')}. The spec gate cannot stop that edit, so "
+                      f"this is where it shows (sdlc's trust anchor also reports it as it happens). Diff "
+                      f"`{_show(rec, 'change')}` against those specs; a legitimate change goes through `lane_plan.py --amend`.")
+            if st["amending"]:
+                press(f"{lane}: the lane raised an `amend:` question",
+                      f"- **{lane} raised an `amend:` question**, so the spec gate freezes its non-trivial edits. The lane "
+                      "found the spec wrong and is waiting on a re-approval (`lane_plan.py --amend`).")
+            elif st["status"] != "done":
+                press(f"{lane}: its sdlc feature is not shipped",
+                      f"- **{lane}'s sdlc feature is `Status: {st['status']}` at Stage {st['stage']}**: sdlc has not shipped "
+                      "it (verify, the review its table fired, the commit), so the lane is not done.")
 
     # --- 3. standing ---------------------------------------------------------
     #
@@ -611,7 +608,7 @@ def main(argv=None):
     shipped_block = "\n".join(md_shipped) if md_shipped else "- this slice lists no features"
     learning = _list(slice_.get("learning_goals"))
     extras = (
-        (f"\nLane plans (`plan/lane-plans/{slice_id}.yaml`):\n\n" + "\n".join(lane_plan_md) + "\n" if lane_plan_md else "") +
+        (f"\nLane records (`plan/lane-plans/{slice_id}.yaml`):\n\n" + "\n".join(lane_plan_md) + "\n" if lane_plan_md else "") +
         (f"\n{len(unrecorded)} of them have no `plan/progress.yaml` entry. Record them under `features:` — until then they count as uncovered here and fall back to mining status in the parity report.\n" if unrecorded else "") +
         (f"\nLearning goals: {' · '.join(map(_str, learning))}\n" if learning else ""))
     descoped_note = f", {descoped} descoped (not counted)" if descoped else ""

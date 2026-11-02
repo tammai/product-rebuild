@@ -225,11 +225,11 @@ def main(argv=None):
         plugin_version = "unknown"
 
     # --- the major fence -------------------------------------------------------------------
-    # 1.x never touches a workbench a 0.x release made. This runs at every session start through
-    # --auto, so a user who installed 1.x beside a rebuild still in flight would otherwise have
-    # 1.x's scripts copied over their 0.x ones: different scripts, different guards, no migration.
-    # `rebuild_major:` in locks/pipeline.yaml is what rebuild_init.py writes; its absence means 0.x
-    # by definition. Nothing is copied, committed or rewritten, and --auto prints its one line and
+    # 2.x never touches a workbench an older release made. This runs at every session start through
+    # --auto, so a user who installed 2.x beside a rebuild still in flight would otherwise have
+    # 2.x's scripts copied over 1.x's: a different lane contract (sdlc features, not PLAN.md),
+    # different guards, no migration. `rebuild_major:` in locks/pipeline.yaml is what
+    # rebuild_init.py writes; its absence means 0.x by definition. Nothing is copied, committed or rewritten, and --auto prints its one line and
     # exits 0, because a session start must never fail on a workbench that is simply someone else's.
     marker_major = None
     try:
@@ -238,10 +238,12 @@ def main(argv=None):
         marker_major = int(mm.group(1)) if mm else None
     except OSError:
         pass
-    if marker_major is None or marker_major < 1:
-        fence = (f"This workbench was made by a 0.x release of the pipeline (locks/pipeline.yaml has no `rebuild_major`), "
-                 f"and plugin {plugin_version} (1.x) will not touch it: the scripts, the guards and the way repos are "
-                 f"created all differ, and there is no migration. Finish it on the 0.x line.")
+    if marker_major != 2:
+        made_by = "a 0.x release (locks/pipeline.yaml has no `rebuild_major`)" if marker_major is None \
+            else f"a {marker_major}.x release (`rebuild_major: {marker_major}`)"
+        fence = (f"This workbench was made by {made_by}, and plugin {plugin_version} (2.x) will not touch it: the "
+                 f"scripts, the guards and the lane contract all differ, and there is no migration. Finish it on the "
+                 f"release that made it.")
         if has("--auto"):
             print(f"TOOLING  skipped: {fence}")
             return 0

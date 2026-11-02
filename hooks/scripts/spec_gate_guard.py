@@ -1,30 +1,35 @@
 #!/usr/bin/env python3
 """spec_gate_guard.py — PreToolUse(Write|Edit|MultiEdit|NotebookEdit): blocks a non-trivial edit
-in a pipeline code repo until the worktree's PLAN.md says `Status: approved`, and blocks an
-edit governed by a PLAN.md left over from a different branch. Asks before any edit to the
-gates themselves, whatever its size.
+in a pipeline code repo until the worktree holds an approved lane — an active sdlc feature, at
+Build or later, whose Gate log carries lane_plan.py's approval for this branch — and freezes
+one whose lane raised an `amend:` question. Asks before any edit to the gates themselves,
+whatever its size.
 
 WHY IT EXISTS. In the linear rebuild, 56 of the backend's 68 slice commits added over 20 lines
-of non-test code and no PLAN.md ever existed: nothing tied a lane's diff to the slice spec the
+of non-test code and no plan ever existed: nothing tied a lane's diff to the slice spec the
 user had approved. The approval already exists — you approve a slice's specs before any code —
-and lane_plan.py carries it into PLAN.md at that moment, by script. This hook is what makes
-the plan a precondition instead of a courtesy.
+and lane_plan.py carries it into the lane's sdlc record at that moment, by script. sdlc itself
+has no "no code before an approved plan" block (2.0.0 checked), so this hook keeps that job
+while sdlc owns the record.
 
 WHY A LANE CANNOT APPROVE ITSELF. `*.md` is exempt below, so nothing here stops a lane writing
-`Status: approved` into its own PLAN.md. The protection is elsewhere: lane_plan.py records a
-sha256 of the plan's `## Spec` section, and slice_review.py re-checks it at the slice
-boundary, so the edit is visible there. The messages below tell a lane not to try it.
+an approval line into its own state file. The protection is elsewhere: lane_plan.py records a
+sha256 of the change file's acceptance criteria, slice_review.py re-checks it at the slice
+boundary, and sdlc's trust anchor reports an edit above `## Review` as it happens. The messages
+below tell a lane not to try it.
 
 SCOPE. Only a repo listed in a workbench's repos.yaml is judged (hooklib pipeline_repo_of);
 anything else exits 0, because this hook fires in every session the plugin is enabled in. The
-plan and the branch are read from the edited file's own worktree, never the session's: a
+record and the branch are read from the edited file's own worktree, never the session's: a
 parent-rooted session's cwd is no repo, and resolving against it once read another tree's plan.
 
 Ported in 1.0.0 from the harness this plugin used to depend on (MIT, BigIn; see NOTICE.md),
-keeping its four hardening rules. Exit 2 blocks. The Status:/Branch: patterns are hooklib's
-PLAN_STATUS and PLAN_BRANCH, which lane_plan.py writes for.
+keeping its four hardening rules; repointed from PLAN.md to sdlc's state file in 2.0.0. Exit 2
+blocks. The approval format is hooklib's APPROVAL_NOTE and AMEND_PREFIX, which lane_plan.py
+writes for.
 """
 
+import glob
 import json
 import os
 import re
@@ -35,7 +40,7 @@ from guard_io import (
     read_payload, block_on_crash, tool_call, string_field, is_write_shaped, emit_decision, real_path, worktree_root,
     repo_relative, is_gate_file, utf8_stdio, js_trim,
 )
-from hooklib import pipeline_repo_of, PLAN_STATUS, PLAN_BRANCH, get, read_text
+from hooklib import pipeline_repo_of, APPROVAL_NOTE, AMEND_PREFIX, get, read_text
 
 _FLAGS = re.I | re.A
 
@@ -268,29 +273,45 @@ def main(argv=None):
         except Exception:
             return None  # not a git repo, or git unavailable
 
-    def plan_verdict():
-        """{ok: True} | {ok: False, status} | {ok: False, declared, actual} for a branch mismatch.
-        `status` is None for a missing plan or one with no Status: line."""
-        plan_path = os.path.join(root, "PLAN.md")
-        if not os.path.exists(plan_path):
-            return {"ok": False, "status": None}
-        plan = read_text(plan_path)
-        status = PLAN_STATUS.search(plan)
-        if not status or status.group(1).lower() != "approved":
-            return {"ok": False, "status": status.group(1).lower() if status else None}
+    def lane_verdict():
+        """{ok: True} | {ok: False, why: "none" | "amending" | "branch", declared, actual}.
 
-        # `Branch:` is optional — plans written before it existed, or on a detached HEAD,
-        # simply skip the check. Never block on something git can't answer.
-        m = PLAN_BRANCH.search(plan)
-        declared = m.group(1) if m else None
-        if not declared:
-            return {"ok": True}
+        Approved means: an sdlc feature in this worktree with `Status: active`, past Define
+        (`Current: Stage 4` or later), whose Gate log carries lane_plan.py's approval line for this
+        worktree's branch, and no open `amend:` question. sdlc's new layout keeps state files in
+        .sdlc/state/<f>.md, the legacy one in .sdlc/<f>/state.md; both are read. A feature another
+        lane left behind (merged into the tree this branch was cut from) is either done, or names
+        another branch, so it never approves this one."""
+        paths = []
+        for pattern in (os.path.join(root, ".sdlc", "state", "*.md"), os.path.join(root, ".sdlc", "*", "state.md")):
+            paths += glob.glob(pattern)
         actual = current_branch()
-        if not actual or declared == actual:
+        others = []
+        for p in sorted(paths):
+            try:
+                text = read_text(p)
+            except OSError:
+                continue
+            if not re.search(r"^Status:\s*active\b", text, re.M | re.I):
+                continue
+            stage = re.search(r"^Current:\s*Stage\s+(\d+)", text, re.M)
+            approvals = [m.group(1) for m in APPROVAL_NOTE.finditer(text)]
+            if not approvals or not stage or int(stage.group(1)) < 4:
+                continue
+            # A detached HEAD has no branch to compare: git can't answer, so don't block on it.
+            if actual and actual not in approvals:
+                others += approvals
+                continue
+            m = re.search(r"^## Open questions\n([\s\S]*?)(?=^## |\Z)", text, re.M)
+            questions = [l[2:].strip() for l in (m.group(1) if m else "").split("\n") if l.startswith("- ")]
+            if any(q.startswith(AMEND_PREFIX) for q in questions):
+                return {"ok": False, "why": "amending"}
             return {"ok": True}
-        return {"ok": False, "declared": declared, "actual": actual}
+        if others:
+            return {"ok": False, "why": "branch", "declared": others[-1], "actual": actual}
+        return {"ok": False, "why": "none"}
 
-    verdict = plan_verdict()
+    verdict = lane_verdict()
     if verdict["ok"]:
         return 0
 
@@ -299,11 +320,11 @@ def main(argv=None):
             print(text, file=sys.stderr)
             sys.exit(2)
 
-        if verdict.get("declared"):
-            refuse(f"Error: PLAN.md is for branch '{verdict['declared']}' but HEAD is '{verdict['actual']}' — a leftover plan from another lane, or the wrong worktree. Do not edit PLAN.md's Branch: line; report it to the orchestrator.")
-        if verdict.get("status") == "amending":
-            refuse("Error: PLAN.md is Status: amending — the approved spec was found wrong, so non-trivial edits are frozen until the orchestrator re-approves it. Stop and report what is wrong; do not edit around the freeze.")
-        refuse("Error: PLAN.md missing or not approved. A lane's PLAN.md is written by the orchestrator (lane_plan.py) from the slice specs the user approved. Never write or approve your own. Report it to the orchestrator, or keep the change ≤20 lines.")
+        if verdict["why"] == "branch":
+            refuse(f"Error: the active sdlc feature here was approved for branch '{verdict['declared']}' but HEAD is '{verdict['actual']}' — another lane's record, or the wrong worktree. Do not edit its Gate log; report it to the orchestrator.")
+        if verdict["why"] == "amending":
+            refuse("Error: this lane raised an `amend:` question — the approved spec was found wrong, so non-trivial edits are frozen until the orchestrator re-approves it (lane_plan.py --amend). Stop and report what is wrong; do not edit around the freeze.")
+        refuse("Error: no approved lane here. A lane's sdlc record is written by the orchestrator (lane_plan.py) from the slice specs the user approved, at Build, with the approval in its Gate log. Never write or approve your own. Report it to the orchestrator, or keep the change ≤20 lines.")
     return 0
 
 
