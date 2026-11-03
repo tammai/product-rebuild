@@ -1,6 +1,6 @@
 {
   "name": "product-rebuild",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "Rebuild an existing product end-to-end to learn the full product development lifecycle, on top of sdlc. A gated, agent-orchestrated pipeline: mine a reference product, build a feature matrix, slice milestones, decide architecture via mirror-or-diverge ADRs, lock contracts, then build each slice as sdlc features in parallel, and finish at a verified production-readiness gate.",
   "author": {
     "name": "Tam Mai",

@@ -266,6 +266,18 @@ def sdlc_root(args):
     return best[1] if best else None
 
 
+def sdlc_version(sdlc):
+    """The version in the sdlc install's plugin.json (at its root or in .claude-plugin/), or "unknown"."""
+    for rel in ("plugin.json", os.path.join(".claude-plugin", "plugin.json")):
+        try:
+            v = json.loads(_read_text(os.path.join(sdlc, rel))).get("version")
+        except (OSError, ValueError, AttributeError):
+            continue
+        if v:
+            return str(v)
+    return "unknown"
+
+
 def _state_py(sdlc, worktree, *a):
     """Run sdlc's state.py in the worktree; its stdout is one JSON object."""
     r = subprocess.run([sys.executable, os.path.join(sdlc, "scripts", "state.py"), "--root", worktree, *a],
@@ -463,14 +475,20 @@ def _write_record(args):
     if not docs:
         return die(f"{worktree} has no .sdlc/config.json: the code repo is not set up for sdlc. "
                    "Set it up first (g5-first-slice.md, step 0), then cut the lane's worktree.")
-    sdlc = sdlc_root(args)
-    if not sdlc:
-        return die("sdlc's install folder was not found (needs scripts/state.py). Pass --sdlc-root <dir> "
-                   "or set SDLC_PLUGIN_ROOT; `claude plugin list` shows whether sdlc@sdlc is installed.")
-
     rec = read_lane_plans(slice_id) or {"slice": slice_id, "lanes": {}}
     lanes = rec.setdefault("lanes", {})
     prior = lanes.get(lane) or {}
+    # An open lane keeps the sdlc that opened it. The Kutt rebuild's sdlc went from 2.4.1 to 3.0.2
+    # mid-slice, and 3.x's state.py refuses the 2.x state file the lane already had; the old install
+    # stays in the plugin cache, so an amendment uses the recorded folder while it exists.
+    pinned = prior.get("sdlc_root") if prior and not prior.get("archived") else None
+    if pinned and not _opt(args, "--sdlc-root") and os.path.exists(os.path.join(pinned, "scripts", "state.py")):
+        sdlc = pinned
+    else:
+        sdlc = sdlc_root(args)
+    if not sdlc:
+        return die("sdlc's install folder was not found (needs scripts/state.py). Pass --sdlc-root <dir> "
+                   "or set SDLC_PLUGIN_ROOT; `claude plugin list` shows whether sdlc@sdlc is installed.")
     if prior and not prior.get("archived") and not amend:
         return die(f"{slice_id} {lane} already has an open sdlc feature ({prior.get('feature')}). "
                    "Use --amend if the approved specs changed, or archive it once sdlc has shipped it.")
@@ -575,11 +593,13 @@ def _write_record(args):
         "workbench_commit": commit, "approved_by": approver, "approved_at": date,
         "ac_sha256": ac_hash(change), "criteria": len(acs),
         "amendments": (prior.get("amendments") or 0) + (1 if amend else 0),
+        "sdlc_root": sdlc, "sdlc_version": sdlc_version(sdlc),
     }
     _save_record(slice_id, rec)
     print(f"{'amended' if amend else 'wrote'} sdlc feature {feature} in {worktree}: {len(acs)} criteria, at Build, "
           f"approved @ workbench {commit} by {approver} for branch {branch}\n"
-          f"  change file: {change_rel}\n  state file:  {state_rel}\n  sdlc:        {sdlc}\n"
+          f"  change file: {change_rel}\n  state file:  {state_rel}\n  sdlc:        {sdlc} ({sdlc_version(sdlc)}): "
+          f"name this folder in the lane's brief, and use it for this lane to the end, even if sdlc is updated\n"
           f"recorded in plan/lane-plans/{slice_id}.yaml")
     return 0
 

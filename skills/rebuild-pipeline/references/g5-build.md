@@ -227,7 +227,16 @@ step 1 registers it. Read that file now if no code repo exists yet.
      once, commits and reports, still at Build. **The lane's report is its hand-back message**, not the
      task notification: a lane whose `verify.py` runs in the background is announced `completed` with
      "has not reported yet" each time it waits (three times in the Kutt rebuild). Start Review only on
-     the report, and only once `verify.py` in it says PASS with a head and tree.
+     the report, and only once `verify.py` in it says PASS with a head and tree. **A lane that goes
+     quiet may have finished without reporting**: when a lane has sent nothing for longer than its
+     `verify.py` takes (10 to 15 minutes on Kutt), look at its branch (`git -C <worktree> log -1`) and
+     ask it for its status by SendMessage. A Kutt lane committed its fixes and sent nothing for three
+     hours; it answered "I am waiting on nothing" the moment it was asked.
+   - **A lane runs on the sdlc that opened it.** `lane_plan.py` records the sdlc folder and version in
+     `plan/lane-plans/<Sn>.yaml` and prints it; name that folder in the lane's brief and in your own
+     Review and `ship.py` calls until the lane ships, even if sdlc is updated meanwhile (the old version
+     stays in the plugin cache). sdlc 3.0 refuses a state file 2.x wrote until `/sdlc:upgrade` migrates
+     it, so update sdlc between slices, never mid-slice.
    - **Then run sdlc's Review for that lane, as sdlc's orchestrator would.** Read only the
      `## Review (Stage …)` section of sdlc's `skills/orchestrator/references/flow.md` and follow it
      with the lane's worktree, change and state files: decide from sdlc's table (security on high

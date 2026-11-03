@@ -203,6 +203,9 @@ check("the task names its criteria and leaves its files to the lane",
       re.search(r"\*\*billing\*\* — AC-001 AC-002", st1) and "`TBD`" in st1, st1)
 check("nothing is committed in the code repo", sh(lane_path, "git", "log", "--oneline").count("\n") == 2)
 rec1 = record()
+check("the record pins the sdlc folder and version that opened the lane",
+      rec1.get("sdlc_root") == SDLC and rec1.get("sdlc_version") == SDLC_VERSION, json.dumps(rec1))
+check("lane_plan prints the pinned folder for the brief", f"sdlc:        {SDLC} ({SDLC_VERSION})" in r.stdout, r.stdout)
 check("recorded with the criteria's hash and the specs' hashes",
       rec1["ac_sha256"] == lane_plan.ac_hash(ch1) and list(rec1["spec_sha256"]) == ["plan/specs/S1/billing.md"], json.dumps(rec1))
 
@@ -233,6 +236,7 @@ check("an amendment keeps what Review wrote, still last",
       ch2.rstrip().endswith("- **Verdicts:** code-reviewer-r1 PASS") and ch2.count("## Review") == 1, ch2[-400:])
 check("the lane's amend: question is resolved", "amend:" not in st2.split("## Open questions")[-1], st2.split("## Open questions")[-1])
 check("the record counts the amendment", record()["amendments"] == 1)
+check("an amendment keeps the sdlc folder the lane was opened with", record().get("sdlc_root") == SDLC, record().get("sdlc_root"))
 
 
 # --- slice-review sees a lane editing its own approved criteria --------------------------------

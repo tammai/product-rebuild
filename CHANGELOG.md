@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.2] - 2026-11-03
+
+From the Kutt rebuild's closing notes.
+
+### Fixed
+
+- **A lane stays on the sdlc that opened it.** `lane_plan.py` records the sdlc folder and version in
+  `plan/lane-plans/<Sn>.yaml` and prints them for the lane's brief; `--amend` reuses that folder while it
+  exists. Kutt's sdlc went from 2.4.1 to 3.0.2 mid-slice, and 3.x refuses the 2.x state file an open lane
+  has. The G5 docs say to update sdlc between slices, never mid-slice.
+- **The lane-worker waits on its own run, never on a process name.** `pgrep -f scripts/verify.py` matched
+  another project's run on the same machine.
+- **A finished lane reports in its last message.** A Kutt lane committed its fixes and sent nothing for
+  three hours; the G5 docs now say to check a quiet lane's branch and ask it for its status.
+
 ## [2.1.1] - 2026-11-03
 
 Fixes from the first real rebuild on 2.x (Kutt, 2026-11-03; its `test-notes.md` has the detail).

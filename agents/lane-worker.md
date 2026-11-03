@@ -25,7 +25,8 @@ plugin's spec gate reads before it allows any edit over ~20 lines.
 
 Your build loop is **sdlc's Build**: read the change file, the state file, and only the
 `## Build (Stage …)` section of `<sdlc>/skills/orchestrator/references/flow.md` (`<sdlc>` is the
-folder your brief names), and follow it. sdlc 2.x numbers Build 4 and 3.x numbers it 2; the state
+folder your brief names), and follow it. Use that folder for the whole lane, even if a newer sdlc
+is installed meanwhile: it is the one that wrote your state file, and a newer major may refuse it. sdlc 2.x numbers Build 4 and 3.x numbers it 2; the state
 file's `Current:` line names the phase either way, so go by the name. Type sdlc's scripts in full every time,
 `python3 <sdlc>/scripts/state.py` and `python3 <sdlc>/scripts/verify.py`: zsh does not split a
 `$S` variable into words. These differences from sdlc's text hold for every lane:
@@ -127,9 +128,13 @@ failure this section stops. It is fixed (`g5-build.md`, "Test cadence within a s
   Settings the tests need go on `NAME=value` lines in `phases.txt`, never in an `export` inside one phase:
   each phase is its own shell.
 - Whenever you wake, for any reason, first check whether your own run's process is alive. If it ended, read
-  the result and act on it before anything else.
+  the result and act on it before anything else. Know your run by its own background task or its log
+  file, never by a process name: `pgrep -f scripts/verify.py` matches every session's `verify.py` on the
+  machine, and in the Kutt rebuild a lane's wait loop matched another project's run.
 - Never end a turn "waiting for the notification" unless your own background process is still running.
-- Report a run's result to the orchestrator in the same turn the run ends.
+- Report a run's result to the orchestrator in the same turn the run ends. When your work is done, your
+  last message IS the report: never end a turn with the work done and the report unsent. In the Kutt
+  rebuild a lane committed its fixes, sent nothing, and sat for three hours until it was asked.
 - Report passed, failed, errored and skipped per suite, and every skip grouped by its reason. A run is green
   only with no failures, no errors, no more than 10% skipped, and no test skipped because an environment
   variable was unset. A criterion skipped for an unset variable was not tested: fix the run's environment
