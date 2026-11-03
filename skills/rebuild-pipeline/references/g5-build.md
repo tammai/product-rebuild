@@ -90,7 +90,21 @@ step 1 registers it. Read that file now if no code repo exists yet.
    level that can observe it (see "Test depth and UI depth"). Where behavior is ambiguous, the RUNNING REFERENCE is the arbiter — check it,
    never guess. Run `python3 scripts/validate.py` when the spec-writers return and before you present them: it checks the
    `rule_id` join against lane R's cards, so a bad id surfaces now and not at a later check. Specs pass user
-   review (propose-before-act) before any code.
+   review (propose-before-act) before any code. Present them as one approval, with three things a lane
+   otherwise has to invent or ask about mid-build:
+   - **The lanes**: which specs each lane builds, in which repo. `slices.yaml` names features, not modules,
+     so the split is yours to propose: one lane per bounded context touched (step 2), merged where two
+     contexts live in one repo and are small. Split a lane that would carry more than about 80 criteria
+     rather than raising its track: the Kutt rebuild's 145-criterion lane took 85 minutes in one context.
+     Lanes stay sdlc track M; sdlc's L adds a plan self-approval and a backlog of parts that this
+     approval and the lane split already cover.
+   - **The packages each lane will add**, runtime and test (a spec that names Playwright or happy-dom
+     needs them installed), so the approval covers them. A lane adding one this list missed logs it with
+     `state.py deviation`.
+   - **The contract questions the specs raised, de-duplicated** across writers (several specs meet the
+     same gap), each with its proposed answer.
+   **Approved with changes**: you edit the specs to match, show the diff, commit, and the user approves
+   that commit. `lane_plan.py` records the commit it ran against, so an edit after it is an amendment.
 
    **Every acceptance criterion that implements a Rule Card carries `rule_id:`.** This is
    the join that makes lane R worth mining: without it the cards are a document nobody reads
@@ -141,7 +155,9 @@ step 1 registers it. Read that file now if no code repo exists yet.
      share one. On S1 the repo does not exist yet: run the repo checklist (`g5-first-slice.md`,
      step 0) first, then cut the worktrees.
    - **Write each lane's record** with `python3 scripts/lane_plan.py <Sn> <lane> --worktree <path> --specs
-     <the specs this lane builds> [--risk high]`. `--risk high` when the lane touches auth, payments,
+     <the specs this lane builds> --approved-by "<who approved them>" [--risk high]`. `--approved-by` is the
+     person whose approval this is, as they gave it (in the chat, or relayed by a coordinator: say so,
+     `"Tam Mai (relayed by the coordinator)"`); without it the record falls back to git's `user.name` and says so. `--risk high` when the lane touches auth, payments,
      secrets, PII, a schema migration or a breaking change to a public API: sdlc's review table reads
      it. The script writes the change file (one `AC-nnn` per criterion, verbatim, `rule_id` kept) and,
      through sdlc's own `state.py`, the state file at Build with the approval (approver, specs,
@@ -208,13 +224,22 @@ step 1 registers it. Read that file now if no code repo exists yet.
      Agent call, together with the build-lane brief, its worktree and the sdlc folder `lane_plan.py`
      printed. It is never `general-purpose`: the standing rules live in the agent file. The lane
      fills in the how, records every criterion red with `verify.py red`, builds, runs `verify.py`
-     once, commits and reports, still at Build.
+     once, commits and reports, still at Build. **The lane's report is its hand-back message**, not the
+     task notification: a lane whose `verify.py` runs in the background is announced `completed` with
+     "has not reported yet" each time it waits (three times in the Kutt rebuild). Start Review only on
+     the report, and only once `verify.py` in it says PASS with a head and tree.
    - **Then run sdlc's Review for that lane, as sdlc's orchestrator would.** Read only the
      `## Review (Stage …)` section of sdlc's `skills/orchestrator/references/flow.md` and follow it
      with the lane's worktree, change and state files: decide from sdlc's table (security on high
      risk or sensitive paths, code on a large diff, a public surface or L, UI on UI paths), dispatch
-     each review once, fresh. The code review on an M lane is the built-in `code-review` skill, as
-     sdlc says; the others take the agent and model `scripts/routing.py --role lane-review` (code and
+     each review once, fresh. **Give every reviewer the lane's approved spec paths** with the diff,
+     and tell it that behaviour a spec states, including reference behaviour a spec flags and keeps,
+     is not a bug; a finding against it is rated against the spec. Without them, reviewers report the
+     reference's own behaviour as defects, and sorting that out was most of a Kutt review round. The
+     code review on an M lane is the built-in `code-review` skill, as sdlc says. The dependency audit
+     sdlc's security review asks for is, for Go, `go run golang.org/x/vuln/cmd/govulncheck@latest ./...`
+     from the lane's worktree (it builds with the module's own Go; an installed `govulncheck` built
+     with an older Go fails on every package); the others take the agent and model `scripts/routing.py --role lane-review` (code and
      security) or `--role lane-ui-review` resolves, which are sdlc's reviewers on opus. A high finding
      goes back to the same lane (resume it with the issue list), fixed test first, then the fixes are
      checked once more. sdlc's stops are your stops with the user: the review choice on high risk, a
@@ -355,10 +380,9 @@ relaxed to compensate.
   `cd <worktree> &&`: a command that names none is not judged at all. Your own shell is judged the same
   way: while its directory is inside a set-up repo, sdlc's guardrails read your commands' text too, so
   write documents with the file tools, never a heredoc that quotes a guarded command.
-- CI per lane: lint, tests, security scan, license scan, AC-coverage (every AC has a test).
-  sdlc's setup wrote `.github/workflows/sdlc-verify.yml` from the repo's recorded commands — this
-  pipeline's extra jobs (license scan, AC-coverage) are **added to that file**, not a second workflow
-  written alongside it.
+- CI per lane is sdlc's `.github/workflows/sdlc-verify.yml`, written by its setup from the repo's
+  recorded commands, with nothing added: sdlc's verify already fails a criterion with no test, and this
+  pipeline ships no license-scan job. Never write a second workflow alongside it.
 - Cross-lane shared changes go through one serialized review path.
 - **You run no tests.** Not a suite, not "just to confirm" after a lane reports. Evidence is the
   JUnit the lane wrote and the report it sent; a failure worth investigating goes to that lane

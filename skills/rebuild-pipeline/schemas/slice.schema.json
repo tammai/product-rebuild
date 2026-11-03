@@ -14,6 +14,21 @@
       "depends_on": { "type": "array", "items": { "type": "string" } },
       "learning_goals": { "type": "array", "items": { "type": "string" } },
       "done_means": { "type": "string", "minLength": 10 },
+      "departures": {
+        "description": "Deliberate differences from the reference this slice ships, decided by the user at G3. Each one needs an ADR with decision: diverge at G4a.",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["what", "reference", "why"],
+          "additionalProperties": false,
+          "properties": {
+            "what": { "type": "string", "minLength": 3 },
+            "reference": { "type": "string", "minLength": 3 },
+            "why": { "type": "string", "minLength": 3 },
+            "rules": { "type": "array", "items": { "type": "string", "pattern": "^R-[A-Z0-9]+-[0-9]{3}$" } }
+          }
+        }
+      },
       "status": { "enum": ["pending", "in-progress", "deployed", "done"] }
     }
   }

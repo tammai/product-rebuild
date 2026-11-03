@@ -151,6 +151,12 @@ coverage is the one a reader should trust least.>
   field nobody may write is a field that reads `pending` forever. `validate.py` reports
   the re-derived/pending split for the gate review, so leaving a card pending is a visible,
   intended outcome rather than an omission.
+
+  Set it with the Edit tool, one card at a time, never with a script over the files: a scripted
+  bulk write to `findings/rules/` is refused in a supervised session (the Kutt rebuild's judge
+  tried one over 152 cards and none was marked). If an edit is refused anyway, list the card ids
+  you confirmed under a `## Re-derived` heading in your report, one per line; the orchestrator
+  then sets the field on exactly those cards before the lock and on no others.
 - **Uncertainty is content.** "I could not tell whether X" belongs in the report. Guessing at
   it and scoring the guess does not.
 

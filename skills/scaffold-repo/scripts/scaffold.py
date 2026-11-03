@@ -505,9 +505,12 @@ def fast(commands: dict) -> dict:
 
 def sdlc_config(lock: dict) -> dict:
     """.sdlc/config.json in sdlc's own shape: `commands` for one package at the repo root, else
-    `packages` (name, path, stack, commands), each run from its path."""
+    `packages` (name, path, stack, commands), each run from its path.
+    `kind` is brownfield: the generator has written source by now, and sdlc's setup is run by its
+    brownfield path. The Kutt rebuild (2026-11-03) got `greenfield` here and a brownfield instruction
+    in the answers, and its `init --kind brownfield` overwrote this file to settle it."""
     pkgs = lock["proposal"]["packages"]
-    cfg = {"docs_dir": SDLC_DOCS, "project": {"kind": "greenfield", "stack": sorted({stack_of(p) for p in pkgs})}}
+    cfg = {"docs_dir": SDLC_DOCS, "project": {"kind": "brownfield", "stack": sorted({stack_of(p) for p in pkgs})}}
     if len(pkgs) == 1 and pkgs[0]["path"] == ".":
         cfg["commands"] = fast(pkgs[0]["commands"])
     else:
@@ -545,18 +548,24 @@ def cmd_sdlc_config(args) -> None:
     out({"ok": True, "file": SDLC_CONFIG, "written": result,
          "sdlc_setup_answers": {
              "mode": "brownfield (the generator wrote source), on the commands above; do not re-derive them",
+             "precedence": "these answers are the user's approval of the scaffold proposal: where sdlc's setup stops "
+                           "for one of them (PRD, constitution, commands, CI, plugin keys), take the answer here and go on. "
+                           "Stop only for what they leave open, in one batch",
              "docs_dir": SDLC_DOCS,
              "prd": f"a pointer to the workbench's product docs ({wb}/matrix/features.yaml and the gate-2 artifacts), "
                     "written from sdlc's PRD template with every section linking there; never a restatement",
              "constitution": f"from the Gate 3 ADRs ({wb}/adr/): each ADR's decision is a principle; add nothing they do not say",
              "design_system": "from the UI ADR and the playbook, when the repo has UI; else not applicable",
              "plugin_keys": "the team file (.claude/settings.json), so every session on this repo has sdlc",
-             "ci": "sdlc's (builtin:ci) from these commands; this pipeline's license-scan and AC-coverage jobs are added to that file",
+             "ci": "sdlc's (builtin:ci) from these commands, nothing added: sdlc's verify already fails an AC with no test, "
+                   "and this pipeline ships no license-scan job",
              "ci_pre": {p["name"]: p["ci"]["pre"] for p in lock["proposal"]["packages"] if p["ci"].get("pre")} or None,
              "ci_pre_note": "sdlc's workflow has no pre-install step: add each package's lines after its toolchain setup in "
                             ".github/workflows/sdlc-verify.yml (the file is seeded, so sdlc's upgrade will show you the diff)",
              "context_diet": "declined: a rebuild session needs both plugins",
-             "finalize": "merge sdlc/setup into main locally: the repo has no remote until checklist step 2",
+             "finalize": "commit what sdlc's last step leaves uncommitted (its .sdlc/scaffold.lock.json) on sdlc/setup "
+                         "first, or checking out main fails; then merge sdlc/setup into main locally. The remote comes "
+                         "after this scaffold, and before the workbench submodule (its relative URL needs the remote)",
          }})
 
 

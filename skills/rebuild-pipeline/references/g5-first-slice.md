@@ -46,7 +46,9 @@ until they are:
    Three things about the order, each of which breaks the run if got wrong:
    - **Scaffold into the directory while it is still empty, then add the workbench submodule.**
      Official generators (`go mod init` aside) refuse or prompt on a non-empty directory, and a
-     submodule is a non-empty directory. Submodule after, always.
+     submodule is a non-empty directory. Submodule after, always, and after step 2's remote too:
+     `git submodule add ../<workbench> workbench` resolves its relative URL against the code repo's
+     `origin`, so with no remote it fails (Kutt rebuild, 2026-11-03).
    - **The scaffold makes its own commits** (`chore(scaffold): <step>`), and sdlc's setup its own
      (`chore(sdlc): setup – <step>`, on a `sdlc/setup` branch it merges into `main` locally), so step 2's
      `gh repo create --source . --push` runs *after* both, against a repo that already has history.

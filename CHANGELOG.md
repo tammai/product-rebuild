@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-11-03
+
+Fixes from the first real rebuild on 2.x (Kutt, 2026-11-03; its `test-notes.md` has the detail).
+
+### Fixed
+
+- **`gate.py status` named the wrong phase.** A slice plan written as a JSON array (the schema's own shape,
+  and valid YAML) read as no slices, so status said "GP production readiness" before any code; it is now
+  read, as is a plan indented under `slices:`. A workbench with no finding yet says "G1 mining", not "G2".
+- **Gate 3 refuses an ADR still `status: proposed`**, which it used to hash as the locked decision.
+- **scaffold-repo:** `.sdlc/config.json` says `kind: brownfield`, matching the setup path it names; the setup
+  answers say they are the user's approval (no second stop for PRD, constitution, commands or CI), no longer
+  mention license-scan and AC-coverage jobs nothing defines, and say to commit sdlc's leftover
+  `.sdlc/scaffold.lock.json` before merging `sdlc/setup`. The remote comes before the workbench submodule,
+  whose relative URL needs it. Tools are checked against the toolchain the skeleton pins, and Go's audit is
+  `go run golang.org/x/vuln/cmd/govulncheck@latest ./...`, which builds with the module's own Go.
+- **`lane_plan.py`** writes sdlc's `## Review` section (kept last, and kept through `--amend`), and takes
+  `--approved-by`; without it the record says the name came from git's `user.name`.
+
+### Changed
+
+- **G5:** the spec approval also covers the lane split (split a lane over about 80 criteria; lanes stay
+  track M), the packages each lane adds, and the de-duplicated contract questions; "approved with changes"
+  is an edited, committed, re-approved spec set. Review starts on the lane's hand-back, not on a `completed`
+  notice that says it has not reported. Reviewers get the lane's approved specs, so reference behaviour a
+  spec keeps is not reported as a bug. Each lane keeps scratch files in its own folder.
+- **G0:** the three usual questions (secondary reference, prior attempts, off-limits) are asked together
+  with their usual answers; `sources.yaml` gets a `reference.run:` block (compose files, base URL, accounts)
+  that miner briefs point at; the workbench is also found at `./*-workbench/`; the graph step is optional.
+- **G1/G2:** lane R's provisional feature ids and the matrix ids are joined at a new G2 step 5, which also
+  lists lane A findings no feature cites; rule files are named after matrix domains. The rubric judge marks
+  `verification: re-derived` card by card, or lists the ids for the orchestrator.
+- **G3:** a slice's deliberate departures from the reference go in a new `departures:` field (schema), with
+  the Rule Cards they touch; a bounded kickoff skips the lifecycle-stage question.
+- **G4a/G4b:** one consistency pass over all ADRs before the user sees them, fixing the bodies rather than
+  appending reconciliations; contract drafting is briefed with lane D's call sites and checked one sentence
+  per first-slice operation. Gate locks take `--by "<who approved, and how>"`.
+
 ## [2.1.0] - 2026-11-03
 
 ### Changed

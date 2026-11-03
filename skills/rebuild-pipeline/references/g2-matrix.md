@@ -14,6 +14,13 @@ taxonomy. With source access, presence is deterministic; the work is ORGANIZATIO
    cut domains the way THEY would design the system; keeping the reference's module
    structure is itself a mirror decision worth noting for G4a.
 4. Attach per feature: flows, entities, routes, permission rows, `first_shipped`.
+5. **Close the joins lane R left open.** Mint each feature id to match the provisional ids in
+   `plan/drafts/rule-feature-ids.md`, and rewrite the `features[]` of any card whose id changed;
+   `validate.py` then resolves every card. Rename a `findings/rules/<file>.yaml` whose name is not a
+   matrix domain. And list every lane A finding that no feature's `evidence[]` cites: each is a
+   feature the matrix is missing or a finding you drop on purpose, said so in the Gate 1 review. The
+   Kutt rebuild's first matrix missed 18 of 63 lane A findings, every UI one among them, and only the
+   rubric judge noticed.
 
 Output: `matrix/features.yaml` per `schemas/feature.schema.json`.
 

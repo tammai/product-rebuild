@@ -14,6 +14,7 @@ pipeline's one irreversible act and the hashes must be computed the same way eve
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -107,23 +108,50 @@ def slice_states():
             overlay[m.group(1)] = m.group(2)
     plan = read("plan/slices.yaml")
     out = []
-    # One entry per `- id: SN`, carrying the nearest following `status:` before the next entry.
-    entries = re.split(r"^- id: ", plan, flags=re.M)[1:]
+    # JSON is YAML too, and a G3 drafter may write the file as a JSON array (the Kutt rebuild did, on
+    # 2026-11-03). The block parser below finds no `- id:` line in it, so this read nothing and the
+    # status above said "GP production readiness" with no code written. Try JSON first.
+    try:
+        data = json.loads("\n".join(l for l in plan.split("\n") if not l.lstrip().startswith("#")))
+    except ValueError:
+        data = None
+    if isinstance(data, dict):
+        data = data.get("slices")
+    if isinstance(data, list):
+        for e in data:
+            sid = e.get("id") if isinstance(e, dict) else None
+            if isinstance(sid, str) and re.fullmatch(r"S[0-9]+", sid):
+                out.append({"id": sid, "status": overlay.get(sid) or e.get("status") or "pending"})
+        return out
+    # One entry per `- id: SN` (at the margin, or indented under a `slices:` key), carrying the
+    # nearest following `status:` before the next entry.
+    entries = re.split(r"^[ \t]*- id: ", plan, flags=re.M)[1:]
     for e in entries:
         idm = re.match(r"(S[0-9]+)", e)
         if not idm:
             continue
         sid = idm.group(1)
-        own = re.search(r"^\s{2}status:\s*([a-z-]+)", e, re.M)
+        own = re.search(r"^\s+status:\s*([a-z-]+)", e, re.M)
         out.append({"id": sid, "status": overlay.get(sid) or (own.group(1) if own else None) or "pending"})
     return out
+
+
+def phase_before_gate1():
+    """G1 mining and G2 matrix both sit before gate-1. Until a lane has written a finding, the
+    phase is mining: a fresh workbench was told "G2 feature matrix" with findings/ empty, and
+    routing by that line alone skips G1 (Kutt rebuild, 2026-11-03)."""
+    for _dirpath, _dirs, files in os.walk("findings"):
+        if any(f.endswith((".yaml", ".yml", ".json", ".md")) and f != "README.md" for f in files):
+            return None
+    return "G1 mining"
 
 
 def phase_before_gate5():
     """What to call the phase when contracts are locked and prod-ready is not."""
     slices = slice_states()
     if not slices:
-        return None  # no slice plan — fall back to the table above
+        # A slice plan that exists but reads as no slices is a parse failure, not a finished build.
+        return "G5 build (plan/slices.yaml has no slice this script can read)" if os.path.exists("plan/slices.yaml") else None
     done = [s for s in slices if s["status"] in ("done", "deployed")]
     nxt = next((s for s in slices if s["status"] not in ("done", "deployed")), None)
     count = f"{len(done)}/{len(slices)} slices"
@@ -243,6 +271,17 @@ def _lock_gate4_checks(gid):
     return None
 
 
+def proposed_adrs():
+    """ADR files under adr/ whose own `status:` line still says proposed."""
+    out = []
+    for name in sorted(os.listdir("adr")) if os.path.isdir("adr") else []:
+        if name.endswith(".md") and name != "playbook.md":
+            m = re.search(r"^status:\s*(\S+)", read_text(_join("adr", name)), re.M)
+            if m and m.group(1).lower() == "proposed":
+                out.append(name)
+    return out
+
+
 def _lock_gate3_checks(gid):
     # Gate 3 locks the ADRs AND the playbook they cite. G4a vendors the selected playbook to
     # adr/playbook.md precisely so the citations survive a plugin upgrade — a copy that never
@@ -289,6 +328,14 @@ def _lock_gate3_checks(gid):
             else:
                 print(f"Cannot lock {gid}:\n{body}", file=sys.stderr)
                 return 1
+    # An ADR the user decided says so. Nothing else moves `status: proposed` to accepted, and the
+    # Kutt rebuild locked eleven ADRs whose own files said proposed until the orchestrator noticed
+    # and changed them by hand: the hash would have pinned "proposed" as the locked decision.
+    undecided = proposed_adrs()
+    if undecided:
+        print(f"Cannot lock {gid}: still `status: proposed`: {', '.join(undecided)}. Set each ADR the user "
+              f"decided to accepted (or rejected / superseded) first.", file=sys.stderr)
+        return 1
     return None
 
 
@@ -523,7 +570,8 @@ def main(argv=None):
         if not current:
             print("\nAll gates locked — pipeline complete.")
             return 0
-        phase = (current["id"] == "gate-5" and phase_before_gate5()) or PHASE_BEFORE[current["id"]]
+        phase = ((current["id"] == "gate-5" and phase_before_gate5())
+                 or (current["id"] == "gate-1" and phase_before_gate1()) or PHASE_BEFORE[current["id"]])
         print(f"\nCurrent phase: {phase} (working toward {current['id']})")
         return 0
 

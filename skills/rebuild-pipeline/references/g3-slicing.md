@@ -13,7 +13,9 @@ Vertical, independently shippable slices ordered by dependency and learning valu
   reporting/integrations/admin. The reference's own changelog order is a sanity check.
 - Learning-weighted: where the graph allows choice, prefer the slice teaching a
   lifecycle stage not yet done (first deploy, first live migration, first background
-  job, first realtime feature). ASK the user which lifecycle stages they most want.
+  job, first realtime feature). ASK the user which lifecycle stages they most want, unless the
+  kickoff already bounded the plan ("as few slices as possible"): then propose the goals with the
+  slices and ask only if they want a different order.
 - Every slice has `done_means` phrased as user-visible behavior on a DEPLOYMENT. For a client
   app that means an installable build on a device that is not the build machine — see
   `g5-build.md`.
@@ -37,6 +39,14 @@ Vertical, independently shippable slices ordered by dependency and learning valu
   migration decided at Gate 3, and its spike happens before that slice starts. Do not let it
   drift to the last slice with the rest of the release work — it is the piece that runs once
   per user with no undo, and it wants the most runway, not the least.
+
+- **A deliberate departure from the reference goes in the slice's `departures:`** (what the
+  rebuild does, what the reference does, why), never only in `done_means` prose. Before proposing
+  one, list every Rule Card it touches (`python3 scripts/rules_for.py --features <the slice's
+  features>`, then read the cards that name the field or behaviour the departure changes) and
+  put their ids in `rules:`: turning on anonymous links in the Kutt rebuild changed five behaviours
+  keyed on `user_id` that nobody had named, and the rubric judge found them one run at a time.
+  Each departure becomes an ADR with `decision: diverge` at G4a.
 
 Output: `plan/slices.yaml` per `schemas/slice.schema.json`. Draft with agents, order
 with the user.

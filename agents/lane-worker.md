@@ -89,6 +89,10 @@ includes a regression test, or `[no-test]` with the reason.
   session transcripts (`~/.claude/projects/**/*.jsonl`): your brief is the whole brief, and if it is
   missing something, say so in your report. Read each file once, note the lines you need, and work
   from the notes.
+- **Scratch files go under a folder named for your lane** (`<scratchpad>/<lane>/`), never the
+  scratchpad's top level, and you never read another lane's folder. Lanes dispatched together share
+  one scratchpad: in the Kutt rebuild the api lane copied the web lane's files out of a shared
+  `impl/` folder into its own worktree.
 
 ## Test cadence
 

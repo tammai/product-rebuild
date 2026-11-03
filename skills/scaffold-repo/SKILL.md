@@ -60,13 +60,19 @@ forced or the workbench is damaged: say so and stop. Do not improvise a scaffold
 5. **sdlc's setup**, the `sdlc:setting-up-projects` skill, in this repo, by its brownfield path (the generator
    wrote source). Answer its hard stops from `sdlc_setup_answers`, not from a fresh interview: the commands
    are already in the config (never re-derive them), the PRD is a pointer to the workbench's product docs, the
-   constitution comes from the Gate 3 ADRs, the plugin keys go in the team file, CI is sdlc's with this
-   pipeline's license-scan and AC-coverage jobs added to it (and any `ci_pre` lines after the toolchain step).
-   Ask the user only what those leave open, in one batch. sdlc's `contract` and `run-commands` are the day-one
+   constitution comes from the Gate 3 ADRs, the plugin keys go in the team file, CI is sdlc's as it writes
+   it (plus any `ci_pre` lines after the toolchain step). The user's approval of the proposal is the answer
+   to every stop those settle, so do not stop again for them; ask only what they leave open, in one batch. sdlc's `contract` and `run-commands` are the day-one
    proof: **every command must have run and exited 0**. A failure is fixed in the skeleton, never by changing
    the command; a command edited to pass is a skeleton that does not. A **missing tool** is a stop: installing
-   anything is the user's call. At sdlc's last step, merge its `sdlc/setup` branch into `main` locally (the repo
-   has no remote yet). Then `$SC step-done sdlc-setup`.
+   anything is the user's call, and so is a tool too old for the toolchain the skeleton pins: a Go tool
+   built with an older Go than `go.mod`'s `go` line fails on every package (`package requires newer Go
+   version`). Check the linter here, not at the first Review. For Go's dependency audit, sdlc's
+   security review runs `go run golang.org/x/vuln/cmd/govulncheck@latest ./...`, which builds the tool
+   with the module's own Go, so no installed copy has to match (checked on the Kutt rebuild's go1.27.2
+   module, whose installed go1.26 build failed on every package); Node's is `npm audit`. At sdlc's last step, commit what it leaves
+   uncommitted (`.sdlc/scaffold.lock.json`) on `sdlc/setup`, then merge that branch into `main` locally
+   (the repo has no remote yet). Then `$SC step-done sdlc-setup`.
 
 6. **Hooks and pointer**: `$SC render git-hooks`, `$SC render claude-md`, committing after each. A `refused`
    result (exit 2) means a file was edited since it was written: show the user the diff, never overwrite it.
@@ -78,9 +84,10 @@ forced or the workbench is damaged: say so and stop. Do not improvise a scaffold
      setup never writes `CLAUDE.md`, so nothing overlaps.
 
 7. **Finalize**: `$SC finalize` (moves the lock to `.rebuild/scaffold.lock.json`), commit, then continue
-   with the rest of `g5-first-slice.md` step 0: add the workbench submodule **after** this (generators refuse a
-   non-empty directory), register the repo in `repos.yaml`, give it a remote, confirm `pause-check` sees
-   it.
+   with the rest of `g5-first-slice.md` step 0, in this order: give it a remote, then add the workbench
+   submodule (after the scaffold, because generators refuse a non-empty directory, and after the remote,
+   because the submodule's relative URL resolves against it), register the repo in `repos.yaml`, confirm
+   `pause-check` sees it.
 
 If the run dies partway, `$SC status` says where it stands (`next:`), and every step before it is
 recorded. Resume at that step.

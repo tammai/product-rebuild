@@ -4,7 +4,7 @@ Run from the workbench root, right after the slice's specs are approved and befo
 is dispatched.
 
   python3 scripts/lane_plan.py S3 billing-backend --worktree ../app-S3-billing \\
-       --specs plan/specs/S3/billing.md,plan/specs/S3/invoicing.md [--risk high] [--track L]
+       --specs plan/specs/S3/billing.md,plan/specs/S3/invoicing.md --approved-by "Ada Lovelace" [--risk high]
   python3 scripts/lane_plan.py S3 billing-backend --worktree ../app-S3-billing \\
        --specs plan/specs/S3/billing.md --amend --reason "AC 4 contradicted R-BILL-002"
   python3 scripts/lane_plan.py archive S3 billing-backend     # slice end: record copied to the workbench
@@ -298,8 +298,20 @@ def _docs_dir(worktree):
     return d if isinstance(d, str) and d and not d.startswith(("/", "..")) else "docs/sdlc"
 
 
-def _change_text(slice_id, lane, branch, specs, commit, approver, date, acs, tests, amendments):
-    """acs: [(id, module, criterion)]; tests: {id: (test, run)}."""
+# sdlc's change template ends in `## Review`, which its Review fills in once and keeps last. The file
+# this script writes had none, so the orchestrator appended it by hand at the Kutt rebuild's first
+# Ship (2026-11-03). Written empty here; an amendment keeps whatever Review already wrote.
+REVIEW_PLACEHOLDER = ["## Review", "",
+                      "<!-- Written once, in sdlc's Review, by the orchestrator (G5 step 4b). Keep it last. -->"]
+
+
+def _review_section(text):
+    m = re.search(r"^## Review\n[\s\S]*\Z", text, re.M)
+    return m.group(0).rstrip("\n").split("\n") if m else None
+
+
+def _change_text(slice_id, lane, branch, specs, commit, approver, date, acs, tests, amendments, review=None):
+    """acs: [(id, module, criterion)]; tests: {id: (test, run)}; review: the existing `## Review` lines."""
     approved = ", ".join(f"`{s}`" for s in specs)
     rows = [f"| {i} | {tests.get(i, ('TBD', '`TBD`'))[0]} | {tests.get(i, ('TBD', '`TBD`'))[1]} |" for i, _, _ in acs]
     # The title is a Conventional subject on purpose: sdlc's ship.py makes it the commit subject, and the
@@ -335,6 +347,8 @@ def _change_text(slice_id, lane, branch, specs, commit, approver, date, acs, tes
         "",
         "- Anything the approved specs do not ask for.",
         *(["", "## Amendments", "", *amendments] if amendments else []),
+        "",
+        *(review or REVIEW_PLACEHOLDER),
         "",
     ])
 
@@ -379,14 +393,14 @@ def _archive(args):
 def _write_record(args):
     def die(msg):
         return _die("lane-plan", msg)
-    value_flags = ("--worktree", "--specs", "--reason", "--branch", "--sdlc-root", "--risk", "--track")
+    value_flags = ("--worktree", "--specs", "--reason", "--branch", "--sdlc-root", "--risk", "--track", "--approved-by")
     slice_id, lane = (_positionals(args, value_flags) + [None, None])[:2]
     amend = "--amend" in args
 
     if not os.path.exists(os.path.join("locks", "pipeline.yaml")):
         return die("no locks/pipeline.yaml here — run from the workbench root.")
     if not slice_id or not lane or not _opt(args, "--worktree") or not _opt(args, "--specs"):
-        return die('usage: lane_plan.py <Sn> <lane> --worktree <path> --specs <a.md,b.md> [--risk low|high] '
+        return die('usage: lane_plan.py <Sn> <lane> --worktree <path> --specs <a.md,b.md> [--approved-by <name>] [--risk low|high] '
                    '[--track M|L] [--amend --reason "..."] [--branch <name>] [--sdlc-root <dir>]')
     if amend and not _opt(args, "--reason"):
         return die("--amend needs --reason: the amendment log is the only record the approved criteria changed.")
@@ -424,12 +438,18 @@ def _write_record(args):
     if dirty:
         return die(f"uncommitted changes to approved specs:\n{dirty}\nCommit them first — the approval has to point at text a commit holds.")
     commit = _git(".", "rev-parse", "--short", "HEAD")
-    try:
-        approver = _git(".", "config", "user.name")
-    except (subprocess.CalledProcessError, OSError):
-        approver = ""
+    # The approver is whoever approved the specs, which the orchestrator knows and git does not: in the
+    # Kutt rebuild the approval came through a coordinator, and git's user.name recorded the machine's
+    # owner. --approved-by names it; git's user.name stays the fallback, marked as such in the record.
+    approver = (_opt(args, "--approved-by") or "").strip()
     if not approver:
-        return die("git user.name is unset in the workbench, so the approval would name nobody.")
+        try:
+            approver = _git(".", "config", "user.name")
+        except (subprocess.CalledProcessError, OSError):
+            approver = ""
+        if not approver:
+            return die("no --approved-by and git user.name is unset in the workbench, so the approval would name nobody.")
+        approver += " (git user.name; pass --approved-by)"
 
     try:
         branch = _git(worktree, "branch", "--show-current")
@@ -489,11 +509,12 @@ def _write_record(args):
                 i, nxt, added = f"AC-{nxt:03d}", nxt + 1, added + 1
             acs.append((i, mod, crit))
         dropped = len(by_text)
-        am = re.search(r"^## Amendments\n\n([\s\S]*?)\n*\Z", old, re.M)
+        am = re.search(r"^## Amendments\n\n([\s\S]*?)\n*(?=^## |\Z)", old, re.M)
         amendments = [l for l in (am.group(1).split("\n") if am else []) if l.strip()]
         amendments.append(f"- {date} @ workbench {commit}, {approver}: {_opt(args, '--reason')} "
                           f"(criteria added {added}, dropped {dropped})")
-        _write_text(change_p, _change_text(slice_id, lane, branch, specs, commit, approver, date, acs, tests, amendments))
+        _write_text(change_p, _change_text(slice_id, lane, branch, specs, commit, approver, date, acs, tests, amendments,
+                                           _review_section(old)))
         feature = prior["feature"]
         try:
             _state_py(sdlc, worktree, "log", feature,

@@ -191,6 +191,10 @@ check("one criterion per spec criterion, verbatim, rule_id kept",
       re.search(r"^- \*\*AC-001\*\* — `billing`: A negative amount is rejected with 422\. rule_id: R-BILL-001$", ch1, re.M)
       and re.search(r"^- \*\*AC-002\*\* — `billing`: Totals round half-even to 2 dp\.$", ch1, re.M), ch1)
 check("the test cells are the lane's to fill", ch1.count("| TBD | `TBD` |") == 2, ch1)
+check("the change file ends in sdlc's `## Review`, empty for Review to fill",
+      ch1.rstrip().endswith(lane_plan.REVIEW_PLACEHOLDER[-1]) and ch1.count("## Review") == 1, ch1[-400:])
+check("with no --approved-by, the approver falls back to git's user.name and says so",
+      "approved by Eval Approver (git user.name; pass --approved-by)" in st1, st1)
 import commit_rules  # noqa: E402  (hooks/scripts: the subject rule the commit gate and the git hook apply)
 title = ch1.split("\n", 1)[0].lstrip("# ").strip()
 check("the change file's title is a Conventional subject (sdlc's ship.py makes it the commit subject)",
@@ -209,12 +213,14 @@ check("refuses a second record for an open lane", r.returncode == 1 and re.searc
 # --- amend: the lane's work kept where the criterion is unchanged ------------------------------
 feature = rec1["feature"]
 check("the lane can raise an amend: question", state_py("blocker", feature, "raise", "amend: AC-002 rounds per line").returncode == 0)
-w(lane_path, rec1["change"], ch1.replace("| AC-001 | TBD | `TBD` |", "| AC-001 | tests/test_neg.py | `pytest tests/test_neg.py` |"))
+REVIEW_WRITTEN = "## Review\n\n- **Verdicts:** code-reviewer-r1 PASS\n"
+w(lane_path, rec1["change"], ch1.replace("| AC-001 | TBD | `TBD` |", "| AC-001 | tests/test_neg.py | `pytest tests/test_neg.py` |")
+  .split("## Review")[0] + REVIEW_WRITTEN)
 r = lane_plan_cli(*ARGS, "--amend")
 check("--amend without --reason is refused", r.returncode == 1 and re.search(r"needs --reason", r.stderr), r.stderr)
 w(wb, "plan/specs/S1/billing.md", SPEC_V1.replace("half-even to 2 dp", "half-even to 2 dp, per line"))
 commit_all(wb, "spec amended")
-r = lane_plan_cli(*ARGS, "--amend", "--reason", "rounding is per line")
+r = lane_plan_cli(*ARGS, "--amend", "--reason", "rounding is per line", "--approved-by", "Ada (relayed by the coordinator)")
 ch2, st2 = change_text(), state_text()
 check("--amend re-approves", r.returncode == 0 and len(hooklib.APPROVAL_NOTE.findall(st2)) == 2, r.stderr + st2)
 check("an unchanged criterion keeps its id and its test", "| AC-001 | tests/test_neg.py | `pytest tests/test_neg.py` |" in ch2, ch2)
@@ -222,6 +228,9 @@ check("a changed criterion takes a new id and starts at TBD",
       re.search(r"^- \*\*AC-003\*\* — `billing`: Totals round half-even to 2 dp, per line\.$", ch2, re.M)
       and "| AC-003 | TBD | `TBD` |" in ch2 and "AC-002" not in ch2.split("## Amendments")[0], ch2)
 check("the amendment is logged", re.search(r"^- .*rounding is per line \(criteria added 1, dropped 1\)$", ch2, re.M), ch2)
+check("--approved-by names the approver as given", "Ada (relayed by the coordinator): rounding is per line" in ch2, ch2)
+check("an amendment keeps what Review wrote, still last",
+      ch2.rstrip().endswith("- **Verdicts:** code-reviewer-r1 PASS") and ch2.count("## Review") == 1, ch2[-400:])
 check("the lane's amend: question is resolved", "amend:" not in st2.split("## Open questions")[-1], st2.split("## Open questions")[-1])
 check("the record counts the amendment", record()["amendments"] == 1)
 

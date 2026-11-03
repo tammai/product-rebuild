@@ -5,7 +5,10 @@ Every dispatch is self-contained — subagents share no conversational context. 
 1. **Role file**: point at the agent definition (`agents/<role>.md`: miner, adr-drafter, data-model-drafter, spec-writer, rubric-judge, lane-worker). A lane's reviews are sdlc's agents, briefed the way sdlc's Review says (G5 step 4b).
 2. **Inputs** (absolute paths): the exact workbench files to read. Never "the matrix" —
    always `workbench/matrix/features.yaml`. For miners: the `sources.yaml` entries in
-   scope and the pinned reference commit. For lane-D miners specifically, also include the
+   scope and the pinned reference commit, and for a lane that observes the running reference,
+   `sources.yaml`'s `reference.run:` block by path (never its values copied into the brief, so a
+   moved port is one edit), with a line saying each `observed` finding names the URL it was
+   seen on. For lane-D miners specifically, also include the
    reference checkout's `graphify-out/graph.json` path when it exists (see
    `g1-mining.md`'s ground-truth graph step) so the miner queries it instead of grepping
    raw source cold. For adr-drafter (G4a): always include

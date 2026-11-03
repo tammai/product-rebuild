@@ -34,7 +34,13 @@ no evidence, no entry.
   to its entities, with no `when`). Each card is one `given`/`when`/`then` with concrete
   values, `evidence[]` carrying `basis` (and `line` wherever `transcribed`), `features[]`
   resolving against the matrix, and `entities[]` resolving against
-  `reference-erd*.mermaid`.
+  `reference-erd*.mermaid`. **The matrix does not exist yet at G1**: lane R writes provisional
+  `F-<DOMAIN>-nnn` ids and lists them, each with the lane A/D finding it stands for, in
+  `plan/drafts/rule-feature-ids.md`; G2 step 5 mints the matrix ids to match and rewrites any card
+  whose id it changed. Name each rule file after the domain the matrix will use
+  (`findings/rules/<domain>.yaml`): `validate.py` and `rules_for.py` join specs to cards by that file
+  name, and a mismatch (`links.yaml` against a `link-management` domain) made the Kutt specs carry
+  two domain keys each.
 
   **The failure side is a target, not an accident.** Error handlers, retries, rollbacks and
   fallback defaults carry rules that a rebuild drops without any test failing. The brief
@@ -186,7 +192,10 @@ Where a rebuild mines more than one reference, one file per reference:
 ## Ground-truth graph (lane D, source-access postures only)
 
 Before dispatching lane-D miners, build a knowledge graph of the reference source so they
-navigate it instead of grepping cold. Skip this whole section under clean-room posture
+navigate it instead of grepping cold. **Optional: only where the `/graphify` skill is installed**
+(it is not part of this plugin or sdlc). Without it, clone and check out the pinned commit (step 1
+with `git clone`) and tell the miners there is no graph; a reference of a few hundred files reads
+fine directly (the Kutt rebuild's 56-file reference did). Skip this whole section under clean-room posture
 (`license-posture.md` restricts lane D to no-code sources) — the repo is on the deny list,
 there is nothing to graph.
 
@@ -220,7 +229,7 @@ there is nothing to graph.
 Reference running locally (user-confirmed); lane D complete for schema/routes/permissions/
 jobs, including `reference-erd.mermaid`; lanes A–C complete; **lane R complete — every
 `calculation` and `eligibility` route lane D found has at least one Rule Card, and every card
-resolves its `features[]` and `entities[]`; a rule-bearing domain with zero `path_kind:
+resolves its `entities[]` (its `features[]` resolve at G2 step 5); a rule-bearing domain with zero `path_kind:
 error` cards is named in the Gate 1 review rather than passed over**; all findings validate; top-feature flows
 user-verified.
 

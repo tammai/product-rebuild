@@ -67,8 +67,9 @@ Run these steps in order at the start of every session that touches the pipeline
 ### Step 1 — Locate the workbench
 
 The workbench repo is the pipeline's state store. Look for `locks/pipeline.yaml` in the
-current directory, then in `./workbench/`. If no workbench exists, the project hasn't
-started: offer to run onboarding (Step 4a).
+current directory, then in `./workbench/`, then in `./*-workbench/` (where `rebuild_init.py <name>`
+creates it, beside the code repos). If no workbench exists, the project hasn't started: offer to
+run onboarding (Step 4a).
 
 **Then check which release made it.** The first line the call in Step 2 prints is `locks/pipeline.yaml`'s
 `rebuild_major` line: a workbench this release made says `rebuild_major: 2`. One that says `1` was made by
@@ -224,7 +225,9 @@ Gates are human decisions. When a phase's exit criteria are met:
 
 2. Present a **gate review** to the user: what is being locked, the key decisions inside
    it, open risks, what the rubric report flagged, and what becomes immutable afterward.
-3. Only after explicit user approval, run `python3 scripts/gate.py lock <gate-id>`.
+3. Only after explicit user approval, run `python3 scripts/gate.py lock <gate-id> --by "<who approved, and
+   how>"` (`"Tam Mai, in this session"`, `"Tam Mai, relayed by the coordinator"`). Without `--by` the
+   lock records the shell's `$USER`, which says who ran the command, not who approved.
 4. **Push the lock commit *and* its tag**: `git push && git push --tags`. Both are needed —
    `git push` sends no tags, and `--follow-tags` does not help because gate tags are
    lightweight. The tag is not a label: code repos pin this workbench as a submodule at

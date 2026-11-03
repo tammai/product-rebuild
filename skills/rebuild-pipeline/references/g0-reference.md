@@ -26,6 +26,10 @@ Goal: pick the reference and record the legal posture BEFORE any agent reads any
    Record the answer in `license-posture.md`. State clearly you are not a lawyer; if
    distribution plans are ambiguous, recommend professional advice before locking G0.
 3. Optional secondary reference for UX comparison only.
+
+   **Ask 3, 5 and 6 together, each with its usual answer**, and take any the kickoff already gives:
+   for a permissive third-party reference that is "none", "no, first attempt" and "nothing", and
+   one message settles all three instead of a stop each.
 4. **What is being rebuilt, and against which architecture playbook.** Two fields, one
    question, both written to `sources.yaml`'s `architecture:` block and both read by four
    later phases — ask them here because G4a is weeks away and the answers change G4b, G5
@@ -95,7 +99,12 @@ Goal: pick the reference and record the legal posture BEFORE any agent reads any
   the user chose the posture minutes ago and will not connect it to a `gh` flag.
 - Confirm the user can run the reference locally (Docker preferred; for a mobile reference,
   the old app installed on a real device or simulator, ideally from a backup of a real
-  install — see `g1-mining.md`). This becomes a hard G1 exit requirement.
+  install — see `g1-mining.md`). This becomes a hard G1 exit requirement. **Record how it runs
+  in `sources.yaml` `reference.run:`**: the compose files in order (an override for a missing
+  secret or a port goes in a file outside the checkout, so the pinned tree stays clean; to replace
+  a port list rather than add to it, the override needs `ports: !override`), the base URL, and how
+  a miner gets an account (a shipped config may disable sign-up and anonymous use, as Kutt's
+  does). Every miner brief points at that block, so a change is one edit.
 - **Run the preflight, last, once everything above is filled in.** From the workbench root:
   ```sh
   python3 scripts/preflight.py                              # detect

@@ -180,8 +180,22 @@ drafter's excerpt of the playbook, from the workbench root:
 the whole 60 to 70 KB playbook pays for it again on every turn; the excerpt is 2 to 17 KB. It lives
 under `plan/`, not `adr/`, because Gate 3 hashes `adr/`). Pass the excerpt's path, `adr/playbook.md`'s
 path (the authority the ADR cites), the exact `concerns:` value for that concern (or `N/A`), and the
-concern key itself, alongside the per-ADR brief. Present each to
-the user for decision IN DEPENDENCY ORDER; later ADRs cite earlier ones.
+concern key itself, alongside the per-ADR brief.
+
+**Then one consistency pass, before the user sees any of them.** Drafters run in parallel and cannot
+see each other, so the set disagrees at its seams even when each ADR is sound on its own: in the Kutt
+rebuild, eleven accepted ADRs held fifteen contradictions the rubric judge found in two rounds (who owns
+a counter, foreign keys across contexts, int vs UUID ids, an import graph that forbade the calls
+another ADR made, a decision deferred in a circle, plaintext vs hashed columns). Dispatch one fresh
+agent on the architect tier, read-only, with every ADR's path, and ask for a list of: the same thing
+decided two ways; a decision each ADR defers to another; one name spelled several ways; a call,
+foreign key or message one ADR needs and another forbids; and every NFR item (`nfr/`) and
+cross-cutting shape (error envelope, security headers, rate limits) that no concern owns. Rule on
+each with the user only where it is a real choice, then **rewrite the ADR bodies** to agree; an
+appended "reconciliation" section leaves a reader meeting the stale body first, and the judge scores
+that as two answers. Then present each to the user for decision IN DEPENDENCY ORDER; later ADRs cite
+earlier ones. Set each one's `status:` to what the user decided; `gate.py lock gate-3` refuses an ADR
+still `proposed`.
 
 ## Gate 3 review (present to user)
 

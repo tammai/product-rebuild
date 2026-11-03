@@ -194,6 +194,12 @@ check("the stack is sdlc's word for it: ci.setup none falls back to the option's
 ans = d.get("sdlc_setup_answers") or {}
 check("it hands sdlc's setup the workbench's answers (PRD, constitution, plugin keys, CI)",
       all(k in ans for k in ("prd", "constitution", "plugin_keys", "ci", "finalize")) and "../wb1" in ans.get("prd", ""), json.dumps(ans))
+check("the config says brownfield, matching the setup path the answers name",
+      cfg.get("project", {}).get("kind") == "brownfield" and ans.get("mode", "").startswith("brownfield"), json.dumps(cfg))
+check("the answers say they are the user's approval, and name no CI job this plugin does not ship",
+      "approval" in ans.get("precedence", "") and "license-scan job" in ans.get("ci", "")
+      and "added to that file" not in ans.get("ci", ""), json.dumps(ans))
+check("finalize says to commit sdlc's leftover lock before the merge", "scaffold.lock.json" in ans.get("finalize", ""), ans.get("finalize"))
 check("the config is the project's once written (class user)",
       json.load(open(os.path.join(repo, ".git", "rebuild-scaffold.lock.json")))["files"][".sdlc/config.json"]["class"] == "user")
 open(cj, "w").write(json.dumps({**cfg, "commands": {**cfg["commands"], "lint": "my own lint"}}))

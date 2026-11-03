@@ -220,6 +220,12 @@ reference:
   license: ""         # e.g. GPL-3.0, MIT
   kind: ""            # third-party | own-code (an app you already own and are replacing)
   upstream: ""        # active | frozen — frozen turns off G6's upstream re-mine
+  # How the reference runs on this machine, in one place. Moving its port in the Kutt rebuild
+  # meant editing three places that had to agree by hand, and two live miners' briefs.
+  run:
+    compose: []       # compose files in order: upstream's, then overrides kept OUTSIDE the checkout
+    base_url: ""      # where it answers (also list it under allowed:)
+    accounts: ""      # how a miner signs in or seeds one: a credentials file outside the repo, or a command
 # Which architecture playbook G4a decides against, and what this rebuild's output IS.
 # Read by G4a (which vendors the playbook to adr/playbook.md and hashes it into Gate 3),
 # by G4b, G5 and GP. Leave playbook empty for the org default; `none` disables the

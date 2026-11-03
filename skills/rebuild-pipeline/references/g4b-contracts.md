@@ -5,7 +5,14 @@ is), then three contract layers. The data models draft in parallel, one `data-mo
 per bounded context (their files are independent: cross-context references are by id only, so
 no context's diagram needs another's); they must all land and be reviewed before the contracts,
 which then draft per context in parallel. Until 1.4.0 the orchestrator drafted them one after
-another in its own context.
+another in its own context. **There is no contract-drafter agent:** the data models have
+`data-model-drafter`, and the contracts are drafted by subagents you brief per context (worker
+tier) or by you. Either way, give the drafter the lane D call-site and route findings and each
+ADR's path table, and have it write every operation's example and error response alongside the
+schema: the Kutt rebuild's contracts, written inline in one pass, came back from the judge with
+eight shape, error and example gaps, and about forty more surfaced only when the G5 specs were
+written against them. Before the judge, write one criterion-style sentence per operation of the
+first slice ("POST /v1/links with X returns Y"); a sentence you cannot write is a contract gap.
 
 ## Which mode this phase runs in — read `sources.yaml` before drafting anything
 
