@@ -170,11 +170,18 @@ big = lines(40)
 STATE = os.path.join(".sdlc", "state", "2026-11-03-m-s1-api.md")
 
 
-def state_of(status="active", branch="main", stage=4, amend=False):
-    """A lane's sdlc state file, as lane_plan.py leaves it: active, at Build, approved for a branch."""
+# sdlc 2.x numbers Define 1 and Build 4 (`Process: 2`); 3.x numbers them 1 and 2 (`Process: 3`).
+SDLC2 = {"process": 2, "Define": 1, "Build": 4}
+SDLC3 = {"process": 3, "Define": 1, "Build": 2}
+
+
+def state_of(status="active", branch="main", phase="Build", amend=False, sdlc=SDLC2, named=True):
+    """A lane's sdlc state file, as lane_plan.py leaves it: active, at Build, approved for a branch.
+    `named=False` drops the phase name from the Current: line, to test the fallback by number."""
     approval = f"- 2026-11-03 Stage 1: pass — rebuild-approval: branch {branch}; specs plan/specs/S1/a.md @ workbench abc1234; approved by Eval\n" if branch else ""
     question = "- amend: AC-002 contradicts R-X-001\n" if amend else "-\n"
-    return (f"# 2026-11-03-m-s1-api\nStatus: {status}\nProcess: 2\nCurrent: Stage {stage} – Build\n\n"
+    current = f"Stage {sdlc[phase]}" + (f" – {phase}" if named else "")
+    return (f"# 2026-11-03-m-s1-api\nStatus: {status}\nProcess: {sdlc['process']}\nCurrent: {current}\n\n"
             f"## Gate log\n{approval}\n## Deviations\n-\n\n## Open questions\n{question}")
 
 
@@ -209,8 +216,18 @@ check("an approval for another branch blocks it", blocked(wrong_branch) and re.s
 w(app, STATE, state_of(amend=True))
 amending = write(os.path.join(app, "src/a.go"), big)
 check("an open amend: question freezes non-trivial edits and says why", blocked(amending) and re.search(r"amend:", amending["err"]) is not None, amending["err"])
-w(app, STATE, state_of(stage=1))
+w(app, STATE, state_of(phase="Define"))
 check("a feature still in Define is not approved", blocked(write(os.path.join(app, "src/a.go"), big)))
+# sdlc 3.0 renumbered the phases: Build is Stage 2 there, which 2.x numbering would read as Define.
+w(app, STATE, state_of(sdlc=SDLC3))
+check("sdlc 3.x: a feature at Stage 2 – Build is approved", silent(write(os.path.join(app, "src/a.go"), big)))
+w(app, STATE, state_of(sdlc=SDLC3, phase="Define"))
+check("sdlc 3.x: a feature at Stage 1 – Define is not approved", blocked(write(os.path.join(app, "src/a.go"), big)))
+w(app, STATE, state_of(named=False))
+check("sdlc 2.x: a Current: line with no phase name falls back to Stage 4 or later", silent(write(os.path.join(app, "src/a.go"), big)))
+w(app, STATE, state_of(sdlc=SDLC3, named=False))
+check("an unnamed stage under an sdlc other than 2.x is not guessed at (fails closed)",
+      blocked(write(os.path.join(app, "src/a.go"), big)))
 w(app, STATE, state_of(status="done"))
 check("a finished feature (Status: done) approves nothing", blocked(write(os.path.join(app, "src/a.go"), big)))
 w(app, STATE, state_of(branch=None))

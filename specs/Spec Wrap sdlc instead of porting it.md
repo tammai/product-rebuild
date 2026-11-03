@@ -23,12 +23,13 @@ Claude Code resolves plugin dependencies natively (`plugin.json` → `dependenci
 
 ```json
 "dependencies": [
-  { "name": "sdlc",        "marketplace": "sdlc", "version": "^2.4" },
-  { "name": "sdlc-extras", "marketplace": "sdlc", "version": "^2.4" }
+  { "name": "sdlc",        "marketplace": "sdlc", "version": ">=2.4 <4" },
+  { "name": "sdlc-extras", "marketplace": "sdlc", "version": ">=2.4 <4" }
 ]
 ```
 
-- **`^2.4` is the floor because 2.4 carries the fix this plugin needs** (hookify and `role_guard` work in a session started above the repo; spike finding 2, option A below). Released as `sdlc--v2.4.1` on 2026-11-02; there is no 2.4.0 tag, which a range does not need.
+- **Either major runs it (2.1.0):** sdlc 3.0 renumbered its phases (ADR 0022 in tammai/sdlc), so the scripts and the spec gate read the phase by name and take Build's number from the state file sdlc writes; no stage number is hard-coded.
+- **2.4 is the floor because 2.4 carries the fix this plugin needs** (hookify and `role_guard` work in a session started above the repo; spike finding 2, option A below). Released as `sdlc--v2.4.1` on 2026-11-02; there is no 2.4.0 tag, which a range does not need.
 - **The marketplace move, in order.** product-rebuild ends up in the `sdlc` marketplace, installed as `product-rebuild@sdlc`. That needs a `product-rebuild` entry (source `github`, `tammai/product-rebuild`) in `tammai/sdlc`'s `.claude-plugin/marketplace.json`, which is a change in that repo. Until the entry exists, existing installs update through this repo's own `product-rebuild` marketplace, so:
   - **1.6.0** keeps this repo's `marketplace.json` and adds `"allowCrossMarketplaceDependenciesOn": ["sdlc"]` to it. Without that line the install completes **without** sdlc and the plugin then fails to load. The dependencies name `"marketplace": "sdlc"` explicitly, so they resolve the same before and after the move.
   - **The `sdlc` marketplace entry** is added once 1.6.0 is on `main`, so the first `product-rebuild@sdlc` install already has the dependencies.

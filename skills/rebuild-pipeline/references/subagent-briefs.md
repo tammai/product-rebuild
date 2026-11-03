@@ -151,7 +151,7 @@ file, and a hand-written stand-in prompt silently drops them.
 
 ## A lane's review (sdlc's, run by the orchestrator — G5 step 4b)
 
-There is no review brief of this pipeline's own. sdlc's Review section (`flow.md`, `## Review (Stage 5)`)
+There is no review brief of this pipeline's own. sdlc's Review section (`flow.md`, its `## Review` section)
 says what each review is told, and its `review-brief.md` is the brief: pass the paths it names (the
 lane's change file, state file, `git diff <Base> -- . ':!.sdlc'` from the lane's worktree, the
 criterion ids, the report path under `.sdlc/.work/findings/<feature>/`). Dispatch `sdlc:code-reviewer`

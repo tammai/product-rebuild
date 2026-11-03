@@ -20,12 +20,13 @@ its spec while the lane's own tests agree with it.
 
 The rebuild pipeline's `lane_plan.py` opened it when the user approved the slice's specs: a change
 file (`docs/sdlc/changes/<feature>.md`) with one `AC-nnn` per approved criterion, and a state file
-(`.sdlc/state/<feature>.md`) at Stage 4 with the approval in its Gate log. That approval is what the
+(`.sdlc/state/<feature>.md`) at Build with the approval in its Gate log. That approval is what the
 plugin's spec gate reads before it allows any edit over ~20 lines.
 
 Your build loop is **sdlc's Build**: read the change file, the state file, and only the
-`## Build (Stage 4)` section of `<sdlc>/skills/orchestrator/references/flow.md` (`<sdlc>` is the
-folder your brief names), and follow it. Type sdlc's scripts in full every time,
+`## Build (Stage …)` section of `<sdlc>/skills/orchestrator/references/flow.md` (`<sdlc>` is the
+folder your brief names), and follow it. sdlc 2.x numbers Build 4 and 3.x numbers it 2; the state
+file's `Current:` line names the phase either way, so go by the name. Type sdlc's scripts in full every time,
 `python3 <sdlc>/scripts/state.py` and `python3 <sdlc>/scripts/verify.py`: zsh does not split a
 `$S` variable into words. These differences from sdlc's text hold for every lane:
 
@@ -37,8 +38,8 @@ folder your brief names), and follow it. Type sdlc's scripts in full every time,
    (the exports, endpoints and dependencies the specs ask for, each with its criterion). Nothing
    else above `## Review` in the change file, ever: the criteria are approved text, and the slice
    review re-hashes them.
-2. **Red without `advance 4`.** You are already at Stage 4, and `state.py advance <f> 4` on it is
-   refused. Run only `verify.py red AC-001 AC-002 …`. Create the names a test imports first (a stub
+2. **Red without the advance to Build.** You are already at Build, and sdlc's Build step 1
+   (`state.py advance <f> <Build's number>`) is refused on it. Run only `verify.py red AC-001 AC-002 …`. Create the names a test imports first (a stub
    that raises), so each test fails rather than errors.
 3. **`verify.py` once, at the end.** It runs the repo's lint, type-check, build and fast suite, each
    criterion's own test, and the drift check. Fix until it passes. A file or name the plan did not

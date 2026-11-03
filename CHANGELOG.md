@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-03
+
+### Changed
+
+- **Runs on sdlc 2.x or 3.x.** sdlc 3.0 renumbered its phases (Define 1, Build 2, Review 3, Ship 4; 2.x used
+  1, 4, 5, 8), and 2.0.0's `^2.4` range made it fail to load next to sdlc 3.0.0 (`Requires "sdlc@sdlc" ^2.4,
+  installed 3.0.0`). The dependency range is now `>=2.4 <4` for sdlc and sdlc-extras, and nothing names a
+  stage by number:
+  - `lane_plan.py` reads Build's number from the `## Stages` checklist of the state file the installed
+    sdlc just wrote, and refuses rather than guesses when it can't (an unknown sdlc must not have its
+    lane advanced into Ship).
+  - The spec gate decides "at Build or later" by the phase name on the state file's `Current:` line, which
+    both versions write. A line with no name falls back to the number only on `Process: 2`; anything else
+    fails closed.
+  - `slice_review.py` shows `Stage <n> – <phase>`, and the lane-worker, `g5-build.md` and
+    `subagent-briefs.md` name phases, not numbers.
+  - Checked by `eval/lane_plan.py` against real sdlc 2.5.0 and 3.0.0 checkouts (`SDLC_PLUGIN_ROOT`) and the
+    installed 2.4.1, and by `eval/lane_guards.py` with 2.x and 3.x state files.
+- **A rebuild mid-lane when sdlc goes to 3.0:** sdlc 3.0's `state.py` refuses a `Process: 2` state file
+  until `/sdlc:upgrade` (or `state.py migrate`) renumbers it. Run that in each lane worktree before going
+  on; this plugin reads either numbering, so nothing on its side needs migrating.
+
 ## [2.0.0] - 2026-11-03
 
 This plugin now wraps sdlc instead of carrying copies of it: every build lane is an sdlc feature, built,

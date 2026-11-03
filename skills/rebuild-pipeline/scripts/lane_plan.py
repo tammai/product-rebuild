@@ -14,7 +14,7 @@ porting it.md). This script writes that feature's record at the moment you appro
   - the change file, `<docs_dir>/changes/<feature>.md`: `## Why` names the approved specs, the
     workbench commit and the approver; one `AC-nnn` per spec criterion, verbatim, `rule_id`
     included; an `## Acceptance tests` table whose Test and Run cells say `TBD`;
-  - the state file, through sdlc's own `state.py new`, then `state.py advance <f> 4` with the
+  - the state file, through sdlc's own `state.py new`, then `state.py advance` to Build with the
     approval in the Gate log (APPROVAL_NOTE below). The feature starts at sdlc's Build.
 The lane then fills in the HOW, which an approved spec does not name: each task's files (written
 `TBD` here, because state.py requires a value), the Public Surface, and the Test and Run cells. sdlc's Define writes those by hand too. The WHAT, the
@@ -37,6 +37,11 @@ change both.
 FINDING SDLC. `state.py` is sdlc's, so this script needs sdlc's install folder: `--sdlc-root`, else
 $SDLC_PLUGIN_ROOT, else the newest `sdlc@sdlc` in `installed_plugins.json` under $CLAUDE_CONFIG_DIR
 or ~/.claude. The plugin depends on sdlc, so an install without one cannot load the pipeline.
+
+WHICH SDLC. Any from 2.4 on. sdlc 3.0 renumbered its phases (2.x: Define 1, Build 4, Review 5,
+Ship 8; 3.x: 1, 2, 3, 4), so nothing here names a stage by number: Build's number is read from the
+state file the installed sdlc just wrote (stage_numbers()), and a lane's position is read by the
+phase name on its `Current:` line, which both write.
 
 It refuses rather than guesses: specs with uncommitted changes (the approval would point at text
 no commit holds), a worktree on a branch other than slice/<Sn>-<lane>, a repo sdlc has not set up,
@@ -123,13 +128,40 @@ def _field(text, name):
 
 
 def _section_items(text, heading):
+    return [l[2:].strip() for l in _section_lines(text, heading) if l.startswith("- ") and l[2:].strip()]
+
+
+# sdlc 2.x's numbering, for a state file whose Stages checklist can't be read. Only `Process: 2` means
+# 2.x; any other marker gets no guess, because a wrong Build number moves a lane into Ship.
+SDLC2_STAGES = {"Define": 1, "Build": 4, "Review": 5, "Ship": 8}
+
+
+def stage_numbers(state):
+    """{phase name: stage number} as the sdlc that wrote this state file numbers them, or None.
+    Read from its `## Stages` checklist (`- [ ] 2 Build`), which state.py writes for tracks M and L
+    (the only ones a lane uses) from its own constants, so the answer always matches the installed
+    sdlc, whichever version it is. Falls back to the 2.x numbers on `Process: 2`."""
+    found = {m.group(2): int(m.group(1)) for m in re.finditer(r"^- \[[ x]\] (\d+) (\w+)", "\n".join(
+        _section_lines(state, "Stages")), re.M)}
+    if "Build" in found:
+        return found
+    return dict(SDLC2_STAGES) if re.search(r"^Process:\s*2\b", state, re.M) else None
+
+
+def current_phase(state):
+    """(stage number, phase name) from `Current: Stage <n> – <Name>`, either part None if unreadable."""
+    m = re.search(r"^Current:\s*Stage\s+(\d+)(?:\s*[–-]\s*(\w+))?", state, re.M)
+    return (int(m.group(1)), m.group(2)) if m else (None, None)
+
+
+def _section_lines(text, heading):
     m = re.search(rf"^## {re.escape(heading)}\n([\s\S]*?)(?=^## |\Z)", text, re.M)
-    return [l[2:].strip() for l in (m.group(1) if m else "").split("\n") if l.startswith("- ") and l[2:].strip()]
+    return (m.group(1) if m else "").split("\n")
 
 
 def lane_state(lrec, root="."):
     """What slice_review.py reports for one lane: read from its sdlc record, or from the copy
-    `archive` took. {status, stage, acs, tested, amending, ac_edited, source} or {missing: reason}."""
+    `archive` took. {status, stage, phase, acs, tested, amending, ac_edited, source} or {missing: reason}."""
     arch = lrec.get("archived")
     if arch:
         change_p = os.path.join(root, arch["change"])
@@ -143,9 +175,9 @@ def lane_state(lrec, root="."):
         return {"missing": f"no sdlc record at `{change_p}` / `{state_p}`"}
     change, state = _read_text(change_p), _read_text(state_p)
     rows = _test_rows(change)
-    cur = re.search(r"^Current:\s*Stage\s+(\d+)", state, re.M)
+    stage, phase = current_phase(state)
     return {
-        "status": _field(state, "Status") or "(none)", "stage": int(cur.group(1)) if cur else None,
+        "status": _field(state, "Status") or "(none)", "stage": stage, "phase": phase,
         "acs": len(_ac_items(change)),
         "tested": len([1 for t, _ in rows.values() if t and t != "TBD"]),
         "amending": any(q.startswith(AMEND_PREFIX) for q in _section_items(state, "Open questions")),
@@ -327,7 +359,7 @@ def _archive(args):
     # Archiving is the claim that the lane is finished: sdlc's ship.py sets `Status: done` once
     # verify, the review the table fired and the commit are through. Anything else is still open.
     if st["status"] != "done":
-        return die(f"the lane's sdlc feature is Status: {st['status']} (Stage {st['stage']}). "
+        return die(f"the lane's sdlc feature is Status: {st['status']} (Stage {st['stage']} – {st['phase']}). "
                    "Only a lane sdlc shipped (Status: done) is archived.")
     dest_dir = os.path.join("plan", "lane-plans", "archive", f"{slice_id}-{lane}")
     copies = {}
@@ -491,7 +523,12 @@ def _write_record(args):
             out = _state_py(sdlc, worktree, "new", feature, "--track", track, "--risk", risk,
                             "--footprint", "0", "--build", "inline: this lane, one subagent; the orchestrator runs Review",
                             "--handoff", f"approved specs: {note_specs} (workbench {commit})", *tasks)
-            _state_py(sdlc, worktree, "advance", feature, "4", "--gate", "pass", "--note",
+            new_state = os.path.join(worktree, (out.get("event") or {}).get("state") or f".sdlc/state/{feature}.md")
+            build = (stage_numbers(_read_text(new_state)) or {}).get("Build") if os.path.exists(new_state) else None
+            if build is None:
+                raise RuntimeError("could not read Build's stage number from the state file it wrote "
+                                   "(no `## Stages` checklist, and not `Process: 2`): an sdlc this script does not know")
+            _state_py(sdlc, worktree, "advance", feature, str(build), "--gate", "pass", "--note",
                       f"rebuild-approval: branch {branch}; specs {note_specs} @ workbench {commit}; "
                       f"approved by {approver} (lane_plan.py)")
         except RuntimeError as e:

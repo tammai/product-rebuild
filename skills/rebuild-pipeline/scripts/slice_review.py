@@ -437,7 +437,7 @@ def main(argv=None):
                 lane_plan_md.append(f"- {lane}: {st['missing']}, so it was removed by hand. Approved @ workbench "
                                     f"{_show(rec, 'workbench_commit')} by {_show(rec, 'approved_by')}.")
                 continue
-            lane_plan_md.append(f"- {lane}: sdlc `{_show(rec, 'feature')}` · Status: {st['status']} · Stage {st['stage']} · "
+            lane_plan_md.append(f"- {lane}: sdlc `{_show(rec, 'feature')}` · Status: {st['status']} · Stage {st['stage']} – {st['phase']} · "
                                 f"{st['tested']}/{st['acs']} criteria with a named test · approved @ workbench "
                                 f"{_show(rec, 'workbench_commit')} by {_show(rec, 'approved_by')}"
                                 f"{' · ' + _str(rec['amendments']) + ' amendment(s)' if _truthy(rec.get('amendments')) else ''}"
@@ -454,7 +454,7 @@ def main(argv=None):
                       "found the spec wrong and is waiting on a re-approval (`lane_plan.py --amend`).")
             elif st["status"] != "done":
                 press(f"{lane}: its sdlc feature is not shipped",
-                      f"- **{lane}'s sdlc feature is `Status: {st['status']}` at Stage {st['stage']}**: sdlc has not shipped "
+                      f"- **{lane}'s sdlc feature is `Status: {st['status']}` at Stage {st['stage']} – {st['phase']}**: sdlc has not shipped "
                       "it (verify, the review its table fired, the commit), so the lane is not done.")
 
     # --- 3. standing ---------------------------------------------------------

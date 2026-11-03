@@ -144,7 +144,7 @@ step 1 registers it. Read that file now if no code repo exists yet.
      <the specs this lane builds> [--risk high]`. `--risk high` when the lane touches auth, payments,
      secrets, PII, a schema migration or a breaking change to a public API: sdlc's review table reads
      it. The script writes the change file (one `AC-nnn` per criterion, verbatim, `rule_id` kept) and,
-     through sdlc's own `state.py`, the state file at Stage 4 with the approval (approver, specs,
+     through sdlc's own `state.py`, the state file at Build with the approval (approver, specs,
      workbench commit, branch) in its Gate log. It prints sdlc's install folder, which the lane's
      brief names. It refuses specs with uncommitted changes, a worktree on the wrong branch, a repo
      sdlc has not set up, and a lane whose record is still open. It records each lane in
@@ -208,9 +208,9 @@ step 1 registers it. Read that file now if no code repo exists yet.
      Agent call, together with the build-lane brief, its worktree and the sdlc folder `lane_plan.py`
      printed. It is never `general-purpose`: the standing rules live in the agent file. The lane
      fills in the how, records every criterion red with `verify.py red`, builds, runs `verify.py`
-     once, commits and reports, at Stage 4.
+     once, commits and reports, still at Build.
    - **Then run sdlc's Review for that lane, as sdlc's orchestrator would.** Read only the
-     `## Review (Stage 5)` section of sdlc's `skills/orchestrator/references/flow.md` and follow it
+     `## Review (Stage …)` section of sdlc's `skills/orchestrator/references/flow.md` and follow it
      with the lane's worktree, change and state files: decide from sdlc's table (security on high
      risk or sensitive paths, code on a large diff, a public surface or L, UI on UI paths), dispatch
      each review once, fresh. The code review on an M lane is the built-in `code-review` skill, as

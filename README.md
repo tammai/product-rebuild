@@ -51,7 +51,7 @@ Three ideas carry everything:
 ## Install
 
 ```bash
-# product-rebuild is published in sdlc's marketplace; sdlc and sdlc-extras (2.4 or later) install with it
+# product-rebuild is published in sdlc's marketplace; sdlc and sdlc-extras (2.4 or later, 2.x or 3.x) install with it
 /plugin marketplace add tammai/sdlc
 /plugin install product-rebuild@sdlc
 

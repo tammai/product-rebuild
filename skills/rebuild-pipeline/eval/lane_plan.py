@@ -35,6 +35,17 @@ if not SDLC:
           "this eval drives sdlc's own state.py.")
     sys.exit(1)
 
+# What the sdlc under test calls Build, worked out here from its version rather than through
+# lane_plan.stage_numbers(), so the eval checks that function instead of repeating it. sdlc 3.0
+# renumbered the phases (ADR 0022 in tammai/sdlc). Run this eval with SDLC_PLUGIN_ROOT set to a 2.x
+# and to a 3.x checkout: lane_plan.py has to put the lane at Build on both.
+with open(os.path.join(SDLC, "plugin.json") if os.path.exists(os.path.join(SDLC, "plugin.json"))
+          else os.path.join(SDLC, ".claude-plugin", "plugin.json"), encoding="utf-8") as f:
+    SDLC_VERSION = json.load(f)["version"]
+SDLC3 = int(SDLC_VERSION.split(".")[0]) >= 3
+BUILD, PROCESS = (2, 3) if SDLC3 else (4, 2)
+print(f"sdlc {SDLC_VERSION} at {SDLC}: Build is Stage {BUILD}, Process: {PROCESS}")
+
 base = tempfile.mkdtemp(prefix="lane-plan-eval-")
 subprocess.run([sys.executable, os.path.join(SCRIPTS, "rebuild_init.py"), "lp", "--dir", base],
                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
@@ -170,8 +181,10 @@ head = sh(wb, "git", "rev-parse", "--short", "HEAD").strip()
 check("the approval names the spec, the workbench commit and the approver",
       re.search(rf"specs plan/specs/S1/billing\.md @ workbench {head}; approved by Eval Approver", st1), st1)
 check("the feature is active, at Build, in sdlc's own format",
-      re.search(r"^Status: active", st1, re.M) and re.search(r"^Current: Stage 4", st1, re.M)
-      and re.search(r"^Process: 2", st1, re.M), st1[:600])
+      re.search(r"^Status: active", st1, re.M) and re.search(rf"^Current: Stage {BUILD} – Build", st1, re.M)
+      and re.search(rf"^Process: {PROCESS}", st1, re.M), st1[:600])
+check("the Build stage number came from the state file sdlc wrote", lane_plan.stage_numbers(st1).get("Build") == BUILD,
+      lane_plan.stage_numbers(st1))
 check("the feature name is sdlc's: date, track, lowercase slice, lane",
       re.fullmatch(r"\d{4}-\d\d-\d\d-m-s1-api", record()["feature"]), record()["feature"])
 check("one criterion per spec criterion, verbatim, rule_id kept",
@@ -220,9 +233,9 @@ def review():
 
 
 sr = review()
-check("slice-review lists the lane's sdlc record", re.search(r"- api: sdlc `.*-m-s1-api` · Status: active · Stage 4 · 1/2 criteria with a named test", sr), sr[:1200])
+check("slice-review lists the lane's sdlc record", re.search(rf"- api: sdlc `.*-m-s1-api` · Status: active · Stage {BUILD} – Build · 1/2 criteria with a named test", sr), sr[:1200])
 check("an untouched record raises nothing about criteria", not re.search(r"no longer matches what lane_plan\.py wrote", sr))
-check("a lane sdlc has not shipped is pressed", re.search(r"api's sdlc feature is `Status: active` at Stage 4", sr), sr[:1500])
+check("a lane sdlc has not shipped is pressed", re.search(rf"api's sdlc feature is `Status: active` at Stage {BUILD} – Build", sr), sr[:1500])
 w(lane_path, record()["change"], ch2.replace("rejected with 422", "rejected with 400"))
 sr = review()
 check("a hand-edited criterion is named in the review", re.search(r"no longer matches what lane_plan\.py wrote", sr), sr[:1500])
@@ -270,9 +283,9 @@ for label, needle in (
         ("migrations: not up on a shared stack", "Never run a migration `up` against a shared stack"),
         ("helpers: own worktree and record", "A helper's worktree needs its own approved sdlc"),
         ("helpers: never copy the record", "Never copy your own record"),
-        ("sdlc: the build loop is sdlc's Build", "`## Build (Stage 4)` section"),
+        ("sdlc: the build loop is sdlc's Build", "`## Build (Stage …)` section"),
         ("sdlc: Test is a file path (the spike)", "Test is the test **file path**"),
-        ("sdlc: red without advance 4 (the spike)", "Run only `verify.py red AC-001 AC-002 …`"),
+        ("sdlc: red without the advance to Build (the spike)", "Run only `verify.py red AC-001 AC-002 …`"),
         ("sdlc: stub before red (the spike)", "Create the names a test imports first"),
         ("sdlc: stop after Build, Review is the orchestrator's", "Stop after Build"),
         ("sdlc: amend through a blocker", 'blocker <feature> raise "amend:')):

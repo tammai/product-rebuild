@@ -273,11 +273,24 @@ def main(argv=None):
         except Exception:
             return None  # not a git repo, or git unavailable
 
+    def past_define(text):
+        """Is this feature at Build, Review or Ship? Read by the phase NAME on the Current: line, which
+        every sdlc writes, because the numbers changed in sdlc 3.0 (2.x: Build 4, Review 5, Ship 8;
+        3.x: 2, 3, 4) and this plugin runs on either. A line with no name falls back to the number
+        only on `Process: 2`, the one numbering known to be 2.x; anything else is not approved, so an
+        unknown sdlc fails closed rather than reading Define as Build."""
+        m = re.search(r"^Current:\s*Stage\s+(\d+)(?:\s*[–-]\s*(\w+))?", text, re.M)
+        if not m:
+            return False
+        if m.group(2):
+            return m.group(2) in ("Build", "Review", "Ship")
+        return bool(re.search(r"^Process:\s*2\b", text, re.M)) and int(m.group(1)) >= 4
+
     def lane_verdict():
         """{ok: True} | {ok: False, why: "none" | "amending" | "branch", declared, actual}.
 
         Approved means: an sdlc feature in this worktree with `Status: active`, past Define
-        (`Current: Stage 4` or later), whose Gate log carries lane_plan.py's approval line for this
+        (`Current: Stage <n> – Build`, Review or Ship), whose Gate log carries lane_plan.py's approval line for this
         worktree's branch, and no open `amend:` question. sdlc's new layout keeps state files in
         .sdlc/state/<f>.md, the legacy one in .sdlc/<f>/state.md; both are read. A feature another
         lane left behind (merged into the tree this branch was cut from) is either done, or names
@@ -294,9 +307,8 @@ def main(argv=None):
                 continue
             if not re.search(r"^Status:\s*active\b", text, re.M | re.I):
                 continue
-            stage = re.search(r"^Current:\s*Stage\s+(\d+)", text, re.M)
             approvals = [m.group(1) for m in APPROVAL_NOTE.finditer(text)]
-            if not approvals or not stage or int(stage.group(1)) < 4:
+            if not approvals or not past_define(text):
                 continue
             # A detached HEAD has no branch to compare: git can't answer, so don't block on it.
             if actual and actual not in approvals:
