@@ -51,18 +51,20 @@ Three ideas carry everything:
 ## Install
 
 ```bash
-# product-rebuild is published in sdlc's marketplace; sdlc and sdlc-extras (2.4 or later, 2.x or 3.x) install with it
+# product-rebuild has its own marketplace; its dependencies, sdlc and sdlc-extras
+# (2.4 or later, 2.x or 3.x), come from sdlc's, so add both
 /plugin marketplace add tammai/sdlc
-/plugin install product-rebuild@sdlc
+/plugin marketplace add tammai/product-rebuild
+/plugin install product-rebuild@product-rebuild
 
 # or for local development, load your working copy and sdlc's for one session:
 claude --plugin-dir /path/to/sdlc --plugin-dir /path/to/product-rebuild
 ```
 
-Claude Code installs the dependencies itself, from the same marketplace. Without them this plugin is disabled
-with a dependency error (`claude plugin list` names it). An install of `product-rebuild@product-rebuild` (1.x,
-from this repo's own marketplace, which 2.0.0 removed) stops updating: uninstall it and install
-`product-rebuild@sdlc`.
+Claude Code installs sdlc and sdlc-extras itself, from the `sdlc` marketplace, which is why that one must be
+added too. Without them this plugin is disabled with a dependency error (`claude plugin list` names it).
+An install of `product-rebuild@sdlc` (2.0.0 to 2.1.2) stops updating once sdlc's marketplace drops it:
+uninstall it and install `product-rebuild@product-rebuild`.
 
 Requires Python ≥ 3.9 (standard library only: there is nothing to `pip install`, and the YAML reader
 ships inside the plugin), git, and Docker (you will run the reference product locally — it's

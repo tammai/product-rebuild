@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-11-06
+
+### Changed
+
+- **Installed as `product-rebuild@product-rebuild` again**, from this repo's own marketplace
+  (`/plugin marketplace add tammai/product-rebuild`): sdlc 3.2.0 drops product-rebuild from its marketplace.
+  `marketplace.json` is back, with `allowCrossMarketplaceDependenciesOn: ["sdlc"]`, so sdlc and sdlc-extras
+  still install from `tammai/sdlc`, which must be added too (README, Install). An install of
+  `product-rebuild@sdlc` stops updating; reinstall as `product-rebuild@product-rebuild`.
+
 ## [2.1.2] - 2026-11-03
 
 From the Kutt rebuild's closing notes.
