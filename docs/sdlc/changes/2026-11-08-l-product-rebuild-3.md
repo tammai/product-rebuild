@@ -161,3 +161,22 @@ Later parts (refined when each part starts):
 
 - Parts 2–6 (each its own task); the end-to-end runs in 06-rollout.md (W5); final dependency pins and the release.
 - A sandbox: the guard does not stop a lane that computes a path at run time; the README says so.
+
+## Review
+
+Round 1 (2026-11-09): code FAIL (H1-H7, M1-M6, M9), security FAIL (S1-S4, S6, S7); fixed test-first in b1bdc8a and db389b8, the coordinator's Q1-Q3 applied.
+
+Round 2 (2026-11-09, the cap; reports `.sdlc/.work/findings/2026-11-08-l-product-rebuild-3/code-reviewer-r2.md`, `security-r2.md`):
+
+- Confirmed fixed: H1, H3, H5, H6, H7, H8, M1-M11 (M10 dropped: sdlc's role_guard covers it), S5, S6, S7, S11.
+- **Code FAIL, N1:** G5's joint run writes into the workbench (phases.txt, the AC JUnit and its re-run, the run meta), which the Q2 write guard now denies; and boundary.py reads the JUnit from the code repos, not the workbench where parity.py and slice_review.py read it (H4 only partly fixed). A design conflict with Q2.
+- **Code FAIL, N2:** any `rspec:verify` after the split (every `rspec:amend` ends with one; step 0 names it) rebuilds `acceptance/manifest.json` and `levels.json` without the hidden criteria, so the hidden suite reports them `not run`, Gate 4 cannot relock, and step 0 refuses the slice. An rspec interplay.
+- **Security FAIL, same components as round 1:**
+  - S1 (split): the history check uses `git log --all`, so a rewrite that leaves the reflog or loose objects passes.
+  - S2, S3, S4, S8 (reference guard): further bypasses of the same enumerated classes: recursive readers not listed (`grep -d recurse`, `diff -rN`); Windows aliases (`p-holdout.`, `P-HOLD~1`) inside interpreter code; writers not listed (`unlink`, `find -delete`, `yq -i`, git plumbing and aliases, nested `cmd`/`powershell`, interpreter writes); PowerShell comma lists, `-Depth`, `-Recurse:$true`. Deleting `locks/pipeline.yaml` switches every 3.x guard off.
+- Per the review rule (round 2 failing again in the same component: stop and propose a redesign), nothing further was patched. The proposal went to the coordinator:
+  - The guard stops enumerating. Deny a lane any Bash or PowerShell command that names a workbench, holdout or reference path, except an allowlist of readers and the named vendored scripts. Fail closed when a workbench has `locks/` but no readable marker. Or, sturdier, hold the holdout outside the project parent, where no lane is ever given a path (P3's guard then guards only the reference).
+  - The split checks blob ids with `git cat-file -e`, not reachable paths.
+  - N1 (where the joint run writes) and N2 (how hidden criteria survive a re-verify) need the coordinator's decision.
+
+Tickets (left on purpose): M12 (route rounds per run), M13 (gate-5 level None, cost.py nan, extractall on old 3.9, vendor after gate-3, round_cap order), M14 (posture resolver copies), F1 and F2 (stale 2.x wording, "change together" lists), S9 (`reference:` with a trailing comment), S10 (playbook path containment), M-N3 (BND ids collide across the workbench and holdout folders), M-N4 (an explained non-http open failure leaves the boundary red), M-N5 (route matches departures against the observed sentence), parity.py not reading departures (P7), security-r2 N1 (dispatching a helper of another agent type, unconfirmed) and Minors M1-M4.

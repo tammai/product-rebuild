@@ -71,6 +71,7 @@ parts in fresh sessions: each backlog part is its own coordinator task
 - 2026-11-09 review: ran code + security (Code: L, Public Surface not none, large diff; Security: the change file's failure modes name untrusted input reaching a file path), self-chosen: L
 - 2026-11-09 verify after the review round 1 fixes: only the test step fails, and only the three evals in .sdlc/baseline.md (lane_guards worktree check, run_supervision's two stall checks, windows_and_upgrade's CRLF gate-guard check); every AC passes, drift clean
 - 2026-11-09 Stage 2: pass — round 1 fixes done (b1bdc8a, db389b8); verify fails only on the baselined evals
+- 2026-11-09 review round 2 (cap): code FAIL N1, N2; security FAIL S1, S2, S3, S4, S8 (same components as round 1). Stopped per the review rule; redesign proposal and N1/N2 decisions sent to the coordinator; the rest are tickets in the change file's ## Review
 
 ## Deviations
 - 2026-11-08 surface What: script-internal functions allowed, bash_reaches, check, denied, denied_roots, guard, init_repo, is_lane, main, marked, posture_of, run, set_reference, tool_reaches, w (hooks/scripts/reference_guard.py and the evals) read as new exports. Why: they are functions inside a hook and eval scripts, imported by nothing. Effect: none; Public Surface unchanged.
