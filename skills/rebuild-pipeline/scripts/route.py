@@ -34,7 +34,14 @@ import os
 import re
 import sys
 
-ROUND_CAP = 2
+ROUND_CAP = 2  # rebuild.yaml budgets.fix_rounds overrides it (05 P9)
+
+
+def round_cap():
+    p = "rebuild.yaml"
+    block = re.search(r"^budgets:[ \t]*\n((?:(?:[ \t]+.*)?\n)*)", read_text(p) + "\n", re.M) if os.path.exists(p) else None
+    m = block and re.search(r"^[ \t]+fix_rounds:[ \t]*(\d+)", block.group(1), re.M)
+    return int(m.group(1)) if m else ROUND_CAP
 SECTIONS = ("sdlc", "rspec", "human", "orchestrator", "not routed", "dropped", "invalid")
 
 
@@ -192,8 +199,9 @@ def main(argv=None):
               f"{len(groups['invalid'])} invalid).")
         return 0
     n = len(st["rounds"]) + 1
-    if n > ROUND_CAP:
-        return die(f"{sid} has had {ROUND_CAP} fix rounds and findings are still open. As in sdlc's Review, the user "
+    cap = round_cap()
+    if n > cap:
+        return die(f"{sid} has had {cap} fix round{'s' if cap != 1 else ''} and findings are still open. As in sdlc's Review, the user "
                    f"decides: another round, departures for what stays different, or tickets.")
     for feat, items in sorted(by_feature.items()):
         lane = f"fix-r{n}-{feat.lower()}"
@@ -207,7 +215,7 @@ def main(argv=None):
               "orchestrator": "orchestrator — flaky or environment: fix the harness",
               "not routed": "not routed — not reproduced by a fresh verifier (contracts C6)",
               "dropped": "dropped — accepted departures", "invalid": "invalid — not finding-v1"}
-    body = [f"# Fix round {n}, {sid}", "", f"Round {n} of {ROUND_CAP}. Routed by `route.py` from contracts C6; close what a "
+    body = [f"# Fix round {n}, {sid}", "", f"Round {n} of {cap}. Routed by `route.py` from contracts C6; close what a "
             f"round fixes with `route.py {sid} --close <ids>`.", ""]
     for k in SECTIONS:
         body += [f"## {titles[k]}", ""] + (groups[k] or ["- none"]) + [""]

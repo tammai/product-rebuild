@@ -143,13 +143,21 @@ per-phase by design to keep context lean:
 |---|---|---|
 | Not started | `references/g0-reference.md` | Onboarding interview, scaffold workbench |
 | G0 (scaffolded, no `preflight.json` or Not-ready) | `references/g0-reference.md` | Finish the interview, fill `sources.yaml`, `python3 scripts/preflight.py` until Ready / Ready-with-gaps |
-| Toward gate-1 (G0 done) | nothing here: rspec's skills | `rspec:init` in the workbench (rspec's single-repo layout, `docs/`), `rspec:discover`, `rspec:features` (the user approves the list) → Gate 1 |
+| Toward gate-1 (G0 done) | nothing here: rspec's skills | `rspec:init` in the workbench (rspec's single-repo layout, `docs/`; goal `production`, which a rebuild always is: Gate 1 refuses any other), `rspec:discover`, `rspec:features` (the user approves the list) → Gate 1 |
 | Toward gate-3 | the playbook `sources.yaml` names (its stack line) | `rspec:stories`; the stack preference (4d); `rspec:tech`; the ADR approval, which is `rspec:handoff` step 1 → Gate 3 |
 | Toward gate-2 | nothing here: rspec's skills | `rspec:audit`, `rspec:verify` (skipped when `reference.run.kind` is `none`), the rest of `rspec:handoff` (the build plan, ≤ 10 criteria per slice) → Gate 2 |
 | Toward gate-4 | nothing here: rspec's skills | `rspec:check` (writes `docs/criteria.lock.json`); `python3 scripts/holdout.py split` (draws the hidden tests into `<project>-holdout/`; commit the workbench after it); review the contracts and tests → Gate 4 (records the split; MVP level 2 ≥ 90% unless `strict`, or the user's signed reason) |
 | G5 | `references/g5-build.md` (plus `references/g5-first-slice.md` for the first slice's repo checklist, an inbound-webhook slice, and the S1 runbook), with the 3.0 slice loop (4e) in place of its spec-writing steps | Per-slice fan-out to build subagents; the between-slices sequence at the end of it |
 | G6 | 4f below (and `references/g6-parity.md` for the parity report and slice review) | `boundary.py <Sn>`, cheapest step first; `route.py`; the human sample |
-| GP | `references/gp-production.md` | Readiness checklist, Gate 5 review |
+| GP | `references/gp-production.md` | rspec's readiness checklist, `gp.py nfr` (each NFR's verification run on the production candidate), Gate 5 review |
+
+**Budgets and cost (05 P9).** G0 shows the user `rebuild.yaml`'s budgets once (parallel lanes, recorders,
+hunters per slice, bug-hunter tokens per slice, fix rounds) and they edit it there; the scripts that spend each
+one read it. After every subagent or plugin run you orchestrate (rspec stages, lanes, reviews), record it:
+`python3 scripts/cost.py add [--slice <Sn>] --stage <stage> --plugin <p> --agent <a> --tier <t> --wall-s <n>
+--turns <n> --tokens-in <n|null> --tokens-out <n|null> --result <r>`, with the numbers the host reported (never
+guessed). bug-hunter writes its own through the `--cost-log` boundary.py names. `boundary.py` prints the slice's
+cost by stage.
 
 **4a — Onboarding (no workbench).** Interview the user: which reference product, why,
 distribution intent (this decides license posture), whether the reference is third-party or

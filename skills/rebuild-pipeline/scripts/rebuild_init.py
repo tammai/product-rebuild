@@ -39,7 +39,7 @@ SCRIPTS = [
     "sequence.py", "slice_review.py", "acsuite.py", "routing.py",
     "preflight.py", "upgrade.py", "equiv.py", "lanes_check.py",
     "lane_plan.py", "run_phases.py", "boundary.py", "rules_for.py", "cite_excerpts.py", "evidence_bundle.py", "gate_facts.py",
-    "holdout.py", "departures.py", "route.py",
+    "holdout.py", "departures.py", "route.py", "gp.py", "cost.py",
     # The YAML and JSON-schema readers every checking script imports, and the PyYAML they sit on.
     "yamlio.py", "schemacheck.py",
 ]
@@ -156,6 +156,7 @@ def main(argv=None):
     write("sources.yaml", SOURCES_YAML)
     write("license-posture.md", LICENSE_POSTURE)
     write("repos.yaml", REPOS_YAML)
+    write("rebuild.yaml", REBUILD_YAML)
     write("contracts/data-model/README.md", DATA_MODEL_README)
     write("parity/flows/README.md", FLOWS_README)
 
@@ -167,7 +168,7 @@ def main(argv=None):
         ("gate-2", "Slice-plan lock", ["docs/build-plan.md"]),
         ("gate-4", "Contract lock", ["docs/openapi.json", "docs/schemas/", "docs/criteria.lock.json",
                                      "docs/acceptance/manifest.json"]),
-        ("gate-5", "Prod-ready lock", ["parity/production-readiness.md"]),
+        ("gate-5", "Prod-ready lock", ["docs/production-readiness.md", "parity/gp/nfr-evidence.md"]),
     ]
     for gid, title, protects in gates:
         listing = "\n".join(f"  - {p}" for p in protects)
@@ -401,6 +402,19 @@ python3 scripts/parity.py     # reads that XML and puts the AC pass rate in pari
 
 Maestro needs macOS or Linux (WSL on Windows). Android runs headless in CI; iOS runs on
 simulators only, so the iOS leg needs a Mac runner.
+'''
+
+# The budgets G0 shows the user once (05 P9). Each is read by the script that spends it; edit them here.
+REBUILD_YAML = '''
+# Budgets for this rebuild (05 P9). G0 shows them once; change them here, never per run.
+budgets:
+  parallel_lanes: 3          # build lanes open at once per slice (lane_plan.py refuses the next one)
+  recorders: 4               # rspec:verify recorder agents in parallel (the skill passes it to rspec)
+  hunters_per_slice: 6       # bug-hunter hunters per slice boundary (--max)
+  bughunter_tokens_per_slice: 1200000  # bug-hunter --budget, in its preview units (fresh tokens): 6 hunters x B0's
+                             # worst case of 100k each plus 5 verifiers x 20k. B0's processed tokens, cache reads
+                             # included, ran 3-18x the preview, so expect the bill in those terms to be larger.
+  fix_rounds: 2              # route.py fix rounds per slice before the user decides (as sdlc's Review)
 '''
 
 PIPELINE_YAML = '''

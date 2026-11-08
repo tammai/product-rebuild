@@ -37,6 +37,14 @@ Spec: [docs/specs/rebuild-upgrade/05-product-rebuild.md](../../specs/rebuild-upg
 - Human sample as proposed: a person comparing against the running reference is the verifier (design rule 2); kept in `plan/slice-reviews/<Sn>.md`, which `slice_review.py` now carries over instead of overwriting.
 - P7 readers in B4: `equiv.py accept` and `flows.py unlock --weakens` write departures; holdout, gate-5 and route.py read them.
 
+**Coordinator answers for part 5 (task pr-5, 2026-11-09, as proposed with one change):**
+- The rspec template PR: the brief forbids editing rspec, so the merged template and a PR description are written here (`docs/rspec-pr/`) and the coordinator dispatches them to the rspec worker. GP reads rspec's `docs/production-readiness.md`; gate-5 protects it instead of `parity/production-readiness.md`.
+- `gp.py nfr|check` for NFR evidence; drills stay the user's.
+- Gate 5 refuses on P8's list plus the readiness checklist and NFR evidence; a hidden test `not run` refuses (design rule 6); "below level 1" is level 0. Gate 1 enforces goal `production`.
+- Budgets as proposed, with `bughunter_tokens_per_slice: 1200000` (6 hunters × B0's worst case of 100k each plus 5 verifiers × 20k), in bug-hunter's preview units (fresh tokens); B0's processed tokens with cache reads ran 3–18× that.
+- `cost.py add` writes C7 lines per slice; P10 parking as proposed.
+- The gate-1 / departures.yaml question is still with the user; `departures.gate1_allows_append` stays the single switch.
+
 ## Decisions
 
 | Decision | Ruled out | Why |
@@ -77,7 +85,12 @@ Later parts (refined when each part starts):
 - **AC-020** 05 P6 step 6 (B4): `boundary.py sample <Sn>` picks 2–3 of the slice's features from a recorded seed, weighted to criteria below level 2, into `plan/slice-reviews/<Sn>.md`; each `differs` line becomes a reproduced finding with the reviewer as verifier.
 - **AC-021** 05 P7 (B4): `departures.yaml` explains differences everywhere: a hidden failure a decided departure names is `explained`; `equiv.py accept` and `flows.py unlock --weakens` write departures (no more DECISIONS.md for accepted differences); gate-5 refuses only on a red trace no departure explains. While gate-1 hashes `departures.yaml`, a departure added after its lock is refused with nothing written (pending the user's decision on the gate-1 row).
 - **AC-022** 05 P6 routing (B4): `lane_plan.py <Sn> <lane> --fix <round> --findings <ids>` opens a fix lane whose ACs cite each finding's criterion (or restate what the build did when it has none), refusing a finding the round did not route to sdlc.
-- **AC-010** 05 P8–P10 (B5): Gate 5 refuses on each P8 condition; budgets and cost logs per P9.
+- **AC-010** 05 P8 (B5): Given a workbench otherwise ready, when `gate.py lock gate-5` checks it, then it refuses on each of: an unchecked item in rspec's `production-readiness.md`; an NFR without evidence; a hidden test that failed or did not run; a red equivalence trace no departure explains; an open high finding; a `proposed` departure; an MVP criterion below level 1. Gate 1 refuses a rebuild whose `docs/rspec.json` goal is not `production`.
+- **AC-023** 05 P8 (B5): `gp.py nfr` lists every NFR with its own Verification in `parity/gp/nfr-evidence.md`, keeping filled rows; `gp.py check` fails on any row without evidence and a pass or `n/a: <reason>`, and on a drill without the person who performed it.
+- **AC-024** 05 P9 (B5): a new workbench has `rebuild.yaml` budgets (parallel lanes 3, recorders 4, hunters per slice 6, bug-hunter tokens per slice 1,200,000, fix rounds 2), and the scripts that spend them read them: the lane cap, `route.py`'s round cap, and the bug-hunter command `boundary.py` prints (`--max`, `--budget`, `--cost-log logs/<Sn>/cost.jsonl`).
+- **AC-025** 05 P9 (B5): `cost.py add` appends a contracts C7 line to `logs/<Sn>/cost.jsonl`, and `boundary.py` prints the slice's cost by stage beside its quality figures (`not run: no cost log` without one).
+- **AC-026** 05 P10 (B5): `autopilot.py park` records a decision autopilot may not take, and `autopilot.py blocked <target>` says whether a gate, boundary or slice's lanes depend on a parked one: a parked human sample of S1 blocks S1's boundary and Gate 5, not S2's lanes.
+- **AC-027** 05 P8 (B5): GP's own checklist items are merged into rspec's production-readiness template as a PR proposal in `docs/rspec-pr/` (the rspec repo is not edited here). `[manual: a document for the rspec worker, checked in review]`
 - **AC-011** 05 P1 (B6): `docs/MIGRATION-3.md` maps every 2.x capability to its 3.0 owner with a passing test or fixture, before any deletion.
 
 ## Acceptance tests
@@ -104,7 +117,12 @@ Later parts (refined when each part starts):
 | AC-020 | skills/rebuild-pipeline/eval/g6_eval.py › sample | `python3 skills/rebuild-pipeline/eval/g6_eval.py sample` |
 | AC-021 | skills/rebuild-pipeline/eval/g6_eval.py › departures | `python3 skills/rebuild-pipeline/eval/g6_eval.py departures` |
 | AC-022 | skills/rebuild-pipeline/eval/g6_eval.py › fix | `python3 skills/rebuild-pipeline/eval/g6_eval.py fix` |
-| AC-010 | skills/rebuild-pipeline/eval/gate5.py (B5) | `python3 skills/rebuild-pipeline/eval/gate5.py` |
+| AC-010 | skills/rebuild-pipeline/eval/gp_eval.py › gate5 | `python3 skills/rebuild-pipeline/eval/gp_eval.py gate5` |
+| AC-023 | skills/rebuild-pipeline/eval/gp_eval.py › nfr | `python3 skills/rebuild-pipeline/eval/gp_eval.py nfr` |
+| AC-024 | skills/rebuild-pipeline/eval/gp_eval.py › budgets | `python3 skills/rebuild-pipeline/eval/gp_eval.py budgets` |
+| AC-025 | skills/rebuild-pipeline/eval/gp_eval.py › cost | `python3 skills/rebuild-pipeline/eval/gp_eval.py cost` |
+| AC-026 | skills/rebuild-pipeline/eval/gp_eval.py › park | `python3 skills/rebuild-pipeline/eval/gp_eval.py park` |
+| AC-027 | manual | the merged template and PR description in docs/rspec-pr/, checked in review |
 | AC-011 | skills/rebuild-pipeline/eval/migration_3.py (B6) | `python3 skills/rebuild-pipeline/eval/migration_3.py` |
 
 ## Must never break

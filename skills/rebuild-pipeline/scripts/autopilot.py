@@ -841,9 +841,76 @@ def cmd_status(args, state):
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Parked decisions (05 P10). Some decisions are never automatic: Gate 1's approval when a used feature
+# would be dropped, a departure, the human sample, a production deploy, Gate 5. An unattended run parks
+# them, and a parked one blocks only what depends on it, so the rest of the slice goes on: a parked human
+# sample holds that slice's boundary and Gate 5, never the next slice's lanes. `blocked <target>` is what a
+# run asks before starting a step (targets: gate-<n>, boundary:<Sn>, lanes:<Sn>). JSON, not the YAML subset
+# above: it holds a list, and only this script reads it.
+# ---------------------------------------------------------------------------
+PARKED = os.path.join("plan", "parked.json")
+
+
+def parked_blocks(item):
+    """The targets a parked decision holds."""
+    what, sid = item.get("what"), item.get("slice")
+    blocks = {"human-sample": [f"boundary:{sid}", "gate-5"] if sid else ["gate-5"],
+              "departure": ([f"boundary:{sid}"] if sid else []) + ["gate-5"],
+              "feature-drop": ["gate-1"], "deploy": ["gate-5"], "gate-5": ["gate-5"]}.get(what, [])
+    return list(dict.fromkeys(blocks + list(item.get("blocks") or [])))
+
+
+def _parked():
+    try:
+        return json.loads(read_text(PARKED)) if os.path.exists(PARKED) else []
+    except ValueError:
+        return []
+
+
+def cmd_park(args, state):
+    what = _arg_after(args, "--what")
+    if not what:
+        print('Usage: autopilot.py park --what human-sample|departure|feature-drop|deploy|gate-5 [--slice Sn] '
+              '[--blocks gate-4,boundary:S2] --note "..."', file=sys.stderr)
+        return 1
+    item = {"what": what, "slice": _arg_after(args, "--slice"), "note": _arg_after(args, "--note") or "",
+            "blocks": [b for b in (_arg_after(args, "--blocks") or "").split(",") if b], "at": _iso_now()}
+    if not parked_blocks(item):
+        print(f"{what} is not one of P10's decisions; name what it holds with --blocks.", file=sys.stderr)
+        return 1
+    items = [i for i in _parked() if not (i.get("what") == what and i.get("slice") == item["slice"])] + [item]
+    _write_text(PARKED, json.dumps(items, indent=2) + "\n")
+    print(f"parked {what}{' for ' + item['slice'] if item['slice'] else ''}: holds {', '.join(parked_blocks(item))}")
+    return 0
+
+
+def cmd_unpark(args, state):
+    what, sid = _arg_after(args, "--what"), _arg_after(args, "--slice")
+    items = _parked()
+    keep = [i for i in items if not (i.get("what") == what and i.get("slice") == sid)]
+    _write_text(PARKED, json.dumps(keep, indent=2) + "\n")
+    print(f"unparked {len(items) - len(keep)} item(s)")
+    return 0
+
+
+def cmd_blocked(args, state):
+    target = args[1] if len(args) > 1 else None
+    if not target:
+        print("Usage: autopilot.py blocked gate-<n>|boundary:<Sn>|lanes:<Sn>", file=sys.stderr)
+        return 1
+    holding = [i for i in _parked() if target in parked_blocks(i)]
+    for i in holding:
+        print(f"blocked by parked {i['what']}{' for ' + i['slice'] if i.get('slice') else ''}: {i.get('note')}")
+    if not holding:
+        print(f"{target}: not blocked by a parked decision")
+    return 1 if holding else 0
+
+
 COMMANDS = {
     "check": cmd_check, "preflight": cmd_preflight, "engage": cmd_engage,
     "log": cmd_log, "disengage": cmd_disengage, "status": cmd_status,
+    "park": cmd_park, "unpark": cmd_unpark, "blocked": cmd_blocked,
 }
 
 

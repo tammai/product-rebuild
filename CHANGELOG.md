@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 3.0.0 in progress (version `3.0.0-rc.1`, no tag): product-rebuild becomes an orchestrator over rspec, sdlc
-and bug-hunter (spec `docs/specs/rebuild-upgrade/05-product-rebuild.md`). Parts 1 to 4 of 6 below.
+and bug-hunter (spec `docs/specs/rebuild-upgrade/05-product-rebuild.md`). Parts 1 to 5 of 6 below.
 
 ### Breaking
 
@@ -58,6 +58,19 @@ and bug-hunter (spec `docs/specs/rebuild-upgrade/05-product-rebuild.md`). Parts 
   Gate 5's equivalence check and bug-hunter. `equiv.py accept … --by` and `flows.py unlock --weakens --criteria
   … --by` write departures; `parity/equiv/DECISIONS.md` no longer counts as an accepted difference.
   Equivalence now applies under posture `observe` or `own-code` (it needed `kind: own-code`).
+- **GP and Gate 5** (05 P8): one checklist, rspec's `docs/production-readiness.md` (gate-5 now locks it and
+  `parity/gp/nfr-evidence.md` instead of `parity/production-readiness.md`); GP's own items are proposed to rspec in
+  `docs/rspec-pr/`. `gp.py nfr|check` holds each NFR to its stated verification run on the production candidate,
+  with evidence and, for a drill, who performed it. Gate 5 refuses, reporting all at once, on an unchecked item,
+  incomplete NFR evidence, a hidden test that failed or did not run, an unexplained red trace, an open high
+  finding, a proposed departure or an MVP criterion below level 1. Gate 1 refuses a rebuild whose rspec goal is
+  not `production`.
+- **Budgets and cost** (05 P9): new workbenches get `rebuild.yaml` budgets (parallel lanes 3, recorders 4, hunters
+  per slice 6, bug-hunter tokens per slice 1,200,000 in its preview units, fix rounds 2), read by `lane_plan.py`,
+  `route.py` and the bug-hunter command `boundary.py` prints. `cost.py add` records each orchestrated run as a
+  contracts C7 line in `logs/<Sn>/cost.jsonl`, and `boundary.py` prints the slice's cost by stage.
+- **Autopilot parks what it may not decide** (05 P10): `autopilot.py park|unpark|blocked`; a parked feature drop,
+  departure, human sample, deploy or Gate 5 blocks only what depends on it.
 
 ### Added
 

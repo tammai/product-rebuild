@@ -257,6 +257,26 @@ def _budget(key):
     return m.group(1) if m else None
 
 
+def _cost(sid, contracts):
+    """The slice's cost by stage from logs/<Sn>/*.jsonl (contracts C7), or why not."""
+    import glob
+    files = sorted(glob.glob(os.path.join("logs", sid, "*.jsonl")))
+    if not files:
+        return f"  cost: not run: no cost log in logs/{sid}/ (cost.py add, and bug-hunter's --cost-log)"
+    if not contracts:
+        return "  cost: not run: contracts.py not found through .rebuild-plugin"
+    text = "".join(_read(f) for f in files)
+    bad = [m for s, m in contracts.check_cost(text) if s == "error"]
+    if bad:
+        return f"  cost: not run: the log is not C7 ({bad[0]})"
+    lines = []
+    for stage, t in sorted(contracts.sum_cost(text).items()):
+        lines.append(f"  {stage}: {t['runs']} run{'s' if t['runs'] != 1 else ''}, {round(t['wall_s'])} s, {t['turns']} turns, "
+                     f"{t['tokens_in']} in / {t['tokens_out']} out tokens"
+                     f"{', ' + str(t['tokens_unreported']) + ' unreported' if t['tokens_unreported'] else ''}")
+    return "\n".join(lines)
+
+
 def _sample_state(sid):
     """(recorded?, why not)."""
     p = os.path.join("plan", "slice-reviews", f"{sid}.md")
@@ -334,9 +354,11 @@ def _boundary(sid):
         print(f"  ran (recorded {st['hunted']}); its findings are in parity/findings/{sid}/")
     else:
         budget = _budget("bughunter_tokens_per_slice") or "<slice budget>"
+        hunters = _budget("hunters_per_slice")
         print(f"  not run yet. Run it (Playwright in the code repo: add browser mode), then record it:\n"
               f"    /bug-hunter:hunt --oracle docs/ --target <the slice build> --reference <the reference> "
-              f"--format finding-v1 --out parity/findings/{sid}/ --yes --budget {budget}\n"
+              f"--format finding-v1 --out parity/findings/{sid}/ --yes --budget {budget}{' --max ' + hunters if hunters else ''} "
+              f"--cost-log logs/{sid}/cost.jsonl\n"
               f"    python3 scripts/boundary.py hunted {sid}")
     if stop("bug-hunter"):
         return 2
@@ -344,6 +366,8 @@ def _boundary(sid):
     sampled, why = _sample_state(sid)
     print("  recorded" if sampled else f"  {why}")
 
+    print("\n== cost (05 P9)")
+    print(_cost(sid, contracts))
     high = [f["id"] for f in _open_findings(sid) if f.get("severity") == "high"]
     missing = [m for m, ok in (("the open suite is not green", open_green), ("the hidden suite is not green", hidden_green),
                                (f"high findings are open ({', '.join(high)})", not high),

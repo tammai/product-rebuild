@@ -10,7 +10,7 @@ Started: 2026-11-08
 Base: 3274d37
 Owner: tammai.it@gmail.com
 Tool: claude-code
-Slice: B4   Slice base: 40de23b   Slice gates: none
+Slice: B5   Slice base: c813fbc   Slice gates: none
 Current: Stage 2 – Build
 
 ## Stages
@@ -57,6 +57,7 @@ parts in fresh sessions: each backlog part is its own coordinator task
 - 2026-11-08 B2 ACs refined: AC-006 narrowed to gate order and rspec artifacts; AC-012 (Gate 4 level 2 floor), AC-013 (status reads rspec progress.py) and AC-014 (skill routing, manual) added from the coordinator's pr-2 answers
 - 2026-11-09 B3 ACs refined from the coordinator's pr-3 answers: AC-007 and AC-008 made concrete; AC-015 (holdout run), AC-016 (lane bundle and lock copy, cap), AC-017 (step 0), AC-018 (spec questions, refresh) added
 - 2026-11-09 B4 ACs refined from the coordinator's pr-4 answers: AC-009 made concrete; AC-019 (G6 sequence), AC-020 (human sample), AC-021 (departures registry), AC-022 (fix lanes) added. Open with the user: whether gate-1 keeps hashing departures.yaml (spec change to P2's Gate 1 row)
+- 2026-11-09 B5 ACs refined from the coordinator's pr-5 answers: AC-010 made concrete; AC-023 (NFR evidence), AC-024 (budgets), AC-025 (cost logs), AC-026 (autopilot parking), AC-027 (rspec template PR, manual) added
 
 ## Deviations
 - 2026-11-08 surface What: script-internal functions allowed, bash_reaches, check, denied, denied_roots, guard, init_repo, is_lane, main, marked, posture_of, run, set_reference, tool_reaches, w (hooks/scripts/reference_guard.py and the evals) read as new exports. Why: they are functions inside a hook and eval scripts, imported by nothing. Effect: none; Public Surface unchanged.
@@ -76,6 +77,10 @@ parts in fresh sessions: each backlog part is its own coordinator task
 - 2026-11-09 BND ids What: boundary.py's own findings use ids BND-nnnn, not G6-nnnn. Why: contracts C6 ids are letters, a dash and digits, so G6 is invalid. Effect: none.
 - 2026-11-09 skills/rebuild-pipeline/eval/lane_plan.py What: its boundary.py checks now expect the 3.x sequencer (step headings, exit 2 until P6's conditions hold) and check the re-mine line's text only. Why: 05 P6 makes boundary.py G6's sequencer with its own pass conditions; the 2.x 30-day re-mine stays printed (P1 places 2.x capabilities before any deletion, B6) but no longer sets the exit code. Effect: same coverage of archiving, parity, slice review and the re-mine status.
 - 2026-11-09 verify (B4) What: the project test command exits 1. Why: only the five evals in .sdlc/baseline.md fail, each with exactly its baselined line; g6_eval.py, holdout_eval.py, lanes_rspec.py and every other eval pass, as do every AC and the drift check. Effect: B4 committed with plain git; Review and Ship run at Feature close.
+- 2026-11-09 skills/rebuild-pipeline/scripts/gp.py, skills/rebuild-pipeline/scripts/cost.py, skills/rebuild-pipeline/scripts/autopilot.py What: B5's NFR evidence (gp.py, new), cost log (cost.py, new) and parking (autopilot.py park|unpark|blocked) live in these files, which the state file's B5 task outline did not list. Why: the outline predates the coordinator's pr-5 answers; plan-B5.md names them. Effect: none.
+- 2026-11-09 surface What: script-internal names add, cmd_blocked, cmd_check, cmd_nfr, cmd_park, cmd_unpark, evidence_rows, fill_evidence, gate5, log_path, nfr_rows, parked_blocks, problems, round_cap (gp.py, cost.py, autopilot.py, route.py and the eval) read as new exports. Why: functions inside vendored scripts and an eval, imported only by their siblings (gate.py imports gp.problems). Effect: none; plan-B5.md lists the commands and the rebuild.yaml keys.
+- 2026-11-09 evals What: gates_rspec.py, g6_eval.py and holdout_eval.py write goal: production into their hand-made docs/rspec.json. Why: B5 makes gate-1 refuse a rebuild whose rspec goal is not production (05 P8), and those evals lock gate-1. Effect: same checks.
+- 2026-11-09 verify (B5) What: the project test command exits 1. Why: only the five evals in .sdlc/baseline.md fail, each with exactly its baselined line; gp_eval.py and every other eval pass, as do every AC and the drift check. Effect: B5 committed with plain git; Review and Ship run at Feature close.
 
 ## Open questions
 -

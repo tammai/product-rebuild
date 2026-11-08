@@ -4,6 +4,16 @@ Feature-complete ≠ production-ready. This gate verifies the difference BY DOIN
 Run fully when the slice plan completes; run the lightweight subset (deploy + backup +
 error tracking) at every slice.
 
+**3.0.0 (05 P8): one checklist, rspec's.** The checklist is `docs/production-readiness.md`, which rspec writes
+because a rebuild's goal is `production`; the items below are what GP adds to it (proposed upstream in
+`docs/rspec-pr/` of this plugin), and the evidence goes after each item there. GP's own work is execution:
+`python3 scripts/gp.py nfr` lists every NFR with its stated Verification in `parity/gp/nfr-evidence.md`; run each
+against the **production candidate** (load tests where the NFR says; drills are the user's to perform), put the
+evidence, result and who performed it in its row, and `python3 scripts/gp.py check` until it passes.
+`gate.py lock gate-5` refuses, all at once, while: an item of rspec's checklist is unchecked; an NFR row is
+incomplete; any slice's hidden suite has a failure or a test that did not run; an equivalence trace is red with
+no departure; a high finding is open; a departure is still `proposed`; an MVP criterion is below level 1.
+
 Two checklists follow. Use the first for a service the rebuild owns and operates; use the
 client-app one below **in addition** for anything shipped to a device or an app store, and
 **instead** when `architecture.target_shape` is `client-only` and there is no server in
@@ -24,14 +34,14 @@ Checklist — each item needs EVIDENCE (log, recording, doc link), not assertion
   ADR state.
 - Incident dry-run: one simulated failure (kill DB / fill disk) handled using only the
   runbook. The USER performs the drills; you prepare and observe.
-- **Equivalence against the legacy system** (`reference.kind: own-code` only): every trace
+- **Equivalence against the reference** (posture `observe` or `own-code`, reference run locally): every trace
   recorded across all slices replays green on the **production candidate** — not on a dev
   box, not on the build that happened to be around when the slice closed — or the difference
-  is a logged decision in `parity/equiv/DECISIONS.md`. Run `python3 scripts/equiv.py replay --all`
-  against the candidate and cite the `parity/<date>-equiv.xml` it produces.
+  is a decided departure (`python3 scripts/equiv.py accept "<trace>" --reason "..." --by "<who>"` writes it to
+  `docs/departures.yaml`). Run `python3 scripts/equiv.py replay --all` against the candidate and cite the
+  `parity/<date>-equiv.xml` it produces.
 
-  This is the one checklist line with teeth of its own: `gate.py lock gate-5` refuses while
-  the newest equivalence run has a failing trace that no decision names. A red trace says the
+  `gate.py lock gate-5` refuses while the newest equivalence run has a failing trace that no departure explains. A red trace says the
   rebuild returns something the old system did not, on traffic recorded from the old system
   before the rebuild existed — and Gate 5 is terminal, so nothing downstream catches it.
 

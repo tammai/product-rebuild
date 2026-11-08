@@ -81,7 +81,7 @@ def make_project(name):
     w(app, "README.md", "# app\n")
     commit(app)
     w(wb, "repos.yaml", "repos:\n  - name: app\n    path: ../app\n")
-    w(wb, "docs/rspec.json", json.dumps({"product": "p", "stage": "handoff", "reference": {"run": {"kind": "http"}}}))
+    w(wb, "docs/rspec.json", json.dumps({"product": "p", "goal": "production", "stage": "handoff", "reference": {"run": {"kind": "http"}}}))
     w(wb, "docs/build-plan.md", "# Build plan\n\n## Slice 1: issues\n\n| 1 | F-ISS-01 a | | | | | |\n| 2 | F-ISS-02 b | | | | | |\n\n"
                                 "## Slice 2: projects\n\n| 1 | F-PRJ-01 c | | | | | |\n")
     rows, tests = [], []

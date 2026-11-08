@@ -293,6 +293,12 @@ def _lock_gate1_checks(gid):
               f"after rspec records its approval (stage features-approved). Finish /rspec:features first.",
               file=sys.stderr)
         return 1
+    # 05 P8: a rebuild is built for production, so rspec's goal is `production` (which makes rspec require a
+    # Verification per NFR and the readiness checklist GP walks). The skill sets it at rspec:init.
+    if rspec_config().get("goal") != "production":
+        print(f"Cannot lock {gid}: {SPEC}/rspec.json goal is {rspec_config().get('goal') or 'empty'}; a rebuild's goal is "
+              f"production (05 P8). Set it with the user and re-run the stages it changes.", file=sys.stderr)
+        return 1
     return None
 
 
@@ -438,7 +444,14 @@ def _lock_gate5_checks(gid):
     # Standard library only by the same rule as the rest of this file: the JUnit is regex-read for
     # failing testcase names (acsuite.py makes the same argument about JUnit's fixed shape), and
     # the decision log is markdown with one machine-readable token per accepted trace.
+    #
+    # From 3.0.0 (05 P8) it also refuses on everything else P8 lists, all reported at once so one
+    # attempt shows the whole gap: rspec's readiness checklist, GP's NFR evidence, the hidden suites, open
+    # high findings, proposed departures and MVP criteria below level 1. The equivalence check stays last.
     # -------------------------------------------------------------------------
+    problems = _gate5_problems()
+    if problems:
+        print(f"Cannot lock {gid}:\n" + "\n".join(f"  - {p}" for p in problems), file=sys.stderr)
     parity_dir = "parity"
     runs = []
     if os.path.exists(parity_dir):
@@ -481,9 +494,66 @@ def _lock_gate5_checks(gid):
                       f"\n  Accepting does not make the trace green. It makes it explained, which is all this "
                       f"gate asks of anything else that is still imperfect.", file=sys.stderr)
                 return 1
-            print(f"Equivalence: {len(failing)} red trace(s) in {runs[0]['path']}, each explained by a departure. "
-                  f"Locking.")
-    return None
+            print(f"Equivalence: {len(failing)} red trace(s) in {runs[0]['path']}, each explained by a departure.")
+    return 1 if problems else None
+
+
+def _gate5_problems():
+    """P8's refusals other than equivalence, each a line naming what to fix."""
+    out = []
+    ready = _join(SPEC, "production-readiness.md")
+    if not os.path.exists(ready):
+        out.append(f"{ready} is missing (rspec:handoff writes it when goal is production)")
+    else:
+        category = None
+        for line in read_text(ready).split("\n"):
+            h = re.match(r"^##\s+(.+?)\s*$", line)
+            if h:
+                category = h.group(1)
+            m = re.match(r"^\s*-\s*\[ \]\s+(\S.*)$", line)
+            if m:
+                out.append(f"readiness, {category or 'unsectioned'}: not done: {m.group(1)}")
+    try:
+        import gp
+        out += [f"NFR evidence: {p}" for p in gp.problems()]
+    except ImportError:
+        out.append("scripts/gp.py is missing: the NFR evidence cannot be checked")
+    try:
+        import holdout
+        rec = json.loads(read_text(holdout.RECORD)) if os.path.exists(holdout.RECORD) else {}
+        for sid, ids in sorted((rec.get("slices") or {}).items()):
+            if not ids:
+                continue
+            p = _join("parity", "holdout", f"{sid}.json")
+            if not os.path.exists(p):
+                out.append(f"hidden suite {sid}: not run (python3 scripts/holdout.py run {sid})")
+                continue
+            for x in json.loads(read_text(p)).get("results") or []:
+                if x.get("result") not in ("pass", "explained"):
+                    out.append(f"hidden suite {sid}: {x.get('criterion')} {x.get('result')} with no departure")
+        slices = sorted(holdout.slices())
+    except (ImportError, OSError, ValueError) as e:
+        out.append(f"hidden suites not checked ({e})")
+        slices = []
+    try:
+        import boundary
+        for sid in slices:
+            out += [f"open high finding {f['id']} ({f['class']}, slice {sid}): route.py {sid}"
+                    for f in boundary._open_findings(sid) if f.get("severity") == "high"]
+    except ImportError:
+        out.append("scripts/boundary.py is missing: open findings cannot be checked")
+    try:
+        import departures
+        out += [f"departure {d.get('id')} is still proposed: the user decides it" for d in departures.proposed()]
+    except Exception as e:
+        out.append(f"docs/departures.yaml could not be read ({e})")
+    try:
+        lock = json.loads(read_text(_join(SPEC, "criteria.lock.json")))
+        out += [f"MVP criterion {c['id']} is below level 1" for c in lock.get("criteria") or []
+                if isinstance(c, dict) and c.get("priority") == "MVP" and c.get("level") == 0]
+    except (OSError, ValueError):
+        out.append(f"{SPEC}/criteria.lock.json is missing or not JSON")
+    return out
 
 
 def _git(args, capture_stdout=True):

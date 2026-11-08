@@ -130,7 +130,7 @@ def project(name, split=True):
     w(app, ".gitmodules", '[submodule "workbench"]\n\tpath = workbench\n\turl = ../p-workbench\n')
     commit(app)
     w(wb, "repos.yaml", "repos:\n  - name: app\n    path: ../app\n")
-    w(wb, "docs/rspec.json", json.dumps({"product": "p", "stage": "handoff", "reference": {"run": {"kind": "local"}}}))
+    w(wb, "docs/rspec.json", json.dumps({"product": "p", "goal": "production", "stage": "handoff", "reference": {"run": {"kind": "local"}}}))
     w(wb, "docs/build-plan.md", "# Build plan\n\n## Slice 1: issues\n\n| 1 | F-ISS-01 a |\n| 2 | F-ISS-02 b |\n| 3 | F-ISS-03 c |\n")
     rows, tests = [], []
     for feat, n, level in CRITERIA:

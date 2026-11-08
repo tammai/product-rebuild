@@ -142,6 +142,16 @@ not a decision. **Choosing or switching a playbook is not**: if the applicabilit
 that the selected playbook's `not-applicable-when:` describes this rebuild, halt with
 `needs-user-decision` rather than picking another one or falling back to blank-slate.
 
+**3.0.0 (05 P10).** rspec's stages bring rspec's own autopilot rules (features, ADRs) and sdlc's lanes bring
+sdlc's; this file adds only the pipeline's. Never automatic: Gate 1's approval when a feature the reference's users
+use would be dropped, any departure, the human sample, a production deploy, Gate 5 (and every gate lock, as
+below). An unattended run **parks** such a decision instead of stopping everything:
+`python3 scripts/autopilot.py park --what human-sample|departure|feature-drop|deploy|gate-5 [--slice <Sn>]
+--note "…"`. A parked decision blocks only what depends on it: before each step ask `python3
+scripts/autopilot.py blocked <gate-N|boundary:Sn|lanes:Sn>` (exit 1: held) and go on with whatever is not held,
+so a parked human sample of S2 holds S2's boundary and Gate 5, not S3's lanes. `autopilot.py unpark` once the user
+decides.
+
 **Decisions it must never take alone** — halt with `needs-user-decision`. These are
 scattered across the phase references; this is the whole list:
 

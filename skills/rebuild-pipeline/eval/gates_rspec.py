@@ -70,7 +70,7 @@ def gate(wb, *args, env=None):
 
 
 def rspec_json(wb, stage, kind="http"):
-    w(wb, "docs/rspec.json", json.dumps({"product": "p", "stage": stage, "reference": {"run": {"kind": kind}}}))
+    w(wb, "docs/rspec.json", json.dumps({"product": "p", "goal": "production", "stage": stage, "reference": {"run": {"kind": kind}}}))
 
 
 def lock_text(wb, gid):
