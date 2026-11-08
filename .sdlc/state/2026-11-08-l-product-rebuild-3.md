@@ -11,13 +11,13 @@ Base: 3274d37
 Owner: tammai.it@gmail.com
 Tool: claude-code
 Slice: B6   Slice base: 953e3cf   Slice gates: none
-Current: Stage 2 – Build
+Current: Stage 4 – Ship
 
 ## Stages
 - [x] 1 Define   — the change file, the plan sections below
 - [x] 2 Build
-- [ ] 3 Review   — the change file's ## Review
-- [ ] 4 Ship     — PR: (Learn: knowledge, recurring-defects.md)
+- [x] 3 Review   — the change file's ## Review
+- [x] 4 Ship     — local Ship commit, no PR, no push (Learn: knowledge/decisions, knowledge/gotchas)
 
 ## How the build runs
 parts in fresh sessions: each backlog part is its own coordinator task
@@ -28,6 +28,8 @@ parts in fresh sessions: each backlog part is its own coordinator task
 - reference checkout fallbacks: preflight.py checkout_candidates
 - slices and features (B7): sequence.py plan_slices/plan_features read rspec's docs/build-plan.md and docs/features.md; parity, slice_review, gate status and validate go through them; matrix/ and plan/slices.yaml are read by nothing but B6's deletion candidates (validate's lane-R section, gate_facts.py)
 - every backlog part done (B6 after B7); next is Feature close: Review over the whole branch from Base 3274d37. The capability table is docs/MIGRATION-3.md (eval/migration_3.py; --external with the three *_PLUGIN_ROOT vars at the local checkouts). adr/ is the vendored playbook + scaffold manifest only (playbook.py vendor; gate-3 protects it). Open with the user: departures.gate1_allows_append (unchanged); 3.0.0 blockers: MIGRATION row 9 (rspec merges rules-recall), row 19 (client-only, user decides)
+- SHIPPED LOCALLY (2026-11-09): H-4 (rc-era sibling holdout still denied) test-first and M-2 documented in b40d474; Review closed with the 4 baseline evals waived; Ship commit local only (no push, no tag, no PR). Owed for 3.0.0: MIGRATION rows 9 and 19, departures.gate1_allows_append, final dependency pins, the tickets in ## Review.
+- FINAL FULL TEST RUN (2026-11-09, on b40d474 + doc-only changes): `python3 -c "...eval/*.py"` exits 1; 639 checks pass; the only failures are the 4 baselined ones (lane_guards: a lane worktree counts through its main repo; run_supervision: a dead driver is named with its phase / watch exits 2 on a dead driver; windows_and_upgrade: gate-guard blocks an edit under a CRLF lock file), waived at Ship.
 - REDESIGN ROUND DONE (2026-11-09): R1-R4 in d33127c, focused check (redesign-check.md) H-1..H-3 and M-1 fixed test-first in the next commit; change file ## Review "Redesign round" lists what is left (H-4 question for the coordinator, M-2 and lows ticketed). Next: the coordinator decides H-4 and whether to ship (Learn, ship.py --waive-baseline, PR); commit only so far, nothing pushed.
 - Earlier: REDESIGN ROUND NEXT (handoff 2026-11-09, after 8098a28). Review round 2 FAILED (code-reviewer-r2.md N1, N2; security-r2.md S1, S2, S3, S4, S8); the coordinator chose a redesign, recorded in the change file's ## Review "Redesign decisions" R1-R4. A fresh session: `state.py advance <feature> 2` back to Build, then test-first:
   - R1: the holdout dir comes from the orchestrator's local config (a per-user data dir, not in the workbench or any brief). This touches holdout.holdout_dir, reference_guard.denied_roots (the guard must read the same local config; it is not in the workbench), the evals that build `<proj>/p-holdout`, and README/PLAYBOOK/SKILL. Also: is_current_workbench fails closed for the reference guard when locks/ exists without a readable marker (hooklib.py); README and MIGRATION-3.md list the bypass classes as limits; P4 deviation.
@@ -82,6 +84,8 @@ parts in fresh sessions: each backlog part is its own coordinator task
 - 2026-11-09 Stage 2: pass
 - 2026-11-09 Stage 3: fail
 - 2026-11-09 Stage 2: pass
+- 2026-11-09 Stage 2: pass
+- 2026-11-09 Stage 3: pass — Review closed: redesign round + focused check fixes + H-4; baseline waived (4 known evals); ship.py printed nothing, manual Ship commit
 
 ## Deviations
 - 2026-11-08 surface What: script-internal functions allowed, bash_reaches, check, denied, denied_roots, guard, init_repo, is_lane, main, marked, posture_of, run, set_reference, tool_reaches, w (hooks/scripts/reference_guard.py and the evals) read as new exports. Why: they are functions inside a hook and eval scripts, imported by nothing. Effect: none; Public Surface unchanged.
