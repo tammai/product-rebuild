@@ -40,7 +40,7 @@ at the cited commit. A row that is not fully placed says so in Status.
 | 21 | A lane's `amend:` question on a wrong spec | sdlc spec questions, batched by `lane_plan.py questions`, answered by `rspec:amend` | `sdlc@fdda00530ff1 tests/test_spec_backed.py::test_a_spec_question_is_a_finding_and_blocks_the_part` · `eval/lanes_rspec.py questions` | moved |
 | 22 | The rubric judge at each gate (rubric-judge, `cite_excerpts.py`, `gate_facts.py`, `evidence_bundle.py`) | rspec audit: three fresh auditors (facts, coverage, consistency) before handoff | `rspec@20bd8ee2eeb4 tests/test_audit.py::test_after_tech_the_pipeline_audits_before_handoff` | moved |
 | 23 | Model routing per role | this repo, for the build lane and sdlc's lane reviews; rspec routes its own agents | `eval/lane_plan.py routing` | kept |
-| 24 | The lane worker's standing rules (test cadence, long runs, migrations, helpers) | this repo, `agents/lane-worker.md` | `eval/lane_plan.py worker` | kept, except the baselined cadence line |
+| 24 | The lane worker's standing rules (test cadence, long runs, migrations, helpers) | this repo, `agents/lane-worker.md` | `eval/lane_plan.py worker` | kept |
 | 25 | Archiving a shipped lane; the slice review naming a lane that rewrote its criteria | this repo | `eval/lanes_rspec.py archive` | kept |
 | 26 | Recorded flows read-only; loosening one is a logged unlock | this repo's flow guard, over rspec's `docs/acceptance/` | `eval/lanes_rspec.py flows` | moved |
 | 27 | Equivalence: replaying recorded traffic against the build | this repo, for posture `observe` and `own-code` (2.x: own-code only); accepted differences are departures | `eval/g6_eval.py departures` | kept |

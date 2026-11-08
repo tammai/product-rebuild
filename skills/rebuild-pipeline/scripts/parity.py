@@ -350,9 +350,8 @@ def main(argv=None):
     # JUnit because the JUnit contains only what ran. Reporting "6/6 green" over a directory holding
     # eight traces is the exact overclaim this section exists to prevent.
     #
-    # WHEN THE LANE DOES NOT APPLY, SAY SO. A third-party reference cannot have an equivalence lane
-    # — there is no legal or practical way to replay traffic against a product you do not operate.
-    # An absent section and an empty column read identically to someone scanning the report, and
+    # WHEN THE LANE DOES NOT APPLY, SAY SO. Under posture `strict` the spec side only observes the
+    # reference, and replaying recorded traffic against it goes further than that (05 P3). An absent section and an empty column read identically to someone scanning the report, and
     # only one of them means "this was checked and there is nothing".
     # ---------------------------------------------------------------------------
     EQUIV_TITLE = "Equivalence (vs the legacy system)"
@@ -360,21 +359,22 @@ def main(argv=None):
     if ac_lib and hasattr(ac_lib, "read_equiv_traces"):
         t = _read_text("sources.yaml") if os.path.exists("sources.yaml") else ""
         b = re.search(r"(?:(?<=[\n\r  ])|\A)reference:\n((?:(?:[ \t]+[^\n\r  ]*)?\n)*)", t)
-        km = re.search(r"(?:(?<=[\n\r  ])|\A)" + _WS + r"+kind:" + _WS + r"*([^\n\r  ]*)(?=[\n\r  ]|\Z)",
-                       b.group(1)) if b else None
-        ref_kind = ""
-        if km:
-            ref_kind = re.sub(r"^[\"']|[\"']\Z", "", re.split(_WS + "+#", js_trim(km.group(1)))[0]) or ""
+        def ref_field(key):
+            m = re.search(r"(?:(?<=[\n\r  ])|\A)" + _WS + r"+" + key + r":" + _WS + r"*([^\n\r  ]*)(?=[\n\r  ]|\Z)",
+                          b.group(1)) if b else None
+            return re.sub(r"^[\"']|[\"']\Z", "", re.split(_WS + "+#", js_trim(m.group(1)))[0]) if m else ""
+        # Resolved as equiv.py's _posture, validate.py and the reference guard do; change them together.
+        posture = ref_field("posture") or ("own-code" if ref_field("kind") == "own-code" else "observe")
+        posture = posture if posture in ("strict", "observe", "own-code") else "strict"
         traces = ac_lib.read_equiv_traces(".")
         EQUIV_JUNIT = f"parity/{date}-equiv.xml"
         eq = ac_lib.read_ac_suite(EQUIV_JUNIT)
 
-        if ref_kind != "own-code" and not traces:
-            equiv_section = (f"\n## {EQUIV_TITLE}\n\nDoes not apply: `reference.kind` is "
-                             f"`{ref_kind or '(unset)'}`, not `own-code`. Replaying recorded traffic against a product "
-                             "you do not operate is neither legal nor practical, so parity for this project rests on the "
-                             "AC suite and the coverage figures above. This line exists so an absent section is not read "
-                             "as an unchecked one.\n")
+        if posture == "strict" and not traces:
+            equiv_section = (f"\n## {EQUIV_TITLE}\n\nDoes not apply: `reference.posture` is `strict`, under which the "
+                             "spec side only observes the reference; replaying recorded traffic against it needs `observe` "
+                             "or `own-code` (05 P3). Parity for this project rests on the open and hidden suites and the "
+                             "coverage figures above. This line exists so an absent section is not read as an unchecked one.\n")
         elif traces:
             by_feature = {}
             for tr in traces:

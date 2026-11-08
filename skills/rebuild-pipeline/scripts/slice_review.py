@@ -440,15 +440,16 @@ def main(argv=None):
                                 f"{' · ' + _str(rec['amendments']) + ' amendment(s)' if _truthy(rec.get('amendments')) else ''}"
                                 f"{' · **criteria differ from what was approved**' if st['ac_edited'] else ''}")
             if st["ac_edited"]:
-                press(f"{lane}: its acceptance criteria no longer match the approved specs",
-                      f"- **{lane}'s change file `## Acceptance criteria` no longer matches what lane_plan.py wrote** from the "
-                      f"specs approved @ workbench {_show(rec, 'workbench_commit')}. The spec gate cannot stop that edit, so "
+                press(f"{lane}: its acceptance criteria no longer match what was approved",
+                      f"- **{lane}'s change file `## Acceptance criteria` no longer matches what lane_plan.py wrote** from "
+                      f"rspec's criteria @ workbench {_show(rec, 'workbench_commit')}. The spec gate cannot stop that edit, so "
                       f"this is where it shows (sdlc's trust anchor also reports it as it happens). Diff "
-                      f"`{_show(rec, 'change')}` against those specs; a legitimate change goes through `lane_plan.py --amend`.")
+                      f"`{_show(rec, 'change')}` against the lock; a criterion changes only through a spec question and "
+                      f"`rspec:amend`, then `lane_plan.py refresh`.")
             if st["amending"]:
                 press(f"{lane}: the lane raised an `amend:` question",
                       f"- **{lane} raised an `amend:` question**, so the spec gate freezes its non-trivial edits. The lane "
-                      "found the spec wrong and is waiting on a re-approval (`lane_plan.py --amend`).")
+                      "found a criterion wrong: answer it with `rspec:amend`, then `lane_plan.py refresh`, and resolve the question.")
             elif st["status"] != "done":
                 press(f"{lane}: its sdlc feature is not shipped",
                       f"- **{lane}'s sdlc feature is `Status: {st['status']}` at Stage {st['stage']} – {st['phase']}**: sdlc has not shipped "

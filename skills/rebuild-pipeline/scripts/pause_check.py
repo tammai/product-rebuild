@@ -348,7 +348,7 @@ def _parse_lock(lock_id):
 # is a check that gets ignored, taking the real warnings with it.
 #
 # Read from plan/progress.yaml only, which is where g6-parity.md says slice completion is
-# recorded ("never in the gate-locked plan/slices.yaml"). Parsed with the same fixed-subset
+# recorded ("never in the gate-locked docs/build-plan.md"). Parsed with the same fixed-subset
 # regex style as the rest of this file — it stays zero-dependency because it must run in a
 # workbench with no YAML parser to hand. `notes:` is keyed by slice id too, so the
 # scan is scoped to the `slices:` block rather than matching S-ids anywhere in the file.
@@ -545,7 +545,7 @@ def main(argv=None):
             notes.append(f"slice reviews: all {len(shipped)} shipped slice(s) have one.")
 
     # --- 2d. Oversized plan/ state files ---
-    for f in ["plan/backlog.md", "plan/progress.yaml", "plan/slices.yaml"]:
+    for f in ["plan/progress.yaml", "docs/build-plan.md", "docs/criteria.lock.json"]:
         try:
             size = os.stat(f).st_size
         except OSError:

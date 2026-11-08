@@ -80,7 +80,7 @@ def run_external(repo, sha, path, test, trees):
         else:
             d = tempfile.mkdtemp(prefix=f"migration-{repo}-")
             with tarfile.open(fileobj=io.BytesIO(r.stdout)) as t:
-                t.extractall(d)
+                t.extractall(d, filter="data")  # an archive member may not write outside d
             trees[(repo, sha)] = d
     d = trees[(repo, sha)]
     if not d:

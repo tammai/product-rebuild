@@ -109,6 +109,13 @@ if ONLY in (None, "reports"):
     check("…lists the Drop under Descoped and build-plan.md's slices under Slice progress",
           "- F-AB-03 Gamma" in rep.split("## Descoped")[-1] and "- S1 one: done" in rep and "- S4 four: pending" in rep,
           rep[-700:])
+    check("under posture observe (the third-party default) equivalence is not reported as not applying",
+          "Does not apply" not in rep, rep[:900])
+    w(wb, "sources.yaml", "reference:\n  kind: third-party\n  posture: strict\n")
+    script(wb, "parity.py")
+    rep = read(wb, f"parity/{DATE}.md")
+    check("under posture strict it says equivalence does not apply, and why", "Does not apply: `reference.posture` is `strict`"
+          in rep, rep[:900])
     r = script(wb, "slice_review.py", "S1")
     rev = read(wb, "plan/slice-reviews/S1.md")
     check("slice_review reviews a build-plan slice, its features and its Done when", r.returncode == 0
