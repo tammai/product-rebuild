@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 3.0.0 in progress (version `3.0.0-rc.1`, no tag): product-rebuild becomes an orchestrator over rspec, sdlc
-and bug-hunter (spec `docs/specs/rebuild-upgrade/05-product-rebuild.md`). Parts 1 and 2 of 6 below.
+and bug-hunter (spec `docs/specs/rebuild-upgrade/05-product-rebuild.md`). Parts 1 to 3 of 6 below.
 
 ### Breaking
 
@@ -32,6 +32,20 @@ and bug-hunter (spec `docs/specs/rebuild-upgrade/05-product-rebuild.md`). Parts 
   `gate.py status` prints rspec's own stage, next step and pending units from rspec's `progress.py`
   (`$RSPEC_PLUGIN_ROOT`, else the installed rspec), or `rspec: not run: <reason>`. Before `rspec:tech` the skill
   passes the playbook's stack line as rspec's `stack` preference.
+- **Hidden tests** (05 P4, D4): `holdout.py split`, run after `rspec:check` and before the gate-4 lock, hides
+  ceil(25%) of each slice's level 2 tests (at least one per feature with three or more criteria), drawn from a
+  seed, in a git repo `<project>-holdout/` beside the workbench that no code repo may contain or reference.
+  Gate 4 refuses until the split matches the manifest and records seed, count and list hash. `holdout.py run
+  <Sn>` runs a slice's hidden tests (HTTP through `contracts.py run-http`, Playwright through the code repo's
+  own `@playwright/test`, Maestro; cli not run) and reports per criterion with the observed behaviour only.
+- **The slice loop builds from rspec's criteria** (05 P5): `lane_plan.py step0 <Sn>` holds a slice whose
+  criteria lack a level 2 test or rspec's reason; `lane_plan.py <Sn> <lane> --features …` opens a lane whose
+  ACs cite criterion IDs, with its open recorded tests (sha256-checked) and a lock copy in the code repo for
+  sdlc's spec-backed mode, capped at `rebuild.yaml` `budgets.parallel_lanes` (default 3) per slice;
+  `lane_plan.py questions <Sn>` batches the lanes' spec questions for `rspec:amend`, and `lane_plan.py
+  refresh` re-copies after it. The 2.x `--specs` mode stays until the 2.x parts are removed.
+- **The flow guard covers rspec's bundle**: committed files under `docs/acceptance/` change only after
+  `flows.py unlock --acceptance --reason "…"`.
 
 ### Added
 

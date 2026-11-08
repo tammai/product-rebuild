@@ -39,6 +39,7 @@ SCRIPTS = [
     "sequence.py", "slice_review.py", "acsuite.py", "routing.py",
     "preflight.py", "upgrade.py", "equiv.py", "lanes_check.py",
     "lane_plan.py", "run_phases.py", "boundary.py", "rules_for.py", "cite_excerpts.py", "evidence_bundle.py", "gate_facts.py",
+    "holdout.py",
     # The YAML and JSON-schema readers every checking script imports, and the PyYAML they sit on.
     "yamlio.py", "schemacheck.py",
 ]
@@ -183,7 +184,7 @@ def main(argv=None):
     #
     # __pycache__ is ignored for the same dirty-tree reason: running any script here writes
     # bytecode beside it, and an untracked scripts/__pycache__ would refuse the next gate lock.
-    write(".gitignore", "__pycache__/\n*.pyc\nparity/flows/.unlocked.yaml\nparity/equiv/.unlocked.yaml\n")
+    write(".gitignore", "__pycache__/\n*.pyc\nparity/flows/.unlocked.yaml\nparity/equiv/.unlocked.yaml\ndocs/acceptance/.unlocked.yaml\n")
 
     write("README.md", README)
 

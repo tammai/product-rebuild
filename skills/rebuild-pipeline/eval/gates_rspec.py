@@ -92,9 +92,10 @@ def criteria(levels):
 def through_gate2(wb):
     """Everything rspec writes up to handoff, with gates 1, 3 and 2 locked."""
     rspec_json(wb, "handoff")
-    for rel in ("docs/features.md", "docs/domain.md", "docs/departures.yaml", "docs/build-plan.md",
+    for rel in ("docs/features.md", "docs/domain.md", "docs/departures.yaml",
                 "docs/audit/summary.md", "docs/verify/summary.md"):
         w(wb, rel, f"# {rel}\n")
+    w(wb, "docs/build-plan.md", "# Build plan\n\n## Slice 1: issues\n\n| 1 | F-ISS-01 a | | | | | |\n")
     w(wb, "docs/decisions/0001-stack.md", "# Stack\n\n- Status: Accepted\n")
     commit(wb)
     for gid in ("gate-1", "gate-3", "gate-2"):
@@ -105,12 +106,17 @@ def through_gate2(wb):
 def contracts(wb, levels, posture):
     w(wb, "docs/openapi.json", "{}\n")
     w(wb, "docs/schemas/issue.json", "{}\n")
-    w(wb, "docs/acceptance/manifest.json", '{"contracts": "1.1.1", "tests": []}\n')
+    if not os.path.exists(os.path.join(wb, "docs", "acceptance", "manifest.json")):
+        w(wb, "docs/acceptance/manifest.json", '{"contracts": "1.1.1", "tests": []}\n')
     w(wb, "docs/criteria.lock.json", criteria(levels))
     src = os.path.join(wb, "sources.yaml")
     text = open(src, encoding="utf-8").read()
     with open(src, "w", encoding="utf-8", newline="\n") as f:
         f.write(re.sub(r"^(  posture:).*$", rf'\1 "{posture}"', text, count=1, flags=re.M))
+    if not os.path.exists(os.path.join(wb, "plan", "holdout.json")):
+        # Gate 4 records the hidden-test draw (B3), so it is made once, before the first lock.
+        r = run([sys.executable, os.path.join("scripts", "holdout.py"), "split", "--seed", "1"], wb)
+        check("the holdout split runs before gate-4", r.returncode == 0, r.stdout + r.stderr)
     commit(wb)
 
 

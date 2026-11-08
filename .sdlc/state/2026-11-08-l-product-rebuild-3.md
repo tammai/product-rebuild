@@ -10,7 +10,7 @@ Started: 2026-11-08
 Base: 3274d37
 Owner: tammai.it@gmail.com
 Tool: claude-code
-Slice: B2   Slice base: 556ddef   Slice gates: none
+Slice: B3   Slice base: 0af41e3   Slice gates: none
 Current: Stage 2 – Build
 
 ## Stages
@@ -55,6 +55,7 @@ parts in fresh sessions: each backlog part is its own coordinator task
 ## Gate log
 - 2026-11-08 Stage 1: pass — plan self-approved (L): (1) part-1 ACs 001-005 map to 05 Decisions/P3/P4/D7, later parts' ACs 006-011 to P1-P10, trace has no refs to check; (2) no open questions; (3) every decision answered by the coordinator (Q1-Q7, all as proposed); (4) no proposal beyond the request, nothing irreversible
 - 2026-11-08 B2 ACs refined: AC-006 narrowed to gate order and rspec artifacts; AC-012 (Gate 4 level 2 floor), AC-013 (status reads rspec progress.py) and AC-014 (skill routing, manual) added from the coordinator's pr-2 answers
+- 2026-11-09 B3 ACs refined from the coordinator's pr-3 answers: AC-007 and AC-008 made concrete; AC-015 (holdout run), AC-016 (lane bundle and lock copy, cap), AC-017 (step 0), AC-018 (spec questions, refresh) added
 
 ## Deviations
 - 2026-11-08 surface What: script-internal functions allowed, bash_reaches, check, denied, denied_roots, guard, init_repo, is_lane, main, marked, posture_of, run, set_reference, tool_reaches, w (hooks/scripts/reference_guard.py and the evals) read as new exports. Why: they are functions inside a hook and eval scripts, imported by nothing. Effect: none; Public Surface unchanged.
@@ -63,6 +64,11 @@ parts in fresh sessions: each backlog part is its own coordinator task
 - 2026-11-08 surface What: script-internal functions contracts, criteria, gate, lock_text, rspec_config, rspec_json, rspec_progress_line, rspec_root, through_gate2, workbench (gate.py and the evals) read as new exports. Why: functions inside a vendored script and an eval, imported by nothing outside them. Effect: none; Public Surface lists the one new flag and env var.
 - 2026-11-08 skills/rebuild-pipeline/scripts/upgrade.py What: B1's refusal message named the retired 0.x plugin, which eval/no_bigin.py forbids; the 0.x name was dropped from the message (SKILL.md, an allowed line, still names it). Why: a B1 regression the B1 verify run did not separate from the baselined failures. Effect: no_bigin.py passes again; the 2.x and 1.x messages still name 2.2.0 and 1.6.0.
 - 2026-11-08 verify (B2) What: the project test command exits 1. Why: only the five evals in .sdlc/baseline.md fail (lane_guards, lane_plan, run_supervision, windows_and_upgrade, rules_recall usage); gates_rspec.py, gate_status.py, no_bigin.py, reference_guard.py and v0_fence.py pass, as does every AC and the drift check. Effect: B2 committed with plain git; Review and Ship run at Feature close.
+- 2026-11-09 P4 ordering What: holdout.py split runs after rspec:check and before the gate-4 lock, not after Gate 4. Why: P4 also records the seed and list hash in the Gate 4 lock, and splitting after the lock would change the hashed manifest; the coordinator approved this order. Effect: gate-4 refuses until the split record matches the manifest.
+- 2026-11-09 skills/rebuild-pipeline/scripts/lane_plan.py What: B3's lanes, step 0, spec questions and refresh live in lane_plan.py (05 P5 names it), which the state file's B3 task did not list. Why: the task outline predates the coordinator's pr-3 answers; plan-B3.md names the file. Effect: none.
+- 2026-11-09 surface What: script-internal functions Reference, choose, cmd_run, cmd_split, contracts_py, copy_to_lane, die, exposure, holdout_dir, lane_cap, list_sha256, listed_repos, load_json, make_project, observed, read_text, read_unlock, run_one, sha256_file, slice_features, slices, step0_missing, workbench_in (holdout.py, lane_plan.py, flows.py and the evals) read as new exports. Why: functions inside vendored scripts and evals; read_unlock gained an optional folder argument, its callers unchanged. Effect: none; plan-B3.md lists the commands and the rebuild.yaml key.
+- 2026-11-09 skills/rebuild-pipeline/eval/gates_rspec.py What: its level2 group now runs holdout.py split before the first gate-4 lock and gives build-plan.md a slice. Why: B3 makes gate-4 refuse until the hidden tests are split (05 P4), so B2's eval had to make the split it now requires. Effect: same AC-012 checks.
+- 2026-11-09 verify (B3) What: the project test command exits 1. Why: only the five evals in .sdlc/baseline.md fail, each with exactly its baselined line; holdout_eval.py, lanes_rspec.py, gates_rspec.py and every other eval pass, as does every AC and the drift check. Effect: B3 committed with plain git; Review and Ship run at Feature close.
 
 ## Open questions
 -

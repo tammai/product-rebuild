@@ -23,6 +23,13 @@ Spec: [docs/specs/rebuild-upgrade/05-product-rebuild.md](../../specs/rebuild-upg
 - Before `rspec:tech`, the skill writes the playbook's stack line into `docs/rspec.json` `stack` when empty (rspec weighs it as a preference).
 - Slice-loop scripts still reading `plan/slices.yaml`, `matrix/` or `contracts/` change in B3/B4.
 
+**Coordinator answers for part 3 (task pr-3, 2026-11-08, as proposed, with two additions):**
+- A lane's code repo gets its criteria and open tests from `lane_plan.py`: the lane's open tests copied byte-identical (each sha256 checked against the workbench manifest) with a manifest of only those entries, and the lock copied with `spec` rewritten to the workbench submodule's `docs`, config `spec_lock` naming the copy; `lane_plan.py refresh` re-copies after `rspec:amend`. No sdlc change. Hidden tests stay out of a lane by construction.
+- `holdout.py split` runs after `rspec:check` and before the gate-4 lock (a deviation from P4's "after Gate 4", which the lock record requires); gate-4 refuses until a split record matches, then records seed, count and list hash.
+- Selection per D4 plus 06's flaky exclusion; the holdout is a git repo `<project>-holdout/` beside the workbench, never a submodule (refused otherwise).
+- `holdout.py run`: http through `contracts.py run-http`, Playwright through the code repo's own `@playwright/test` by path (not npx), Maestro through `maestro test`, cli `not run`; reports carry criterion ID and observed behaviour only.
+- Step 0 (`lane_plan.py step0`), the lane cap from `rebuild.yaml` (default 3), spec questions batched by `lane_plan.py questions`, and the flow guard over `docs/acceptance/` as proposed.
+
 ## Decisions
 
 | Decision | Ruled out | Why |
@@ -52,8 +59,12 @@ Later parts (refined when each part starts):
 - **AC-012** 05 P2 Gate 4 (B2): Given MVP criteria in `criteria.lock.json` below 90% at level 2, when `gate.py lock gate-4` runs under posture `observe` or `own-code`, then it refuses unless given `--accept-level2 "<reason>" --by "<name>"`, which records share, reason and signer in the lock; under `strict` the share is reported, never refused.
 - **AC-013** 05 P2, design rule 6 (B2): `gate.py status` prints rspec's stage, next step and pending units from rspec's own `progress.py`, or `rspec: not run: <reason>` when rspec cannot be found.
 - **AC-014** 05 P2 (B2): the skill routes each phase to rspec's stages (`rspec:init` … `rspec:handoff`) and to this repo's gates in P2's order, never re-implementing a stage; before `rspec:tech` it writes the playbook's stack line into `docs/rspec.json` `stack` when that is empty. `[manual: skill prose, checked in review]`
-- **AC-007** 05 P4, D4 (B3): `holdout.py split` selects 25% of level 2 tests per slice, stratified by feature, at least 1 per feature with ≥ 3 criteria, reproducible from the recorded seed, and no hidden path lands in a code repo; `holdout.py run` reports per criterion without test content.
-- **AC-008** 05 P5 (B3): the flow guard protects the workbench `acceptance/` folder; `flows.py unlock --reason` stays the only edit path.
+- **AC-007** 05 P4, D4 (B3): Given a workbench after `rspec:check`, when `holdout.py split` runs, then per slice of `build-plan.md` it hides ceil(25%) of the level 2 tests, at least one per feature with ≥ 3 criteria, the same seed giving the same list; the hidden files move to the git repo `<project>-holdout/` beside the workbench and their manifest entries say `visibility: hidden`; it refuses when a listed code repo contains or references that repo. `gate.py lock gate-4` refuses until the split record matches the manifest, then records seed, count and list hash.
+- **AC-015** 05 P4 (B3): Given hidden tests, when `holdout.py run <Sn>` runs against a build, then it reports each criterion pass, fail or not run, and a failure carries only the observed behaviour, never the expected value or the test's text.
+- **AC-008** 05 P5 (B3): Given a committed file under the workbench's `docs/acceptance/`, when a tool edits it, then the flow guard blocks it until `flows.py unlock --acceptance --reason` is active.
+- **AC-016** 05 P5 step 2 (B3): Given a slice's lane, when `lane_plan.py <Sn> <lane> --features …` opens it, then its change file cites the criterion IDs (`- **AC-001** → F-…`), sdlc's state gets them as `--criteria`, the lane worktree gets only its open tests (byte-identical, sha256 checked against the workbench manifest) with a manifest of those entries, and a lock copy whose `spec` points into the workbench submodule with config `spec_lock` naming it; it refuses a lane beyond the slice's lane cap (`rebuild.yaml` `budgets.parallel_lanes`, default 3).
+- **AC-017** 05 P5 step 0 (B3): Given a slice with a criterion that has neither a level 2 test nor an rspec verify reason, when `lane_plan.py step0 <Sn>` runs, then it names the criterion and the `rspec:verify --only <features>` to run, and `lane_plan.py` refuses to open the slice's lanes.
+- **AC-018** 05 P5 step 3 (B3): Given spec questions in the lanes' `.sdlc/.work/spec-questions/`, when `lane_plan.py questions <Sn>` runs, then they are batched into `plan/spec-questions/<Sn>.md`; `lane_plan.py refresh <Sn> <lane>` re-copies the lock and open tests after an `rspec:amend`.
 - **AC-009** 05 P6, P7 (B4): `route.py` routes each `finding-v1.class` as P6's table says; parity and equivalence diffs matched by a `departures.yaml` `match` rule are not failures.
 - **AC-010** 05 P8–P10 (B5): Gate 5 refuses on each P8 condition; budgets and cost logs per P9.
 - **AC-011** 05 P1 (B6): `docs/MIGRATION-3.md` maps every 2.x capability to its 3.0 owner with a passing test or fixture, before any deletion.
@@ -71,8 +82,12 @@ Later parts (refined when each part starts):
 | AC-012 | skills/rebuild-pipeline/eval/gates_rspec.py › level2 | `python3 skills/rebuild-pipeline/eval/gates_rspec.py level2` |
 | AC-013 | skills/rebuild-pipeline/eval/gates_rspec.py › progress | `python3 skills/rebuild-pipeline/eval/gates_rspec.py progress` |
 | AC-014 | manual | skill prose (SKILL.md phase routing, stack preference step), checked in review |
-| AC-007 | skills/rebuild-pipeline/eval/holdout.py (B3) | `python3 skills/rebuild-pipeline/eval/holdout.py` |
-| AC-008 | skills/rebuild-pipeline/eval/flows_acceptance.py (B3) | `python3 skills/rebuild-pipeline/eval/flows_acceptance.py` |
+| AC-007 | skills/rebuild-pipeline/eval/holdout_eval.py › split | `python3 skills/rebuild-pipeline/eval/holdout_eval.py split` |
+| AC-015 | skills/rebuild-pipeline/eval/holdout_eval.py › run | `python3 skills/rebuild-pipeline/eval/holdout_eval.py run` |
+| AC-008 | skills/rebuild-pipeline/eval/lanes_rspec.py › flows | `python3 skills/rebuild-pipeline/eval/lanes_rspec.py flows` |
+| AC-016 | skills/rebuild-pipeline/eval/lanes_rspec.py › lane | `python3 skills/rebuild-pipeline/eval/lanes_rspec.py lane` |
+| AC-017 | skills/rebuild-pipeline/eval/lanes_rspec.py › step0 | `python3 skills/rebuild-pipeline/eval/lanes_rspec.py step0` |
+| AC-018 | skills/rebuild-pipeline/eval/lanes_rspec.py › questions | `python3 skills/rebuild-pipeline/eval/lanes_rspec.py questions` |
 | AC-009 | skills/rebuild-pipeline/eval/route.py (B4) | `python3 skills/rebuild-pipeline/eval/route.py` |
 | AC-010 | skills/rebuild-pipeline/eval/gate5.py (B5) | `python3 skills/rebuild-pipeline/eval/gate5.py` |
 | AC-011 | skills/rebuild-pipeline/eval/migration_3.py (B6) | `python3 skills/rebuild-pipeline/eval/migration_3.py` |

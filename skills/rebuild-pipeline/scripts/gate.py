@@ -370,6 +370,23 @@ def _lock_gate4_checks(gid, argv):
     # nothing says the spec agrees with the product. Under `strict` the spec side may not run
     # what it would take to record more, so the share is shown, never refused. Returns
     # (exit code or None, extra lock lines).
+    # The hidden tests are drawn before this lock, and the lock pins the draw (05 P4): the manifest it
+    # hashes must be the one the split left, or the recorded list describes a different bundle.
+    try:
+        split = json.loads(read_text(_join("plan", "holdout.json")))
+    except (OSError, ValueError):
+        split = None
+    manifest = _join(SPEC, "acceptance", "manifest.json")
+    if not isinstance(split, dict):
+        print(f"Cannot lock {gid}: no holdout split yet (plan/holdout.json). Run python3 scripts/holdout.py split "
+              f"first; it draws the hidden tests this lock records.", file=sys.stderr)
+        return 1, ""
+    if not os.path.exists(manifest) or split.get("manifest_sha256") != sha(manifest):
+        print(f"Cannot lock {gid}: {manifest} changed after the holdout split (plan/holdout.json records another "
+              f"version). The draw would no longer match the bundle; ask the user before re-drawing.", file=sys.stderr)
+        return 1, ""
+    holdout = (f"holdout:\n  seed: {split.get('seed')}\n  count: {split.get('count')}\n"
+               f"  list_sha256: {split.get('list_sha256')}\n")
     try:
         lock = json.loads(read_text(_join(SPEC, "criteria.lock.json")))
         rows = [c for c in lock.get("criteria") or [] if isinstance(c, dict) and c.get("priority") == "MVP"]
@@ -384,11 +401,11 @@ def _lock_gate4_checks(gid, argv):
     figure = f"MVP level 2: {round(share * 100)}% ({sum(1 for c in rows if c.get('level') == 2)} of {len(rows)})"
     if share >= LEVEL2_FLOOR:
         print(figure)
-        return None, ""
+        return None, holdout
     pos = posture()
     if pos == "strict":
         print(f"{figure}, below {round(LEVEL2_FLOOR * 100)}%; posture strict, so reported, not refused.")
-        return None, ""
+        return None, holdout
     reason = argv[argv.index("--accept-level2") + 1] if "--accept-level2" in argv[:-1] else None
     by = argv[argv.index("--by") + 1] if "--by" in argv[:-1] else None
     if not reason or not by:
@@ -397,7 +414,7 @@ def _lock_gate4_checks(gid, argv):
               f'  python3 scripts/gate.py lock {gid} --accept-level2 "<reason>" --by "<name>"', file=sys.stderr)
         return 1, ""
     print(f"{figure}, below {round(LEVEL2_FLOOR * 100)}%; locking on {by}'s signed reason.")
-    return None, (f"level2_waiver:\n  share: {round(share, 4)}\n  floor: {LEVEL2_FLOOR}\n  posture: {pos}\n"
+    return None, holdout + (f"level2_waiver:\n  share: {round(share, 4)}\n  floor: {LEVEL2_FLOOR}\n  posture: {pos}\n"
                   f"  reason: {yaml_str(reason)}\n  by: {yaml_str(by)}\n  at: {_iso_now()}\n")
 
 

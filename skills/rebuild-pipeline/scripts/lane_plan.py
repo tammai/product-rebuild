@@ -54,6 +54,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -96,7 +97,7 @@ def ac_hash(change):
 
 def _ac_items(change):
     """[(id, text)] from a change file this script wrote."""
-    return re.findall(r"^- \*\*(AC-\d{3})\*\* — (.*)$", _ac_section(change) or "", re.M)
+    return re.findall(r"^- \*\*(AC-\d{3})\*\* (?:—|→) (.*)$", _ac_section(change) or "", re.M)
 
 
 def _test_rows(change):
@@ -604,6 +605,343 @@ def _write_record(args):
     return 0
 
 
+# ---------------------------------------------------------------- 3.0.0: lanes from rspec's slices (05 P5)
+#
+# In 3.0 rspec writes the criteria and records the tests, in the workbench (`docs/`). sdlc 3.5 builds
+# spec-backed only from what is inside the code repo: config `spec_lock` (a path in the repo, whose
+# `spec` it resolves against the repo) and `acceptance/manifest.json`. The code repo holds the
+# workbench as a submodule, so this copies, per lane: the lane's OPEN tests, byte-identical and each
+# checked against the workbench manifest's sha256, with a manifest of only those entries; and the lock,
+# its `spec` rewritten to the submodule's `docs`. Hidden tests never reach a lane by construction: they
+# are not in the workbench bundle any more, and the lock copy names no test for them.
+
+SPEC = "docs"
+SPEC_BUNDLE = os.path.join(SPEC, "acceptance")
+SPEC_LOCK = os.path.join(SPEC, "criteria.lock.json")
+LANE_LOCK = ".rebuild/criteria.lock.json"  # in the lane worktree; config spec_lock names it
+SLICE_RE = re.compile(r"^##\s*Slice\s+(\d+)\s*:?\s*(.*)$", re.M)  # rspec_lib.SLICE_RE; change both together
+# rspec verify outcomes that leave a criterion at level 1 for a recorded reason (rspec verify_report.OUTCOMES).
+LEVEL1_REASONS = ("unrecordable", "unseedable", "read-only reference")
+DEFAULT_LANE_CAP = 3  # 05 P5 step 2, until G0 budgets say otherwise (rebuild.yaml budgets.parallel_lanes)
+
+
+def _json(p):
+    with open(p, encoding="utf-8") as fh:
+        return json.loads(fh.read())
+
+
+def slice_features():
+    """{"S<n>": [feature IDs]} from rspec's build-plan.md, read as rspec's build_slices reads it."""
+    p = os.path.join(SPEC, "build-plan.md")
+    text = _read_text(p) if os.path.exists(p) else ""
+    heads = list(SLICE_RE.finditer(text))
+    out = {}
+    for i, h in enumerate(heads):
+        body = text[h.end(): heads[i + 1].start() if i + 1 < len(heads) else len(text)]
+        out[f"S{h.group(1)}"] = list(dict.fromkeys(re.findall(r"\bF-[A-Z][A-Z0-9]*-\d+\b", body)))
+    return out
+
+
+def _slice_rows(slice_id):
+    feats = set(slice_features().get(slice_id) or [])
+    return [c for c in (_json(SPEC_LOCK).get("criteria") or []) if c.get("feature") in feats and c.get("priority") != "Drop"]
+
+
+def step0_missing(slice_id):
+    """Criteria of the slice with neither a level 2 test in the bundle nor rspec's recorded reason (P5 step 0)."""
+    tested = {t["criterion"] for t in (_json(os.path.join(SPEC_BUNDLE, "manifest.json")).get("tests") or [])}
+    reasons = set()
+    p = os.path.join(SPEC, "verify", "outcomes.jsonl")
+    for line in (_read_text(p).splitlines() if os.path.exists(p) else []):
+        try:
+            o = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(o, dict) and o.get("outcome") in LEVEL1_REASONS:
+            reasons.add(o.get("criterion"))
+    return [c for c in _slice_rows(slice_id) if not (c.get("level") == 2 and c["id"] in tested) and c["id"] not in reasons]
+
+
+def _step0(args):
+    slice_id = args[0] if args else None
+    if not slice_id or not re.fullmatch(r"S\d+", slice_id):
+        return _die("lane-plan", "usage: lane_plan.py step0 <Sn>")
+    missing = step0_missing(slice_id)
+    if not missing:
+        print(f"{slice_id} step 0: every criterion has a level 2 test or rspec's reason for staying at level 1.")
+        return 0
+    feats = ",".join(dict.fromkeys(c["feature"] for c in missing))
+    print(f"{slice_id} step 0: {len(missing)} criteria have no level 2 test and no recorded reason:\n" +
+          "\n".join(f"  {c['id']} (level {c.get('level')})" for c in missing) +
+          f"\nRun rspec:verify --only {feats}, then step 0 again.", file=sys.stderr)
+    return 1
+
+
+def lane_cap():
+    p = "rebuild.yaml"
+    block = re.search(r"^budgets:[ \t]*\n((?:(?:[ \t]+.*)?\n)*)", _read_text(p) + "\n", re.M) if os.path.exists(p) else None
+    m = block and re.search(r"^[ \t]+parallel_lanes:[ \t]*(\d+)", block.group(1), re.M)
+    return int(m.group(1)) if m else DEFAULT_LANE_CAP
+
+
+def workbench_in(worktree, explicit=None):
+    """The workbench submodule's path inside the code repo (posix), from .gitmodules, or None."""
+    if explicit:
+        return explicit.replace("\\", "/").strip("/")
+    gm = os.path.join(worktree, ".gitmodules")
+    if not os.path.exists(gm):
+        return None
+    name = os.path.basename(os.getcwd())
+    for block in re.split(r"^\[submodule ", _read_text(gm), flags=re.M)[1:]:
+        path = re.search(r"^\s*path\s*=\s*(.+)$", block, re.M)
+        url = re.search(r"^\s*url\s*=\s*(.+)$", block, re.M)
+        if not path:
+            continue
+        p = path.group(1).strip()
+        u = re.sub(r"\.git\Z", "", (url.group(1).strip() if url else "").rstrip("/"))
+        if u.replace("\\", "/").split("/")[-1] == name or os.path.exists(os.path.join(worktree, p, "locks", "pipeline.yaml")):
+            return p.replace("\\", "/").strip("/")
+    return None
+
+
+def _sha(p):
+    with open(p, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+def copy_to_lane(worktree, criteria, wb_path):
+    """Write the lane's open bundle and lock copy, or return why not (nothing written then)."""
+    manifest = _json(os.path.join(SPEC_BUNDLE, "manifest.json"))
+    tests = manifest.get("tests") or []
+    mine = [t for t in tests if t.get("criterion") in criteria and t.get("visibility", "open") == "open"]
+    bad = [f"{t['path']} (manifest {t.get('sha256', '?')[:12]}…)" for t in mine
+           if not os.path.exists(os.path.join(SPEC_BUNDLE, t["path"])) or _sha(os.path.join(SPEC_BUNDLE, t["path"])) != t.get("sha256")]
+    if bad:
+        return ("these tests differ from the sha256 the workbench manifest records, so they are not copied: "
+                + ", ".join(bad) + ". A recorded test changes only through rspec:amend.")
+    dest = os.path.join(worktree, "acceptance")
+    if os.path.isdir(dest):
+        shutil.rmtree(dest)
+    for t in mine:
+        out = os.path.join(dest, t["path"])
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        shutil.copyfile(os.path.join(SPEC_BUNDLE, t["path"]), out)
+    if os.path.isdir(os.path.join(SPEC_BUNDLE, "seed")):
+        shutil.copytree(os.path.join(SPEC_BUNDLE, "seed"), os.path.join(dest, "seed"))
+    lane_manifest = dict(manifest, tests=mine)
+    _write_text(os.path.join(dest, "manifest.json"), json.dumps(lane_manifest, indent=2, ensure_ascii=False) + "\n")
+    lock = _json(SPEC_LOCK)
+    open_ids = {t["criterion"] for t in tests if t.get("visibility", "open") == "open"}
+    for c in lock.get("criteria") or []:
+        if c.get("id") not in open_ids:
+            c["test"] = None  # a hidden test's path is not the lane's to know
+    lock["spec"] = f"{wb_path}/{SPEC}"
+    _write_text(os.path.join(worktree, *LANE_LOCK.split("/")), json.dumps(lock, indent=2, ensure_ascii=False) + "\n")
+    cfg_p = os.path.join(worktree, ".sdlc", "config.json")
+    cfg = _json(cfg_p) if os.path.exists(cfg_p) else {}
+    cfg["spec_lock"] = LANE_LOCK
+    _write_text(cfg_p, json.dumps(cfg, indent=2, ensure_ascii=False) + "\n")
+    return None, mine
+
+
+def _cited_change(slice_id, lane, branch, features, commit, approver, date, ids, tests):
+    rows = []
+    by_crit = {t["criterion"]: t for t in tests}
+    for n, cid in enumerate(ids, 1):
+        t = by_crit.get(cid)
+        run = f"`contracts.py run-http acceptance/{t['path']}`" if t and t.get("runner") == "http" else "`TBD`"
+        rows.append(f"| AC-{n:03d} | {'acceptance/' + t['path'] if t else 'TBD'} | {run} |")
+    return "\n".join([
+        f"# feat({lane}): rebuild slice {slice_id}",
+        "",
+        "## Why",
+        "",
+        f"**Request (verbatim):** Build lane {slice_id} `{lane}` of the rebuild against its rspec criteria.",
+        "",
+        f"Features {', '.join(features)} of slice {slice_id} (rspec build plan, Gate 2) at workbench commit `{commit}`, "
+        f"approved by {approver} on {date}; branch `{branch}`. Each AC cites a criterion in the lock "
+        f"(`{LANE_LOCK}`, copied from the workbench by the rebuild pipeline's `lane_plan.py`); its text is the "
+        "lock's. Fill in only the Test and Run cells still `TBD`. When a criterion is ambiguous, wrong or untestable, "
+        "ask: `state.py question <feature> <criterion> \"<question>\"`.",
+        "",
+        "## Acceptance criteria",
+        "",
+        *[f"- **AC-{n:03d}** → {cid}" for n, cid in enumerate(ids, 1)],
+        "",
+        "## Acceptance tests",
+        "",
+        "| AC | Test | Run |",
+        "|---|---|---|",
+        *rows,
+        "",
+        "## Must never break",
+        "",
+        "- Each criterion's behaviour exactly as the lock states it: a disagreement is a spec question, never a quiet change.",
+        "",
+        "## Out of scope",
+        "",
+        "- Anything the cited criteria do not ask for.",
+        "",
+        *REVIEW_PLACEHOLDER,
+        "",
+    ])
+
+
+def _write_rspec_lane(args):
+    def die(msg):
+        return _die("lane-plan", msg)
+    value_flags = ("--worktree", "--features", "--branch", "--sdlc-root", "--risk", "--track", "--approved-by",
+                   "--workbench-path")
+    slice_id, lane = (_positionals(args, value_flags) + [None, None])[:2]
+    if not os.path.exists(os.path.join("locks", "pipeline.yaml")):
+        return die("no locks/pipeline.yaml here — run from the workbench root.")
+    if not slice_id or not lane or not _opt(args, "--worktree") or not _opt(args, "--features"):
+        return die("usage: lane_plan.py <Sn> <lane> --worktree <path> --features F-A-01,F-B-02 [--approved-by <name>] "
+                   "[--risk low|high] [--track M|L] [--workbench-path <submodule path>] [--sdlc-root <dir>]")
+    if "--amend" in args:
+        return die("a lane built from rspec criteria is not amended here: answer its spec questions with rspec:amend, "
+                   "then `lane_plan.py refresh <Sn> <lane>`.")
+    risk, track = _opt(args, "--risk") or "low", (_opt(args, "--track") or "M").upper()
+    if risk not in ("low", "high") or track not in ("M", "L"):
+        return die("--risk is low or high, --track is M or L.")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", lane) or not re.fullmatch(r"S\d+", slice_id):
+        return die("the slice is S<n> and the lane is lowercase letters, digits and dashes (sdlc names features that way).")
+    for p in (SPEC_LOCK, os.path.join(SPEC_BUNDLE, "manifest.json"), os.path.join(SPEC, "build-plan.md")):
+        if not os.path.exists(p):
+            return die(f"{p} is missing: rspec's handoff and check come first.")
+    features = [f.strip() for f in _opt(args, "--features").split(",") if f.strip()]
+    in_slice = slice_features().get(slice_id) or []
+    stray = [f for f in features if f not in in_slice]
+    if stray:
+        return die(f"not in {slice_id} of {SPEC}/build-plan.md: {', '.join(stray)}.")
+    if step0_missing(slice_id):
+        return die(f"{slice_id} fails step 0 (criteria with no level 2 test and no rspec reason): run "
+                   f"`python3 scripts/lane_plan.py step0 {slice_id}` for the list, then rspec:verify --only <features>.")
+    rec = read_lane_plans(slice_id) or {"slice": slice_id, "lanes": {}}
+    lanes = rec.setdefault("lanes", {})
+    prior = lanes.get(lane) or {}
+    if prior and not prior.get("archived"):
+        return die(f"{slice_id} {lane} already has an open sdlc feature ({prior.get('feature')}).")
+    cap = lane_cap()
+    open_lanes = [n for n, l in lanes.items() if n != lane and not l.get("archived")]
+    if len(open_lanes) >= cap:
+        return die(f"{slice_id} already has {len(open_lanes)} open lane(s) ({', '.join(open_lanes)}); the cap is {cap} "
+                   f"(rebuild.yaml budgets.parallel_lanes). Archive one first, or raise the budget with the user.")
+    ids = [c["id"] for c in _json(SPEC_LOCK).get("criteria") or [] if c.get("feature") in features and c.get("priority") != "Drop"]
+    if not ids:
+        return die(f"the lock has no criteria for {', '.join(features)}.")
+    worktree = os.path.abspath(_opt(args, "--worktree"))
+    try:
+        branch = _git(worktree, "branch", "--show-current")
+    except (subprocess.CalledProcessError, OSError):
+        return die(f"{worktree} is not a git worktree.")
+    expected = _opt(args, "--branch") or f"slice/{slice_id}-{lane}"
+    if branch != expected:
+        return die(f"{worktree} is on '{branch or '(detached)'}', expected '{expected}'.")
+    docs = _docs_dir(worktree)
+    if not docs:
+        return die(f"{worktree} has no .sdlc/config.json: the code repo is not set up for sdlc.")
+    wb_path = workbench_in(worktree, _opt(args, "--workbench-path"))
+    if not wb_path:
+        return die(f"cannot find the workbench submodule in {worktree}/.gitmodules: pass --workbench-path <path>.")
+    sdlc = sdlc_root(args)
+    if not sdlc:
+        return die("sdlc's install folder was not found (needs scripts/state.py). Pass --sdlc-root <dir> or set SDLC_PLUGIN_ROOT.")
+    try:
+        commit = _git(".", "rev-parse", "--short", "HEAD")
+    except (subprocess.CalledProcessError, OSError):
+        return die("the workbench is not a git repository, so there is no commit for the approval to point at.")
+    approver = (_opt(args, "--approved-by") or "").strip() or "(no --approved-by)"
+    copied = copy_to_lane(worktree, set(ids), wb_path)
+    if isinstance(copied, str):
+        return die(copied)
+    tests = copied[1]
+    feature = f"{datetime.now().strftime('%Y-%m-%d')}-{track.lower()}-{slice_id.lower()}-{lane}"
+    change_rel = f"{docs}/changes/{feature}.md"
+    date = _local_date()
+    _write_text(os.path.join(worktree, change_rel),
+                _cited_change(slice_id, lane, branch, features, commit, approver, date, ids, tests))
+    tasks = []
+    for f in features:
+        acs = " ".join(f"AC-{n:03d}" for n, cid in enumerate(ids, 1) if cid.startswith(f + "."))
+        tasks += ["--task", f"{f} | {acs} | TBD"]
+    try:
+        out = _state_py(sdlc, worktree, "new", feature, "--track", track, "--risk", risk, "--footprint", "0",
+                        "--build", "inline: this lane, one subagent; the orchestrator runs Review",
+                        "--handoff", f"rspec criteria of {', '.join(features)} (workbench {commit})", *tasks,
+                        "--criteria", *ids)
+        state_rel = (out.get("event") or {}).get("state") or f".sdlc/state/{feature}.md"
+        build = (stage_numbers(_read_text(os.path.join(worktree, state_rel))) or {}).get("Build")
+        if build is None:
+            raise RuntimeError("could not read Build's stage number from the state file it wrote")
+        _state_py(sdlc, worktree, "advance", feature, str(build), "--gate", "pass", "--note",
+                  f"rebuild-approval: branch {branch}; rspec criteria {', '.join(features)} @ workbench {commit}; "
+                  f"approved by {approver} (lane_plan.py)")
+    except RuntimeError as e:
+        for p in [os.path.join(worktree, change_rel)] + _state_files(worktree, feature):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+        return die(f"sdlc's state.py refused: {e}. The change and state files were removed; the lane's acceptance/ "
+                   f"and {LANE_LOCK} copies stay (rerun replaces them).")
+    try:
+        rel_worktree = os.path.relpath(worktree, ".")
+    except ValueError:
+        rel_worktree = worktree
+    lanes[lane] = {
+        "worktree": rel_worktree, "branch": branch, "feature": feature, "change": change_rel, "state": state_rel,
+        "features": features, "criteria_ids": ids, "workbench_path": wb_path, "workbench_commit": commit,
+        "approved_by": approver, "approved_at": date, "ac_sha256": ac_hash(_read_text(os.path.join(worktree, change_rel))),
+        "criteria": len(ids), "amendments": 0, "sdlc_root": sdlc, "sdlc_version": sdlc_version(sdlc),
+    }
+    _save_record(slice_id, rec)
+    print(f"wrote sdlc feature {feature} in {worktree}: {len(ids)} cited criteria, {len(tests)} open recorded tests, "
+          f"at Build, approved @ workbench {commit} by {approver}\n  lock copy: {LANE_LOCK} (spec {wb_path}/{SPEC})\n"
+          f"  sdlc: {sdlc} ({sdlc_version(sdlc)}): name it in the lane's brief\nrecorded in plan/lane-plans/{slice_id}.yaml")
+    return 0
+
+
+def _refresh(args):
+    slice_id, lane = (args + [None, None])[:2]
+    lrec = ((read_lane_plans(slice_id) or {}).get("lanes") or {}).get(lane or "")
+    if not lrec or not lrec.get("criteria_ids"):
+        return _die("lane-plan", f"no rspec lane {slice_id} {lane} in plan/lane-plans/{slice_id}.yaml.")
+    copied = copy_to_lane(lrec["worktree"], set(lrec["criteria_ids"]), lrec["workbench_path"])
+    if isinstance(copied, str):
+        return _die("lane-plan", copied)
+    print(f"refreshed {slice_id} {lane}: {len(copied[1])} open tests and {LANE_LOCK}. In the lane, `state.py questions "
+          f"<feature>` unblocks each question whose criterion the lock changed.")
+    return 0
+
+
+def _questions(args):
+    slice_id = args[0] if args else None
+    rec = read_lane_plans(slice_id or "")
+    if not rec:
+        return _die("lane-plan", "usage: lane_plan.py questions <Sn> (a slice with lanes)")
+    rows = []
+    for name, l in sorted((rec.get("lanes") or {}).items()):
+        if l.get("archived"):
+            continue
+        d = os.path.join(l["worktree"], ".sdlc", ".work", "spec-questions")
+        for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+            if f.endswith(".json"):
+                try:
+                    q = _json(os.path.join(d, f))
+                except (OSError, ValueError):
+                    q = {"criterion": "?", "question": f"(unreadable: {f})"}
+                rows.append((q.get("criterion", "?"), str(q.get("question", "")).replace("|", "/").replace("\n", " "), name, f))
+    lines = [f"# Spec questions, {slice_id}", "",
+             "Batched for rspec:amend (human approval when an MVP criterion's `then` changes). After the amend and "
+             "re-verify: `lane_plan.py refresh <Sn> <lane>`, then `state.py questions <feature>` in the lane.", "",
+             "| Criterion | Question | Lane | File |", "|---|---|---|---|"]
+    lines += [f"| {c} | {q} | {n} | {f} |" for c, q, n, f in rows]
+    _write_text(os.path.join("plan", "spec-questions", f"{slice_id}.md"), "\n".join(lines) + "\n")
+    print(f"{slice_id}: {len(rows)} spec question(s) -> plan/spec-questions/{slice_id}.md")
+    return 0
+
+
 def main(argv=None):
     for s in (sys.stdout, sys.stderr):
         try:
@@ -613,6 +951,10 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv and argv[0] == "archive":
         return _archive(argv[1:])
+    if argv and argv[0] in ("step0", "refresh", "questions"):
+        return {"step0": _step0, "refresh": _refresh, "questions": _questions}[argv[0]](argv[1:])
+    if "--features" in argv:
+        return _write_rspec_lane(argv)
     return _write_record(argv)
 
 

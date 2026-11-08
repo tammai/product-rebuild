@@ -146,8 +146,8 @@ per-phase by design to keep context lean:
 | Toward gate-1 (G0 done) | nothing here: rspec's skills | `rspec:init` in the workbench (rspec's single-repo layout, `docs/`), `rspec:discover`, `rspec:features` (the user approves the list) → Gate 1 |
 | Toward gate-3 | the playbook `sources.yaml` names (its stack line) | `rspec:stories`; the stack preference (4d); `rspec:tech`; the ADR approval, which is `rspec:handoff` step 1 → Gate 3 |
 | Toward gate-2 | nothing here: rspec's skills | `rspec:audit`, `rspec:verify` (skipped when `reference.run.kind` is `none`), the rest of `rspec:handoff` (the build plan, ≤ 10 criteria per slice) → Gate 2 |
-| Toward gate-4 | nothing here: rspec's skills | `rspec:check` (writes `docs/criteria.lock.json`); review the contracts and tests → Gate 4 (MVP level 2 ≥ 90% unless `strict`, or the user's signed reason) |
-| G5 | `references/g5-build.md` (plus `references/g5-first-slice.md` for the first slice's repo checklist, an inbound-webhook slice, and the S1 runbook) | Per-slice fan-out to build subagents; the between-slices sequence at the end of it |
+| Toward gate-4 | nothing here: rspec's skills | `rspec:check` (writes `docs/criteria.lock.json`); `python3 scripts/holdout.py split` (draws the hidden tests into `<project>-holdout/`; commit the workbench after it); review the contracts and tests → Gate 4 (records the split; MVP level 2 ≥ 90% unless `strict`, or the user's signed reason) |
+| G5 | `references/g5-build.md` (plus `references/g5-first-slice.md` for the first slice's repo checklist, an inbound-webhook slice, and the S1 runbook), with the 3.0 slice loop (4e) in place of its spec-writing steps | Per-slice fan-out to build subagents; the between-slices sequence at the end of it |
 | G6 | `references/g6-parity.md` | Parity report, slice review, upstream re-mine |
 | GP | `references/gp-production.md` | Readiness checklist, Gate 5 review |
 
@@ -171,6 +171,28 @@ user (Step 5); their order is rspec's: 1, 3, 2, 4. **Before `rspec:tech`**, when
 `stack` is empty, write the selected playbook's stack line there (the playbook `sources.yaml` names, or the
 org default): rspec's stack ADR weighs it as a preference against `deploy`. Never overwrite a stack the
 user gave. List the playbook's decide-before concerns to the user at Gate 3.
+
+**4e — The slice loop from rspec's criteria (05 P5).** Slices are rspec's (`docs/build-plan.md`, Gate 2), so
+there are no slice specs to write. Per slice, from the workbench root:
+1. **Step 0:** `python3 scripts/lane_plan.py step0 <Sn>`. Every criterion needs a level 2 test or rspec's
+   reason for level 1; for the ones it names, run `rspec:verify --only <features>` and check again.
+   `lane_plan.py` opens no lane of a slice that fails it.
+2. **Lanes:** `python3 scripts/lane_plan.py <Sn> <lane> --worktree <path> --features <F-…,F-…>
+   --approved-by "<name>"`. It writes the lane's sdlc feature with ACs citing the criterion IDs (sdlc's
+   spec-backed mode), copies the lane's open recorded tests into its `acceptance/` (each checked against
+   the workbench manifest's sha256) and the lock to `.rebuild/criteria.lock.json`. Hidden tests never reach
+   a lane, and its brief never names the holdout. At most `rebuild.yaml` `budgets.parallel_lanes` lanes
+   (default 3) are open per slice.
+3. **Spec questions:** a lane asks with sdlc's `state.py question`, which blocks its part. Collect them with
+   `python3 scripts/lane_plan.py questions <Sn>` (`plan/spec-questions/<Sn>.md`), run `rspec:amend` on the
+   batch (the user approves any change to an MVP criterion's `then`), re-verify, then `lane_plan.py refresh
+   <Sn> <lane>` for each lane it touched; the lane's `state.py questions` unblocks it.
+4. **The bundle is read-only:** a committed file under `docs/acceptance/` changes only after `python3
+   scripts/flows.py unlock --acceptance --reason "…"` (and `relock --acceptance` after); the flow guard
+   blocks it otherwise. A wrong recorded test is a spec question, never an edit.
+At G6, `python3 scripts/holdout.py run <Sn>` (with `ACCEPT_BASE_URL` at the slice build, `--repo <code
+repo>` for Playwright tests) runs the slice's hidden tests; its report names criteria and observed
+behaviour only, so it is safe to pass to a lane.
 
 **4b — Delegation.** You orchestrate; subagents execute. Dispatch phase work to the
 agents in `${CLAUDE_PLUGIN_ROOT}/agents/` (miner, adr-drafter, data-model-drafter, spec-writer, rubric-judge)
