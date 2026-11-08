@@ -11,7 +11,7 @@ Base: 3274d37
 Owner: tammai.it@gmail.com
 Tool: claude-code
 Slice: B6   Slice base: 953e3cf   Slice gates: none
-Current: Stage 2 – Build
+Current: Stage 3 – Review
 
 ## Stages
 - [x] 1 Define   — the change file, the plan sections below
@@ -69,6 +69,8 @@ parts in fresh sessions: each backlog part is its own coordinator task
 - 2026-11-09 verify at Feature close: only the test step fails, and only the three evals left in .sdlc/baseline.md (lane_guards worktree check, run_supervision's two stall checks, windows_and_upgrade's CRLF gate-guard check); every AC passes, drift clean
 - 2026-11-09 Stage 2: pass — Feature close: every backlog part done (B1-B7); verify fails only on the baselined evals
 - 2026-11-09 review: ran code + security (Code: L, Public Surface not none, large diff; Security: the change file's failure modes name untrusted input reaching a file path), self-chosen: L
+- 2026-11-09 verify after the review round 1 fixes: only the test step fails, and only the three evals in .sdlc/baseline.md (lane_guards worktree check, run_supervision's two stall checks, windows_and_upgrade's CRLF gate-guard check); every AC passes, drift clean
+- 2026-11-09 Stage 2: pass — round 1 fixes done (b1bdc8a, db389b8); verify fails only on the baselined evals
 
 ## Deviations
 - 2026-11-08 surface What: script-internal functions allowed, bash_reaches, check, denied, denied_roots, guard, init_repo, is_lane, main, marked, posture_of, run, set_reference, tool_reaches, w (hooks/scripts/reference_guard.py and the evals) read as new exports. Why: they are functions inside a hook and eval scripts, imported by nothing. Effect: none; Public Surface unchanged.
@@ -116,6 +118,8 @@ parts in fresh sessions: each backlog part is its own coordinator task
 - 2026-11-09 2026-11-09 correction to the round-1 fixes deviation What: not every fix has an eval check. Without one: M5 (timeouts become not run), M6 (atomic writes, git return codes), M3 at boundary and gate-5 (the lane-open path is checked), M9's run without a manifest, M8 (deny text). S5 was probed by hand, not in the suite: @playwright/test 1.48.2 installed in a scratch folder, a hidden spec run through holdout.run_one passed and failed as it should, and no test-results/ or playwright-report/ appeared in the repo whose own config named the html reporter. Why: they need a hang, a crash mid-write, or npm in the suite. Effect: named in the worker report.
 - 2026-11-09 2026-11-09 holdout.py split What: also moves the hidden criteria's lines of rspec's docs/verify/runs.jsonl to <holdout>/verify/runs.jsonl, keeps that log git-ignored until the split, and refuses when it is already in history. Why: the round-1 security report's unconfirmed sibling, confirmed: rspec's verify_run.py logs run-http's failure message (got X, expected Y) for every recording run. Effect: a later verify_report.py run in the workbench no longer sees the hidden criteria's runs (an rspec interplay to raise with the coordinator).
 - 2026-11-09 2026-11-09 reference_guard.py What: per-program recursive flags (ls -R, not -r; cp -a), in-place edits in any spelling (-pi, -Ei, --in-place), git --git-dir= and --work-tree= forms. Why: same-class gaps found in a self-check before round 2. Effect: AC-004 eval gains six checks, red on b1bdc8a.
+- 2026-11-09 2026-11-09 surface What: script-internal names bundle_path, fwd, in_history, powershell_reaches, raw_reaches, unignore_bundle, write_atomic, write_reaches, sample_entries, sync_sample, departure_for, explains, NotRun (holdout.py, lane_plan.py, reference_guard.py, route.py, departures.py, boundary.py and the evals) read as new exports. Why: functions inside a hook and vendored scripts imported only by their siblings, and an eval helper. Effect: none; Public Surface lists the new boundary --repo flag, the gate-2 refusal and the matcher.
+- 2026-11-09 2026-11-09 skills/rebuild-pipeline/schemas/lock.schema.json What: declares the holdout and level2_waiver blocks gate.py writes into the gate-4 lock. Why: H1, validate.py failed every workbench past Gate 4 (additionalProperties false). Effect: gates_rspec.py level2 runs validate.py after the lock; an rc.1 workbench gets the schema through upgrade.py when its copy is unmodified.
 
 ## Open questions
 -
