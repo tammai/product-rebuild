@@ -89,8 +89,8 @@ def js_error_text(e):
 
 def _alias(k):
     """caseName <-> case_name. The JS property names are the canonical keys here; the snake_case
-    spelling is accepted on read because modules ported alongside this one (sequence.py,
-    basis.py) use snake_case result keys and a caller should not have to remember which this one
+    spelling is accepted on read because modules ported alongside this one (sequence.py)
+    use snake_case result keys and a caller should not have to remember which this one
     is."""
     if not isinstance(k, str):
         return k
@@ -640,73 +640,3 @@ def compare_runs(prev, curr):
         if name not in after:
             removed.append(name)
     return {"regressed": regressed, "recovered": recovered, "added": added, "removed": removed}
-
-
-def group_by_rule(cases, rule_ids):
-    """Group cases by Rule Card id, and say which rules no test named.
-
-    The same best-effort join as group_by_feature, on a different key and for a different
-    question. A feature answers "is this thing built"; a rule answers "does it behave the way
-    the reference behaved" — which is the question parity could not previously ask, because
-    coverage counts features and a feature can be fully built, marked covered, and subtly
-    wrong: the total rounds before tax instead of after, the state machine allows a transition
-    the reference forbade.
-
-    The join works because g5-build.md step 1 requires the rule id in the test NAME: an AC
-    carrying `rule_id: R-BILL-002` maps 1:1 to a test, and that test names the id. Nothing
-    enforces it at runtime — JUnit carries names, not metadata — so `untested` is returned
-    rather than inferred. A rule with no test and a rule whose test forgot to name it look
-    identical here, and calling both "untested" is the honest reading: in both cases nothing
-    on disk demonstrates the rule holds.
-
-    `green` counts only rules where every test naming them passed. One failing test among four
-    makes the rule red, because a rule is one behavior — there is no partial credit for a
-    calculation that is right in three cases out of four.
-    """
-    rule_ids = list(rule_ids)
-    ids = sorted(rule_ids, key=lambda s: -js_len(s))  # longest first: R-API-0011 before R-API-001
-    by_rule = {}
-    for c in cases:
-        hay = f"{c['classname']} {c['caseName']} {c['name']}"
-        for i in ids:
-            if i not in hay:
-                continue
-            g = by_rule.setdefault(i, {"passed": 0, "failed": 0, "skipped": 0, "total": 0, "cases": []})
-            g[c["state"]] += 1
-            g["total"] += 1
-            g["cases"].append(c)
-            break  # longest match wins; a test names one rule
-    untested = [i for i in rule_ids if i not in by_rule]
-    green = [i for i, g in by_rule.items() if g["total"] and g["passed"] == g["total"]]
-    red = [i for i, g in by_rule.items() if g["failed"] > 0]
-    # A rule whose only tests were skipped is neither green nor red — a skipped AC is not a
-    # passing one, and reporting it as red would blame the rule for a suite that did not run.
-    skipped_only = [i for i, g in by_rule.items() if g["total"] and not g["failed"] and g["passed"] == 0]
-    return Rec({"byRule": by_rule, "untested": untested, "green": green, "red": red, "skippedOnly": skipped_only})
-
-
-def read_rule_cards(root=".", parse_yaml=None):
-    """Every Rule Card id on disk, with its domain and kind. Zero rules = lane R never ran, which
-    is why parity.py renders no rules table at all rather than an empty one.
-
-    Takes the YAML parser as an argument instead of importing it, as the JS did so this module
-    stayed importable from anywhere. In Python that is the same call parity.py and
-    slice_review.py already make: pass `yamlio.load`.
-    """
-    d = _join(root, "findings", "rules")
-    if not os.path.exists(d) or not parse_yaml:
-        return []
-    out = []
-    for f in (x for x in _listdir(d) if re.search(r"\.ya?ml$", x)):
-        try:
-            data = parse_yaml(_read_text(_join(d, f)))
-        except Exception:
-            continue
-        if not isinstance(data, list):
-            continue
-        domain = re.sub(r"\.ya?ml$", "", f)
-        for r in data:
-            if isinstance(r, dict) and js_truthy(r.get("id")):
-                out.append({"id": r["id"], "domain": domain, "kind": r.get("kind"),
-                            "features": r.get("features") if js_truthy(r.get("features")) else []})
-    return out

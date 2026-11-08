@@ -21,11 +21,10 @@ from datetime import datetime, timezone
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCHEMAS = os.path.normpath(os.path.join(HERE, "..", "schemas"))
 
+# rspec writes the spec into docs/ (its single-repo layout, 05 P2); adr/ holds only the vendored
+# playbook and its scaffold manifest (playbook.py vendor), never ADRs, which are rspec's docs/decisions/.
 DIRS = [
-    "findings/ground-truth", "findings/feature", "findings/nfr", "findings/flow",
-    "findings/rules",
-    "matrix", "plan", "plan/specs", "adr", "contracts/data-model", "contracts/openapi",
-    "contracts/internal", "contracts/asyncapi", "locks", "parity", "parity/flows", "parity/equiv",
+    "docs", "plan", "adr", "locks", "parity", "parity/flows", "parity/equiv",
     "schemas", "scripts",
     ".github/workflows",
 ]
@@ -34,11 +33,11 @@ DIRS = [
 # too: it enumerates the plugin's scripts/ instead of carrying a list, so a script added here
 # but living outside scripts/ would be scaffolded and never upgraded.
 SCRIPTS = [
-    "validate.py", "gate.py", "parity.py", "pause_check.py", "erd.py",
-    "playbook.py", "basis.py", "flows.py", "autopilot.py",
+    "validate.py", "gate.py", "parity.py", "pause_check.py",
+    "playbook.py", "flows.py", "autopilot.py",
     "sequence.py", "slice_review.py", "acsuite.py", "routing.py",
     "preflight.py", "upgrade.py", "equiv.py", "lanes_check.py",
-    "lane_plan.py", "run_phases.py", "boundary.py", "rules_for.py", "cite_excerpts.py", "evidence_bundle.py", "gate_facts.py",
+    "lane_plan.py", "run_phases.py", "boundary.py",
     "holdout.py", "departures.py", "route.py", "gp.py", "cost.py",
     # The YAML and JSON-schema readers every checking script imports, and the PyYAML they sit on.
     "yamlio.py", "schemacheck.py",
@@ -157,14 +156,14 @@ def main(argv=None):
     write("license-posture.md", LICENSE_POSTURE)
     write("repos.yaml", REPOS_YAML)
     write("rebuild.yaml", REBUILD_YAML)
-    write("contracts/data-model/README.md", DATA_MODEL_README)
+    write("adr/README.md", ADR_README)
     write("parity/flows/README.md", FLOWS_README)
 
     # rspec's artifacts in its single-repo layout (docs/), in rspec's order (05 P2): the numbers
     # keep their 2.x names. gate.py's lock checks name the rspec step each one waits for.
     gates = [
         ("gate-1", "Feature lock", ["docs/features.md", "docs/domain.md", "docs/departures.yaml"]),
-        ("gate-3", "Architecture lock", ["docs/decisions/"]),
+        ("gate-3", "Architecture lock", ["docs/decisions/", "adr/"]),
         ("gate-2", "Slice-plan lock", ["docs/build-plan.md"]),
         ("gate-4", "Contract lock", ["docs/openapi.json", "docs/schemas/", "docs/criteria.lock.json",
                                      "docs/acceptance/manifest.json"]),
@@ -219,9 +218,9 @@ project: @@NAME@@
 reference:
   name: ""            # e.g. openproject
   repo: ""            # clone URL; leave empty in clean-room mode
-  pinned_commit: ""   # fill after first clone; all lane-D evidence uses this
+  pinned_commit: ""   # fill after first clone; every `[code]` citation in the spec uses this
   checkout: ""        # local path to that clone; scripts/preflight.py checks its HEAD
-                      # against pinned_commit before G1 is allowed to dispatch miners
+                      # against pinned_commit before rspec's discovery starts
   license: ""         # e.g. GPL-3.0, MIT
   kind: ""            # third-party | own-code (an app you already own and are replacing)
   # Who may read what (05 P3). strict: the spec side only observes behaviour; observe (the default
@@ -232,15 +231,16 @@ reference:
   posture: ""         # strict | observe | own-code; empty: own-code for kind own-code, else observe
   upstream: ""        # active | frozen — frozen turns off G6's upstream re-mine
   # How the reference runs on this machine, in one place. Moving its port in the Kutt rebuild
-  # meant editing three places that had to agree by hand, and two live miners' briefs.
+  # meant editing three places that had to agree by hand.
   run:
     compose: []       # compose files in order: upstream's, then overrides kept OUTSIDE the checkout
     base_url: ""      # where it answers (also list it under allowed:)
-    accounts: ""      # how a miner signs in or seeds one: a credentials file outside the repo, or a command
-# Which architecture playbook G4a decides against, and what this rebuild's output IS.
-# Read by G4a (which vendors the playbook to adr/playbook.md and hashes it into Gate 3),
-# by G4b, G5 and GP. Leave playbook empty for the org default; `none` disables the
-# mechanism and makes every ADR a blank-slate decision against the reference.
+    accounts: ""      # how an agent signs in or seeds one: a credentials file outside the repo, or a command
+# Which architecture playbook the stack comes from, and what this rebuild's output IS. Before
+# rspec:tech, `python3 scripts/playbook.py vendor` copies the playbook and its scaffold manifest to
+# adr/ (gate-3 locks them with the ADRs) and its stack line becomes rspec's stack preference; G5
+# creates code repos from that manifest. Leave playbook empty for the org default; `none` makes
+# every stack decision blank-slate, and you write adr/scaffold.json yourself.
 architecture:
   playbook: ""        # e.g. web-modular-monolith | mobile-flutter | playbooks/ours.md | none
   target_shape: ""    # fullstack | client-only (client-only = the API already exists and stays)
@@ -251,7 +251,7 @@ denied:
 '''
 
 LICENSE_POSTURE = '''
-# License posture — decide BEFORE mining
+# License posture — decide BEFORE rspec's discovery reads the reference
 
 status: draft   # draft | decided
 
@@ -261,8 +261,8 @@ status: draft   # draft | decided
 ## Distribution intent
 <!-- private-learning | possible-closed-distribution | permissive-reference -->
 
-## Consequence for lane D (ground truth)
-<!-- full source access | clean-room: behavior/docs/API only -->
+## Consequence for reference.posture (sources.yaml)
+<!-- strict: behaviour, docs and API only | observe: the spec side may read the code | own-code -->
 
 ## Prior attempts
 <!-- Has this rebuild been tried before? By whom, how far it got, why it stopped, and
@@ -270,8 +270,8 @@ status: draft   # draft | decided
 
 ## Off-limits
 <!-- What may agents not touch or read: paths, repos, systems, data, people's inboxes.
-     Anything here that is a path or a URL ALSO belongs in sources.yaml `denied:` — the
-     miners read that list, not this prose. "Nothing" is a complete answer — write it. -->
+     Anything here that is a path or a URL ALSO belongs in sources.yaml `denied:` — agents
+     read that list, not this prose. "Nothing" is a complete answer — write it. -->
 
 ## Rationale
 <!-- Why this posture. Note: this playbook is process, not legal advice. -->
@@ -289,51 +289,16 @@ REPOS_YAML = '''
 repos: []
 '''
 
-# Not a stub diagram, on purpose. A scaffolded `erDiagram` with no entities would satisfy
-# every check written against it, so the scaffold ships the format instead — and the
-# directory stays empty of .mermaid files until someone drafts one, which is exactly the
-# state gate.py refuses to lock. (A file is also the only way the directory survives a
-# clone: git does not track empty directories.)
-DATA_MODEL_README = '''
-# Data model — one Mermaid `erDiagram` per bounded context
+# A file is the only way adr/ survives a clone before `vendor` runs: git does not track empty directories.
+ADR_README = '''
+# adr/ — the vendored playbook and its scaffold manifest
 
-Drafted in **G4b, before the three contract layers**: Gate 3 decided where data lives,
-this decides what it is. Locked by **Gate 4** along with the rest of `contracts/`.
-
-## Convention
-
-`contracts/data-model/<context>.mermaid` — one file per bounded context, named after the
-context as it appears in the G4a context map. Per context: entities, ownership,
-relationships, source-of-truth per entity. Cross-context references by **ID only, never
-shared tables** — a relationship line that crosses a context boundary belongs in neither
-file and is a Gate 3 question, not a Gate 4 one.
-
-```mermaid
-erDiagram
-    PROJECT ||--o{ WORK_PACKAGE : contains
-    WORK_PACKAGE {
-        uuid id PK
-        uuid project_id FK
-        string subject
-    }
-```
-
-## What is checked
-
-`python3 scripts/validate.py` requires every `.mermaid` here to declare **at least one entity** —
-an `erDiagram` header alone is not a data model. `python3 scripts/gate.py lock gate-4` refuses
-to lock while this directory holds no diagram. Neither is a Mermaid validator, and neither
-can check that the model is *right*: that is the Gate 4 coherence review (every API
-resource maps to an entity or a declared projection; every entity is reachable from the
-API or annotated `%% internal`).
-
-Annotate every deliberate deviation from the reference's schema
-(`findings/ground-truth/reference-erd.mermaid`) inline with `%%` — deviations change how
-reference behavior maps onto the rebuild, and a structural one needs an ADR at Gate 3.
-
-Keep this file, or delete it once the first real diagram lands — but delete it **before**
-Gate 4 locks. Gate 4 hashes everything under `contracts/`, so removing it afterwards
-fails `python3 scripts/validate.py` with `locked file missing` and needs a gate reopen to undo.
+Not ADRs: those are rspec's, in `docs/decisions/`. This folder holds the architecture playbook the
+stack comes from (`playbook.md`) and the scaffold manifest every code repo is created from
+(`playbook.scaffold.json`, or `scaffold.json` with `architecture.playbook: none`).
+`python3 scripts/playbook.py vendor` copies them here before rspec:tech, and gate-3 locks this folder
+with the ADRs, so the stack a code repo is created from cannot change under the project when the
+plugin upgrades.
 '''
 
 FLOWS_README = '''
@@ -359,9 +324,8 @@ flows that existed at that tag.
 This is what makes the suite a characterization harness rather than a test suite that agrees
 with whatever got built. Maestro drives the compiled binary through the accessibility layer,
 so it is framework-agnostic: a flow recorded against the old app replays unchanged against the
-rebuild, provided both expose the same selector strings (the selector inventory is mined at G1
-— see `g1-mining.md`). `g5-build.md`'s per-slice step 0 refuses to start a slice whose flows
-are missing or red against the legacy app.
+rebuild, provided both expose the same selector strings. `g5-build.md`'s per-slice step 0
+refuses to start a slice whose flows are missing or red against the legacy app.
 
 A flow that genuinely cannot be recorded against the reference says so in its own header. It
 is then a normal test, not parity evidence.
@@ -461,19 +425,18 @@ Pipeline state store for the @@NAME@@ rebuild. Describes the product; never cont
 product code. Managed by the `rebuild-pipeline` skill (product-rebuild plugin).
 
 - `python3 scripts/preflight.py` — does the reference actually build and run? Written as
-  `PREFLIGHT.md` + `preflight.json`; the last G0 action, and G1 refuses to dispatch
-  miners while it reads Not-ready (`--run-build --run-tests` also executes the
+  `PREFLIGHT.md` + `preflight.json`; the last G0 action, and rspec's discovery waits
+  while it reads Not-ready (`--run-build --run-tests` also executes the
   reference's own build/test commands — opt-in, they are a third party's code)
 - `python3 scripts/upgrade.py` — bring the vendored `scripts/` and `schemas/` up to the installed
   plugin. Dry run by default; `--apply` copies. It refuses to overwrite any file edited
   here and shows the diff instead (`--diff <path>`), so a local change is never
   silently lost
-- `python3 scripts/validate.py` — schema-validate all artifacts, and structurally check
-  `contracts/` (YAML validity, duplicate keys, every `$ref` resolving; every
-  `data-model/*.mermaid` declaring entities; every ADR naming a concern its playbook maps)
+- `python3 scripts/validate.py` — the workbench's own files: progress and sequence overlays, posture,
+  the scaffold manifest in `adr/`, lock integrity. rspec's spec in `docs/` is `rspec:check`'s
 - `python3 scripts/gate.py status` — pipeline/gate state
 - `python3 scripts/equiv.py status` — the equivalence lane: does the rebuild produce what the OLD
-  system produced? Applies only to `reference.kind: own-code` with a reference that runs;
+  system produced? Applies under posture `observe` or `own-code` with a reference that runs;
   says so plainly otherwise (`record <feature-id>` against the legacy system,
   `replay <feature-id>` against the rebuild, `accept "<trace>" --reason` for a difference
   that is intended)
@@ -490,9 +453,9 @@ product code. Managed by the `rebuild-pipeline` skill (product-rebuild plugin).
   (`check` / `engage` / `log` / `disengage` / `status` drive a run; gates always halt for you)
 - `python3 scripts/routing.py` — which model each subagent role is dispatched on, and why that rung.
   Set the ladder in `.claude/model-routing.json`: `{ "profile": "frontier" }`, or override one
-  tier or role with `{ "models": { "miner": "haiku" } }`. Absent file = the `balanced`
+  tier or role with `{ "models": { "build-lane": "opus" } }`. Absent file = the `balanced`
   default. Effort is fixed per role and not settable here — `scripts/routing.py` says why
-- Decision history = `git log` on adr/, locks/, matrix/
+- Decision history = `git log` on docs/, adr/, locks/
 
 ## Keep it off-machine
 

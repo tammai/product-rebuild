@@ -1,6 +1,6 @@
 ---
 name: rebuild-pipeline
-description: Orchestrates the full product-rebuild pipeline — rebuilding an existing product (OSS reference, a category, or an app the user owns and is replacing on a new stack, e.g. React Native → Flutter) end-to-end, ending in production-ready code. Use for starting, resuming or checking a rebuild; any pipeline phase (mining, feature matrix, slicing, architecture ADRs, contracts, slice build, parity, production readiness); gate lock/reopen; license posture; being blocked by the PreToolUse hook on a locked artifact; autopilot (run unattended, pause/resume/stop, 5-hour usage threshold); and /rebuild. This is the ONLY skill the user should need to touch — it routes all work to phase references and subagents.
+description: Orchestrates the full product-rebuild pipeline — rebuilding an existing product (OSS reference, a category, or an app the user owns and is replacing on a new stack, e.g. React Native → Flutter) end-to-end, ending in production-ready code, over rspec (the spec), sdlc (the build) and bug-hunter (defect search). Use for starting, resuming or checking a rebuild; any pipeline phase (reference and posture, the rspec spec stages, gates, hidden tests, slice build, G6 parity and routing, production readiness); gate lock/reopen; license posture; being blocked by the PreToolUse hook on a locked artifact; autopilot (run unattended, pause/resume/stop, 5-hour usage threshold); and /rebuild. This is the ONLY skill the user should need to touch — it routes all work to rspec's stages, phase references and subagents.
 ---
 
 # Rebuild Pipeline Orchestrator
@@ -13,36 +13,33 @@ The pipeline (full rationale in `${CLAUDE_PLUGIN_ROOT}/docs/PLAYBOOK.md` — rea
 per project, not every session):
 
 ```
-G0 Reference + license posture
-G1 Parallel mining (ground truth / features / NFR / UX flows)
-G2 Feature matrix        ── GATE 1: taxonomy lock
-G3 Milestone slicing     ── GATE 2: slice-plan lock
-G4a System design (ADRs) ── GATE 3: architecture lock
-G4b Data model+contracts ── GATE 4: contract lock
-G5 Build, per slice      (specs+AC / backend / frontend / infra)
-G6 Parity loop           (automated, scheduled)
+G0 Reference, posture, playbook, budgets; preflight
+rspec init → discover → features           ── GATE 1: feature lock
+rspec stories → tech (ADRs, contracts)      ── GATE 3: architecture lock (+ adr/ playbook, scaffold manifest)
+rspec audit → verify → handoff (slices)     ── GATE 2: slice-plan lock
+rspec check; hidden split (holdout.py)      ── GATE 4: contract lock (lock, tests, contracts)
+G5 Build, per slice      (sdlc lanes on rspec's criteria)
+G6 Boundary, per slice   (open → hidden → equivalence → coverage → bug-hunter → human sample; route.py)
 GP Production readiness  ── GATE 5: prod-ready lock (terminal)
 ```
 
-**What a project decides once, at G0, that four later phases read.** `sources.yaml` carries
-an `architecture:` block: which **playbook** G4a decides against
-(`references/playbooks/*.md`, or a path to one the user wrote — see below) and the rebuild's
-**target shape** (`fullstack`, or `client-only` when the API already exists and stays put).
-Both are cheap to answer at G0 and expensive to discover late: target shape flips G4b from
-*drafting* a contract to *transcribing* one, and it selects GP's checklist.
+**What a project decides once, at G0, that later phases read.** `sources.yaml` carries an
+`architecture:` block: which **playbook** the stack comes from (`references/playbooks/*.md`, or a path to
+one the user wrote) and the rebuild's **target shape** (`fullstack`, or `client-only` when the API already
+exists and stays put). Both are cheap to answer at G0 and expensive to discover late: target shape flips the
+contract from *drafted* to *transcribed*, and it selects GP's checklist.
 
-**G4a is playbook-driven, not hardcoded.** The playbook supplies the standing answers and
-— through its frontmatter `concerns:` map — the list of ADRs the phase owes. The org default
+**The playbook is the stack, locked with the ADRs.** Before `rspec:tech`, `python3 scripts/playbook.py vendor`
+copies the selected playbook to `adr/playbook.md` and its scaffold manifest beside it (`adr/` holds nothing
+else; the ADRs are rspec's, in `docs/decisions/`), and its stack line becomes rspec's stack preference. Gate 3
+locks `adr/` with the ADRs and refuses without a valid manifest, so the stack a code repo is created from
+cannot change under the project when the plugin upgrades. The org default
 (`playbooks/web-modular-monolith.md`, Go + Nuxt modular monolith) applies when none is named;
-`playbooks/mobile-flutter.md` serves a Flutter client against an existing API. G4a vendors the
-chosen file to `adr/playbook.md`, inside gate-3's `protects:`, so the sections its ADRs cite
-cannot shift under a locked gate. Never carry a concern list or a section number between
-projects: §8 means storage in one playbook and auth in another.
+`playbooks/mobile-flutter.md` serves a Flutter client against an existing API.
 
-**Repo creation — `scaffold-repo`.** This pipeline produces decisions, contracts and specs. From G5
-on, every code repo is created by this plugin's `scaffold-repo` skill from the scaffold manifest the
-locked playbook ships (vendored at G4a as `adr/playbook.scaffold.json`, a project with no playbook
-writes `adr/scaffold.json`). The stack is a Gate 3 fact: Gate 3 refuses to lock a playbook that
+**Repo creation — `scaffold-repo`.** From G5 on, every code repo is created by this plugin's `scaffold-repo`
+skill from the locked scaffold manifest (`adr/playbook.scaffold.json`; a project with no playbook writes
+`adr/scaffold.json`). The stack is a Gate 3 fact: Gate 3 refuses to lock a playbook that
 declares no manifest, so G5 never meets a stack it cannot create. The skill confirms what the ADRs
 decided, asks only what they leave open, waits for approval, runs the stack's official generator, and
 proves the five commands pass before the repo counts as created (`references/g5-first-slice.md` step 0).
@@ -58,7 +55,7 @@ workbench's `repos.yaml`. sdlc's guardrails and role guard reach a set-up repo b
 lane is an sdlc feature: `lane_plan.py` writes its record from the slice specs the user approved, and
 that approval is what the spec gate reads (`references/g5-build.md` step 1b). Build lanes run as this
 plugin's `lane-worker` agent, resolved through `scripts/routing.py` (`build-lane`), through sdlc's
-Build; each lane's review is sdlc's Review, which you run after the lane reports (step 4b).
+Build; each lane's review is sdlc's Review, which you run after the lane reports (`g5-build.md`).
 
 ## Orchestration Protocol
 
@@ -144,10 +141,10 @@ per-phase by design to keep context lean:
 | Not started | `references/g0-reference.md` | Onboarding interview, scaffold workbench |
 | G0 (scaffolded, no `preflight.json` or Not-ready) | `references/g0-reference.md` | Finish the interview, fill `sources.yaml`, `python3 scripts/preflight.py` until Ready / Ready-with-gaps |
 | Toward gate-1 (G0 done) | nothing here: rspec's skills | `rspec:init` in the workbench (rspec's single-repo layout, `docs/`; goal `production`, which a rebuild always is: Gate 1 refuses any other), `rspec:discover`, `rspec:features` (the user approves the list) → Gate 1 |
-| Toward gate-3 | the playbook `sources.yaml` names (its stack line) | `rspec:stories`; the stack preference (4d); `rspec:tech`; the ADR approval, which is `rspec:handoff` step 1 → Gate 3 |
+| Toward gate-3 | the playbook `sources.yaml` names (its stack line) | `rspec:stories`; `python3 scripts/playbook.py vendor` and the stack preference (4d); `rspec:tech`; the ADR approval, which is `rspec:handoff` step 1 → Gate 3 (refuses without the vendored manifest) |
 | Toward gate-2 | nothing here: rspec's skills | `rspec:audit`, `rspec:verify` (skipped when `reference.run.kind` is `none`), the rest of `rspec:handoff` (the build plan, ≤ 10 criteria per slice) → Gate 2 |
 | Toward gate-4 | nothing here: rspec's skills | `rspec:check` (writes `docs/criteria.lock.json`); `python3 scripts/holdout.py split` (draws the hidden tests into `<project>-holdout/`; commit the workbench after it); review the contracts and tests → Gate 4 (records the split; MVP level 2 ≥ 90% unless `strict`, or the user's signed reason) |
-| G5 | `references/g5-build.md` (plus `references/g5-first-slice.md` for the first slice's repo checklist, an inbound-webhook slice, and the S1 runbook), with the 3.0 slice loop (4e) in place of its spec-writing steps | Per-slice fan-out to build subagents; the between-slices sequence at the end of it |
+| G5 | `references/g5-build.md` (plus `references/g5-first-slice.md` for the first slice's repo checklist, an inbound-webhook slice, and the S1 runbook) | The slice loop (4e): step 0, lanes, spec questions; the between-slices sequence at the end of it |
 | G6 | 4f below (and `references/g6-parity.md` for the parity report and slice review) | `boundary.py <Sn>`, cheapest step first; `route.py`; the human sample |
 | GP | `references/gp-production.md` | rspec's readiness checklist, `gp.py nfr` (each NFR's verification run on the production candidate), Gate 5 review |
 
@@ -175,10 +172,10 @@ own agents, questions and checks. Never do a stage's work here, and never re-imp
 next, and what it still has pending, is the `rspec:` line `gate.py status` prints from rspec's own
 `progress.py`; `rspec: not run: <reason>` means rspec is not installed or not found (set
 `RSPEC_PLUGIN_ROOT`), and no stage is guessed at. The gates still belong to this repo and still need the
-user (Step 5); their order is rspec's: 1, 3, 2, 4. **Before `rspec:tech`**, when `docs/rspec.json`'s
-`stack` is empty, write the selected playbook's stack line there (the playbook `sources.yaml` names, or the
-org default): rspec's stack ADR weighs it as a preference against `deploy`. Never overwrite a stack the
-user gave. List the playbook's decide-before concerns to the user at Gate 3.
+user (Step 5); their order is rspec's: 1, 3, 2, 4. **Before `rspec:tech`**, run `python3 scripts/playbook.py
+vendor` (commit `adr/`), and when `docs/rspec.json`'s `stack` is empty, write the vendored playbook's stack line
+there: rspec's stack ADR weighs it as a preference against `deploy`. Never overwrite a stack the user gave. List
+the playbook's concerns and decide-before order to the user at Gate 3: rspec's ADRs should cover them.
 
 **4e — The slice loop from rspec's criteria (05 P5).** Slices are rspec's (`docs/build-plan.md`, Gate 2), so
 there are no slice specs to write. Per slice, from the workbench root:
@@ -222,11 +219,10 @@ or spec-gap open. Then:
 The boundary passes when the open and hidden suites are green or explained, no high finding is open,
 bug-hunter has run and the sample is recorded.
 
-**4b — Delegation.** You orchestrate; subagents execute. Dispatch phase work to the
-agents in `${CLAUDE_PLUGIN_ROOT}/agents/` (miner, adr-drafter, data-model-drafter, spec-writer, rubric-judge)
-using the briefing format in `references/subagent-briefs.md`. Run independent lanes in parallel.
-Do the work inline only when it is small (a single merge, a single review pass) or when
-subagents are unavailable in the current environment.
+**4b — Delegation.** You orchestrate; subagents execute. The spec side is rspec's stages, which run their
+own agents. The one agent of this plugin is the build lane (`agents/lane-worker.md`), briefed per
+`references/subagent-briefs.md`; its reviews are sdlc's agents. Run independent lanes in parallel. Do the
+work inline only when it is small or when subagents are unavailable in the current environment.
 
 **Resolve the model ladder once per session, before the first dispatch**, from the workbench
 root:
@@ -243,11 +239,9 @@ re-running it between every fan-out is pure noise.
 
 **Relay any non-empty `warnings` to the user** and do not otherwise act on them. A malformed
 `.claude/model-routing.json` degrades to the `balanced` default rather than failing, so a
-config the user believes is active but is not would otherwise be invisible — the same reasoning
-that keeps a rubric score from blocking a lock, applied to a dispatch. Effort warnings are
-expected (`adr-drafter` and `data-model-drafter` under `balanced`; `miner`, `rubric-judge`, `spec-writer` and
-`build-lane` under `frontier`) and are not a
-problem to fix: effort is pinned per role and is not movable at spawn time (`scripts/routing.py` has the argument).
+config the user believes is active but is not would otherwise be invisible. Effort warnings are expected
+(`build-lane` under `frontier`) and are not a problem to fix: effort is pinned per role and is not movable at
+spawn time (`scripts/routing.py` has the argument).
 
 **4c — When intent is ambiguous, ask — with options.** If the user's request could mean
 several things ("continue" during G5 could mean: next module in this slice, start next
@@ -257,36 +251,14 @@ slice, or run parity), present the concrete options rather than guessing.
 
 Gates are human decisions. When a phase's exit criteria are met:
 
-1. Run `python3 scripts/validate.py` from the workbench root — all artifacts must pass schema
-   validation first. From 0.6.5 this also structurally checks `contracts/`: YAML validity,
-   duplicate keys, and every `$ref` resolving; from 0.7.0, that every
-   `contracts/data-model/*.mermaid` declares entities; from 0.11.0, that every ADR names a
-   concern its vendored playbook maps and cites only sections that map points at. It is NOT a full OpenAPI/AsyncAPI or
-   Mermaid validator — passing it does not mean the spec is semantically correct, only that
-   it is not broken in the ways that silently reach a code repo.
-
-   **1b — dispatch the rubric judge**, after validate passes and before the review is
-   finished. Dispatch it in the background and draft the review while it runs (what is being locked,
-   the decisions inside it, the risks); add what the rubric report flagged when it lands. The judge
-   and the draft need nothing from each other, and waiting for it first was dead time. Brief `${CLAUDE_PLUGIN_ROOT}/agents/rubric-judge.md` against
-   `references/rubrics/gate-N.md`. Everything step 1 checks is structural, and between it and
-   a human's judgement nothing measured whether the artifacts are any *good*. The judge fills
-   that gap and nothing else: **scores inform the lock decision, they never gate it.**
-   Never present a score as a reason to lock or not to lock; present it as something the
-   user should look at before deciding.
-
-   Before you dispatch it, make the files it should not build for itself (`subagent-briefs.md`, "The judge
-   brief"): `cite_excerpts.py` for the cited lines, `gate_facts.py` for gates 1 and 2, `evidence_bundle.py`
-   for big contracts. Its report lands at `plan/gate-reviews/gate-N-rubric.md` and stays there after the lock.
-   If you are about to lock a gate and no rubric report exists for this attempt, run the
-   judge first — that is an instruction to you, not a hook, and nothing will stop you
-   skipping it. Reject any dimension scored below 4 that carries no citation back to the
-   judge with that reason; an uncited low score is an assertion about work nobody examined.
-   On a reopen, archive the previous report to `gate-N-rubric.v<k>.md` before re-judging, so
-   the attempt that produced each set of scores stays identifiable.
+1. Run `python3 scripts/validate.py` from the workbench root (the workbench's own files: overlays,
+   posture, the scaffold manifest, lock integrity), and for gates 1 to 4 `rspec:check` (rspec's spec).
+   The semantic read of the spec is rspec's audit: its three fresh auditors (facts, coverage,
+   consistency) run before handoff, and their reports are in `docs/audit/`. Bring what they flagged to
+   the review; a finding they marked Important and nobody fixed is a reason to wait, never a detail.
 
 2. Present a **gate review** to the user: what is being locked, the key decisions inside
-   it, open risks, what the rubric report flagged, and what becomes immutable afterward.
+   it, open risks, what rspec's audit flagged, and what becomes immutable afterward.
 3. Only after explicit user approval, run `python3 scripts/gate.py lock <gate-id> --by "<who approved, and
    how>"` (`"Tam Mai, in this session"`, `"Tam Mai, relayed by the coordinator"`). Without `--by` the
    lock records the shell's `$USER`, which says who ran the command, not who approved.
@@ -306,8 +278,8 @@ logged event; require the user to state the reason.
 
 ### Step 6 — Autopilot, if the user asks for it (opt-in, off by default)
 
-Autopilot runs the mechanical stretches between gates unattended — mining lanes, drafts,
-per-slice module builds, parity — checkpointing to disk after every unit, and **halting at
+Autopilot runs the mechanical stretches between gates unattended — rspec's stages (under rspec's own
+autopilot rules), per-slice lanes, G6 boundaries — checkpointing to disk after every unit, and **halting at
 every gate**. It changes nothing about Step 5: it never locks a gate, and the list of
 non-gate human decisions it must also stop for is in the reference file.
 
@@ -338,19 +310,19 @@ its verdict to the user plainly. If it flags issues, resolve them (commit or exp
 flag draft work, decide on a reopened gate, stop or consciously keep services running)
 before the session ends — don't just relay the warning and move on. It also can't check
 one thing by itself: confirm out loud that nothing non-trivial exists only in this
-conversation (a partial ADR, a draft matrix, in-flight findings) that hasn't reached disk.
+conversation (a draft lane approval, in-flight findings) that hasn't reached disk.
 
 ## Conventions (apply everywhere)
 
 - Checkpoint discipline: write in-progress, unlocked work to disk in the workbench
-  proactively — a partial ADR, a draft matrix, in-flight findings — without waiting to be
+  proactively — a draft lane approval, a gate review, in-flight findings — without waiting to be
   asked. Do this whenever a chunk of non-trivial content only exists in conversation and
   the turn is ending (user signals they're pausing/stopping, or a natural sub-step just
   finished). Draft files on disk survive a new session; chat text does not. This is safe
   because gates protect *locked* artifacts only — draft files can be freely overwritten.
 - Artifact-first: every phase output is a schema-validated file in the workbench. If it
   isn't validated, the phase isn't done.
-- Evidence rule: no finding without an evidence pointer (URL, or path+commit for lane D).
+- Evidence rule: no finding without a reproduction (contracts C6: a finding is verified or not routed).
 - Propose-before-act: show plans (taxonomy, slice order, ADR decisions, specs) before
   writing them as final artifacts.
 - The workbench describes the product; it never contains product code. Code repos are
@@ -358,7 +330,7 @@ conversation (a partial ADR, a draft matrix, in-flight findings) that hasn't rea
   to gate tags.
 - Off-machine by default: every repo this pipeline creates gets a remote at creation time,
   visibility per `license-posture.md` (private unless the posture is `permissive-reference`).
-  The pipeline's output is months of decisions that re-mining cannot reproduce, so a
+  The pipeline's output is months of decisions that re-running discovery cannot reproduce, so a
   single-disk copy is a real risk, not a hypothetical one — push it, and keep pushing it.
   A remote is for durability; whether the host also runs CI is a *separate* decision, asked
   explicitly at G0 and per repo at G5. For a durability-only remote, disable the host's CI —
@@ -366,9 +338,10 @@ conversation (a partial ADR, a draft matrix, in-flight findings) that hasn't rea
   runner (private-submodule checkout, unset secrets, gitignored paths), so leaving them
   enabled just emails a failure on every push.
 - The slice boundary is the only cheap place to change the plan, so stop there deliberately:
-  record progress, run `python3 scripts/boundary.py <Sn>` (archives the lane plans, runs parity and the
-  slice review, says whether the upstream re-mine is due), and act on the sequence if it needs acting on. All of it is advisory — none of it blocks the next slice — which is
-  exactly why it has to be a habit rather than a mechanism you can lean on.
+  record progress, run `python3 scripts/boundary.py <Sn>` (archives the lanes, runs G6 cheapest first, says
+  whether the upstream re-mine is due), route what it finds, and act on the sequence if it needs acting on.
+  Nothing blocks the next slice's lanes but a parked decision they depend on, which is exactly why the
+  boundary has to be a habit rather than a mechanism you can lean on.
 - Slice ORDER is a logged decision (`python3 scripts/sequence.py reorder ... --reason "..."`), slice
   BOUNDARIES are a gate-2 reopen. Never conflate them, and never hand-edit
   `plan/sequence.yaml` — the file's value is that every change to it carries a reason.
@@ -386,7 +359,7 @@ conversation (a partial ADR, a draft matrix, in-flight findings) that hasn't rea
 Cost here is not output, it is context re-read on every turn: a measured downstream run held a
 445k median context for 5,000 turns. So:
 
-- **Never Read `plan/backlog.md`, `plan/progress.yaml` or `plan/slices.yaml` whole.** `grep -n`
+- **Never Read `plan/progress.yaml`, `docs/build-plan.md` or `docs/criteria.lock.json` whole.** `grep -n`
   for the slice id or heading, then Read with offset/limit. `pause-check` flags any over 40 KB.
 - **One session per unit of work** (a slice stage, a gate review). Checkpoint to `plan/drafts/`,
   run `pause-check`, end the session; resume from `gate.py status`, not from chat memory.
@@ -411,17 +384,15 @@ Cost here is not output, it is context re-read on every turn: a measured downstr
 - Skipping state detection and acting on stale conversational memory.
 - Doing lane work inline that should fan out to parallel subagents.
 - Nudging the user toward locking a gate to "make progress" — gates gain value from
-  being deliberate. A rubric report full of 5s is not an argument for locking, and one with a
-  2 in it is not a veto: it is advisory, and presenting it as either turns a soft signal into
-  the decision the pipeline keeps manual on purpose.
-- Locking a gate with no rubric report for the attempt, or accepting a below-4 score that
-  cites nothing. The first means the semantic check silently did not happen; the second means
-  it happened and produced an opinion.
+  being deliberate. A clean audit is not an argument for locking; it is one input to the
+  decision the pipeline keeps manual on purpose.
+- Doing an rspec stage's work here (writing stories, ADRs, criteria or tests by hand) instead of
+  running the stage: rspec verifies its own spec, and a hand-written piece skips that.
 - Editing locked artifacts instead of proposing a reopen.
 - Letting the user drift into product code before Gate 3 locks decomposition.
 - Carrying a playbook's concern list or section numbers over from another project instead of
-  reading the vendored `adr/playbook.md`. A citation that names a section the playbook never
-  maps is caught by `validate.py`; a plausible-looking wrong one is not caught by anything.
+  reading the vendored `adr/playbook.md`: §8 means storage in one playbook and auth in another, and
+  a plausible-looking wrong section is caught by nothing.
 - Creating a code repo by hand — running `npm create` or `go mod init` directly, scaffolding
   conversationally, or writing a `CLAUDE.md` rules brief yourself. Repos come from `scaffold-repo`.
   A stack with no manifest is a Gate 3 failure to fix there, not a reason to improvise at G5.

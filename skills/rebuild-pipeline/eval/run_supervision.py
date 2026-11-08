@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """run_supervision.py (eval) — 0.31.0, issue #1: the G5 gaps found in a real run.
 
-  python3 skills/rebuild-pipeline/eval/run_supervision.py
+  python3 skills/rebuild-pipeline/eval/run_supervision.py [phases|stall|live|markers|skips]
 
 Scaffolds a throwaway workbench with rebuild_init.py and a code repo registered in repos.yaml,
 then runs the REAL scripts against it:
@@ -30,6 +30,7 @@ import tempfile
 import time
 
 SCRIPTS = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "scripts")
+ONLY = sys.argv[1] if len(sys.argv) > 1 else None
 base = tempfile.mkdtemp(prefix="rebuild-eval-")
 
 
@@ -107,130 +108,137 @@ g("-c", "user.email=e@x", "-c", "user.name=e", "commit", "-qm", "init")
 w("repos.yaml", "repos:\n  - name: app\n    path: ../app\n")
 w("plan/progress.yaml", "slices:\n  S1: done\n  S2: in-progress\n")
 
-# --- 1. run_phases: order, env carry-over, stop at the first failure -------------------------
 RUN = f"parity/runs/{date}-joint"
-w(f"{RUN}/phases.txt", "\n".join([
-    "# the joint run",
-    "EVAL_DB_URL=postgres://eval",
-    "one: " + py_phase(f"import os; open('{RUN}/seen.txt', 'w').write(os.environ.get('EVAL_DB_URL') or 'UNSET')"),
-    "two: " + py_phase("import sys; sys.exit(3)"),
-    "three: " + py_phase("print('should not run')"),
-]) + "\n")
-r1 = run("run_phases.py", RUN)
-check("run-phases exits with the failing phase's code", r1["code"] == 3, r1["out"])
-check("a NAME=value line reaches a later phase", read(f"{RUN}/seen.txt") == "postgres://eval", read(f"{RUN}/seen.txt"))
-check("each phase that ran has a .done file",
-      bool(re.search(r"exit=0", read(f"{RUN}/one.done"))) and bool(re.search(r"exit=3", read(f"{RUN}/two.done"))))
-check("no phase runs after a failure",
-      not exists(f"{RUN}/three.log") and bool(re.search(r"Not run, because two failed: three", r1["out"])), r1["out"])
-st1 = json.loads(read(f"{RUN}/status.json") or "{}")
-check("status.json records the failed phase",
-      st1.get("state") == "failed" and st1.get("phase") == "two" and st1.get("exit") == 3, json.dumps(st1))
-check("the run directory is gitignored", read("parity/runs/.gitignore").strip() == "*")
+
+# --- 1. run_phases: order, env carry-over, stop at the first failure -------------------------
+if ONLY in (None, "phases"):
+    w(f"{RUN}/phases.txt", "\n".join([
+        "# the joint run",
+        "EVAL_DB_URL=postgres://eval",
+        "one: " + py_phase(f"import os; open('{RUN}/seen.txt', 'w').write(os.environ.get('EVAL_DB_URL') or 'UNSET')"),
+        "two: " + py_phase("import sys; sys.exit(3)"),
+        "three: " + py_phase("print('should not run')"),
+    ]) + "\n")
+    r1 = run("run_phases.py", RUN)
+    check("run-phases exits with the failing phase's code", r1["code"] == 3, r1["out"])
+    check("a NAME=value line reaches a later phase", read(f"{RUN}/seen.txt") == "postgres://eval", read(f"{RUN}/seen.txt"))
+    check("each phase that ran has a .done file",
+          bool(re.search(r"exit=0", read(f"{RUN}/one.done"))) and bool(re.search(r"exit=3", read(f"{RUN}/two.done"))))
+    check("no phase runs after a failure",
+          not exists(f"{RUN}/three.log") and bool(re.search(r"Not run, because two failed: three", r1["out"])), r1["out"])
+    st1 = json.loads(read(f"{RUN}/status.json") or "{}")
+    check("status.json records the failed phase",
+          st1.get("state") == "failed" and st1.get("phase") == "two" and st1.get("exit") == 3, json.dumps(st1))
+    check("the run directory is gitignored", read("parity/runs/.gitignore").strip() == "*")
 
 
-def _malformed_refused():
-    w("parity/runs/bad/phases.txt", "one: true\nthis is not a phase\n")
-    r = run("run_phases.py", "parity/runs/bad")
-    return r["code"] == 1 and bool(re.search(r"line 2", r["out"])) and not exists("parity/runs/bad/status.json")
+    def _malformed_refused():
+        w("parity/runs/bad/phases.txt", "one: true\nthis is not a phase\n")
+        r = run("run_phases.py", "parity/runs/bad")
+        return r["code"] == 1 and bool(re.search(r"line 2", r["out"])) and not exists("parity/runs/bad/status.json")
 
 
-check("a malformed phases.txt is refused before anything runs", _malformed_refused())
-shutil.rmtree(os.path.join(wb, "parity/runs/bad"))
+    check("a malformed phases.txt is refused before anything runs", _malformed_refused())
+    shutil.rmtree(os.path.join(wb, "parity/runs/bad"))
 
 # --- 2. lanes_check: a driver that died mid-phase is a stall, and the newest file is named ----
-w(f"{RUN}/status.json", json.dumps({"pid": 999999, "state": "running", "phase": "go", "phases": ["go"], "results": []}))
-w(f"{RUN}/go.log", "--- PASS: TestX\n")
-r2 = run("lanes_check.py")
-check("a dead driver exits 2", r2["code"] == 2, r2["out"])
-check("a dead driver is named with its phase",
-      bool(re.search(r"driver for parity/runs/[\d-]+-joint died during phase go", r2["out"])), r2["out"])
-check("the stall names the newest file and its age",
-      bool(re.search(r"Newest file anywhere: .*(go\.log|status\.json), written \d+ min ago", r2["out"])), r2["out"])
+if ONLY in (None, "stall"):
+    w(f"{RUN}/status.json", json.dumps({"pid": 999999, "state": "running", "phase": "go", "phases": ["go"], "results": []}))
+    w(f"{RUN}/go.log", "--- PASS: TestX\n")
+    r2 = run("lanes_check.py")
+    check("a dead driver exits 2", r2["code"] == 2, r2["out"])
+    check("a dead driver is named with its phase",
+          bool(re.search(r"driver for parity/runs/[\d-]+-joint died during phase go", r2["out"])), r2["out"])
+    check("the stall names the newest file and its age",
+          bool(re.search(r"Newest file anywhere: .*(go\.log|status\.json), written \d+ min ago", r2["out"])), r2["out"])
 
 # --- 2b. watch: exits 2 with the same evidence on a stall -------------------------------------
-rw = run("lanes_check.py", "watch", "--interval", "0.1")
-check("watch exits 2 on a dead driver, with the evidence the plain check prints",
-      rw["code"] == 2 and bool(re.search(r"driver for parity/runs/[\d-]+-joint died during phase go", rw["out"]))
-      and bool(re.search(r"Newest file anywhere: ", rw["out"])), rw["out"])
-check("watch keeps the marker problem it saw, ahead of the stall", rw["out"].lstrip().startswith("MARKER: S2 in progress"), rw["out"][:300])
-check("watch refuses a bad interval", run("lanes_check.py", "watch", "--interval", "x")["code"] == 1)
+if ONLY in (None, "stall"):
+    rw = run("lanes_check.py", "watch", "--interval", "0.1")
+    check("watch exits 2 on a dead driver, with the evidence the plain check prints",
+          rw["code"] == 2 and bool(re.search(r"driver for parity/runs/[\d-]+-joint died during phase go", rw["out"]))
+          and bool(re.search(r"Newest file anywhere: ", rw["out"])), rw["out"])
+    check("watch keeps the marker problem it saw, ahead of the stall", rw["out"].lstrip().startswith("MARKER: S2 in progress"), rw["out"][:300])
+    check("watch refuses a bad interval", run("lanes_check.py", "watch", "--interval", "x")["code"] == 1)
 
 # --- 3. a live driver is a run in progress, even with no test process -------------------------
-sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"],
-                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-w(f"{RUN}/status.json", json.dumps({"pid": sleeper.pid, "state": "running", "phase": "redeploy", "phases": ["redeploy"], "results": []}))
-r3 = run("lanes_check.py", "--idle", "0")
-t_watch = time.time()
-r3w = run("lanes_check.py", "watch", "--idle", "0", "--interval", "0.2", "--max-minutes", "0.03")
-watch_secs = time.time() - t_watch
-sleeper.kill()
-sleeper.wait()
-check("watch stays silent while a driver is alive, and exits 0 at its deadline with one line",
-      r3w["code"] == 0 and bool(re.search(r"watch ended after 0\.03 min", r3w["out"])) and "running phase" not in r3w["out"]
-      and 1.0 < watch_secs < 20, f"{watch_secs:.1f}s " + r3w["out"])
-check("a live driver is not a stall", r3["code"] == 0 and bool(re.search(r"running phase redeploy", r3["out"])), r3["out"])
-shutil.rmtree(os.path.join(wb, "parity/runs"))
+if ONLY in (None, "live"):
+    sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    w(f"{RUN}/status.json", json.dumps({"pid": sleeper.pid, "state": "running", "phase": "redeploy", "phases": ["redeploy"], "results": []}))
+    r3 = run("lanes_check.py", "--idle", "0")
+    t_watch = time.time()
+    r3w = run("lanes_check.py", "watch", "--idle", "0", "--interval", "0.2", "--max-minutes", "0.03")
+    watch_secs = time.time() - t_watch
+    sleeper.kill()
+    sleeper.wait()
+    check("watch stays silent while a driver is alive, and exits 0 at its deadline with one line",
+          r3w["code"] == 0 and bool(re.search(r"watch ended after 0\.03 min", r3w["out"])) and "running phase" not in r3w["out"]
+          and 1.0 < watch_secs < 20, f"{watch_secs:.1f}s " + r3w["out"])
+    check("a live driver is not a stall", r3["code"] == 0 and bool(re.search(r"running phase redeploy", r3["out"])), r3["out"])
+    shutil.rmtree(os.path.join(wb, "parity/runs"))
 
 # --- 4. lanes_check and the markers ---------------------------------------------------------
-r4 = run("lanes_check.py")
-check("lanes-check names a repo with no marker mid-slice",
-      bool(re.search(r"MARKER: S2 in progress", r4["out"])) and bool(re.search(r"app: no \.rebuild-workbench marker", r4["out"])), r4["out"])
-p4 = run("pause_check.py")
-check("pause-check names a repo with no marker mid-slice",
-      bool(re.search(r"app: no `\.rebuild-workbench` marker while S2 is in progress", p4["out"])), p4["out"])
+if ONLY in (None, "markers"):
+    r4 = run("lanes_check.py")
+    check("lanes-check names a repo with no marker mid-slice",
+          bool(re.search(r"MARKER: S2 in progress", r4["out"])) and bool(re.search(r"app: no \.rebuild-workbench marker", r4["out"])), r4["out"])
+    p4 = run("pause_check.py")
+    check("pause-check names a repo with no marker mid-slice",
+          bool(re.search(r"app: no `\.rebuild-workbench` marker while S2 is in progress", p4["out"])), p4["out"])
 
 
-def write_marker(text):
-    with open(os.path.join(app, ".rebuild-workbench"), "w", encoding="utf-8", newline="\n") as f:
-        f.write(text + "\n")
+    def write_marker(text):
+        with open(os.path.join(app, ".rebuild-workbench"), "w", encoding="utf-8", newline="\n") as f:
+            f.write(text + "\n")
 
 
-write_marker(os.path.join(base, "elsewhere"))
-check("pause-check names a marker pointing elsewhere",
-      bool(re.search(r"app: `\.rebuild-workbench` points at .*elsewhere, not this workbench", run("pause_check.py")["out"])))
-write_marker(wb)
-check("a correct marker is not named",
-      not re.search(r"rebuild-workbench", run("pause_check.py")["out"]) and not re.search(r"MARKER", run("lanes_check.py")["out"]))
-os.remove(os.path.join(app, ".rebuild-workbench"))
-w("plan/progress.yaml", "slices:\n  S1: done\n")
-check("no slice in progress: no marker issue", not re.search(r"rebuild-workbench", run("pause_check.py")["out"]))
+    write_marker(os.path.join(base, "elsewhere"))
+    check("pause-check names a marker pointing elsewhere",
+          bool(re.search(r"app: `\.rebuild-workbench` points at .*elsewhere, not this workbench", run("pause_check.py")["out"])))
+    write_marker(wb)
+    check("a correct marker is not named",
+          not re.search(r"rebuild-workbench", run("pause_check.py")["out"]) and not re.search(r"MARKER", run("lanes_check.py")["out"]))
+    os.remove(os.path.join(app, ".rebuild-workbench"))
+    w("plan/progress.yaml", "slices:\n  S1: done\n")
+    check("no slice in progress: no marker issue", not re.search(r"rebuild-workbench", run("pause_check.py")["out"]))
 
 # --- 5. skips: not counted as passes, and NOT GREEN beyond the bounds -----------------------
-def junit(cases):
-    def one(c):
-        name, st = c[0], c[1]
-        why = c[2] if len(c) > 2 else None
-        if st == "passed":
-            return f'<testcase classname="F-A-001" name="{name}"/>'
-        if st == "skipped":
-            return f'<testcase classname="F-A-001" name="{name}"><skipped message="{why}"/></testcase>'
-        return f'<testcase classname="F-A-001" name="{name}"><failure message="x">x</failure></testcase>'
-    return ('<?xml version="1.0" encoding="UTF-8"?>\n<testsuites><testsuite name="ac">\n'
-            + "\n".join(one(c) for c in cases) + "\n</testsuite></testsuites>\n")
+if ONLY in (None, "skips"):
+    def junit(cases):
+        def one(c):
+            name, st = c[0], c[1]
+            why = c[2] if len(c) > 2 else None
+            if st == "passed":
+                return f'<testcase classname="F-A-001" name="{name}"/>'
+            if st == "skipped":
+                return f'<testcase classname="F-A-001" name="{name}"><skipped message="{why}"/></testcase>'
+            return f'<testcase classname="F-A-001" name="{name}"><failure message="x">x</failure></testcase>'
+        return ('<?xml version="1.0" encoding="UTF-8"?>\n<testsuites><testsuite name="ac">\n'
+                + "\n".join(one(c) for c in cases) + "\n</testsuite></testsuites>\n")
 
 
-w("docs/features.md", "| ID | Module | Feature | Behaviour | Priority | Reason | Research ID |\n|---|---|---|---|---|---|---|\n"
-                      "| F-A-001 | A | Alpha | a | MVP | J1 | R-1 |\n")
-w("docs/build-plan.md", "# Build plan\n\n## Slice 1: One\n\n| 1 | F-A-001 Alpha |\n")
-many = [[f"t{i}", "skipped" if i < 4 else "passed", "only runs on iOS"] for i in range(10)]
-w(f"parity/{date}-ac.xml", junit(many))
-check("lanes-check does not count a skip as a pass", bool(re.search(r"6/10 passed, 4 skipped", run("lanes_check.py")["out"])))
-run("parity.py")
-rep5 = read(f"parity/{date}.md")
-check("a 40% skip run is NOT GREEN", bool(re.search(r"NOT GREEN: 4 of 10 tests skipped \(40%\)", rep5)), rep5[:900])
-check("skips are grouped by reason", bool(re.search(r"4 × only runs on iOS", rep5)))
+    w("docs/features.md", "| ID | Module | Feature | Behaviour | Priority | Reason | Research ID |\n|---|---|---|---|---|---|---|\n"
+                          "| F-A-001 | A | Alpha | a | MVP | J1 | R-1 |\n")
+    w("docs/build-plan.md", "# Build plan\n\n## Slice 1: One\n\n| 1 | F-A-001 Alpha |\n")
+    many = [[f"t{i}", "skipped" if i < 4 else "passed", "only runs on iOS"] for i in range(10)]
+    w(f"parity/{date}-ac.xml", junit(many))
+    check("lanes-check does not count a skip as a pass", bool(re.search(r"6/10 passed, 4 skipped", run("lanes_check.py")["out"])))
+    run("parity.py")
+    rep5 = read(f"parity/{date}.md")
+    check("a 40% skip run is NOT GREEN", bool(re.search(r"NOT GREEN: 4 of 10 tests skipped \(40%\)", rep5)), rep5[:900])
+    check("skips are grouped by reason", bool(re.search(r"4 × only runs on iOS", rep5)))
 
-w(f"parity/{date}-ac.xml", junit([[f"t{i}", "passed"] for i in range(19)] + [["t19", "skipped", "TEST_DATABASE_URL not set"]]))
-run("parity.py")
-rep6 = read(f"parity/{date}.md")
-check("one env-var skip is NOT GREEN under the ratio bound",
-      bool(re.search(r"NOT GREEN: 1 skipped because an environment variable was unset", rep6))
-      and not re.search(r"tests skipped \(5%\)", rep6), rep6[:900])
+    w(f"parity/{date}-ac.xml", junit([[f"t{i}", "passed"] for i in range(19)] + [["t19", "skipped", "TEST_DATABASE_URL not set"]]))
+    run("parity.py")
+    rep6 = read(f"parity/{date}.md")
+    check("one env-var skip is NOT GREEN under the ratio bound",
+          bool(re.search(r"NOT GREEN: 1 skipped because an environment variable was unset", rep6))
+          and not re.search(r"tests skipped \(5%\)", rep6), rep6[:900])
 
-w(f"parity/{date}-ac.xml", junit([[f"t{i}", "passed"] for i in range(19)] + [["t19", "skipped", "only runs on iOS"]]))
-run("parity.py")
-check("one platform skip in twenty is not flagged", not re.search(r"NOT GREEN", read(f"parity/{date}.md")), read(f"parity/{date}.md")[:900])
+    w(f"parity/{date}-ac.xml", junit([[f"t{i}", "passed"] for i in range(19)] + [["t19", "skipped", "only runs on iOS"]]))
+    run("parity.py")
+    check("one platform skip in twenty is not flagged", not re.search(r"NOT GREEN", read(f"parity/{date}.md")), read(f"parity/{date}.md")[:900])
 
 shutil.rmtree(base, ignore_errors=True)
 print(f"\n{f'{failures} FAILED' if failures else 'all passed'}")

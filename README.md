@@ -1,426 +1,255 @@
 # product-rebuild
 
-> **2.x wraps [sdlc](https://github.com/tammai/sdlc)**: every build lane is an sdlc feature, built, verified,
-> reviewed and shipped by sdlc's own flow. It does not open a rebuild a 1.x release started (1.x lanes work under
-> `PLAN.md`), nor one from the pipeline formerly published as `product-rebuild-skills` (0.x). Finish those on
-> the release that made them; there is no migration.
+> **3.x orchestrates [rspec](https://github.com/tammai/rspec), [sdlc](https://github.com/tammai/sdlc) and
+> [bug-hunter](https://github.com/tammai/bug-hunter).** rspec writes and verifies the spec, sdlc builds each lane,
+> bug-hunter searches for defects; this plugin locks the gates, keeps hidden tests out of the lanes, runs each slice
+> boundary and routes what it finds. It does not open a rebuild 2.x, 1.x or the 0.x plugin this one replaced
+> started: finish those on the release that made them (2.x: product-rebuild 2.2.0). There is no migration;
+> [docs/MIGRATION-3.md](docs/MIGRATION-3.md) says where each 2.x capability went.
 
-A Claude Code plugin for rebuilding an existing product end-to-end — to learn the full
-product development lifecycle by doing it. Point it at a reference product (usually OSS:
-OpenProject, Twenty CRM, Webstudio, or a category like "CRM"), and it drives a gated
-pipeline from feature mining to a verified, production-ready codebase.
+A Claude Code plugin for rebuilding an existing product end-to-end — to learn the full product
+development lifecycle by doing it. Point it at a reference product (usually OSS: OpenProject,
+Twenty CRM, Webstudio, or a category like "CRM"), and it drives a gated pipeline from the reference
+to a verified, production-ready codebase.
 
-**The reference can also be your own product**, which is the case for replacing a legacy app
-on a new stack. And the rebuild does not have to own both halves: set `target_shape:
-client-only` and the existing backend API stays where it is, becoming mined ground truth the
-pipeline freezes rather than a contract it designs. A messy old React Native app rebuilt in
-Flutter, backend untouched, is the same pipeline with three fields set differently at G0.
+**The reference can also be your own product**, which is the case for replacing a legacy app on a new
+stack. And the rebuild does not have to own both halves: set `target_shape: client-only` and the existing
+backend API stays where it is, a contract the pipeline transcribes and freezes rather than designs. A messy
+old React Native app rebuilt in Flutter, backend untouched, is the same pipeline with three fields set
+differently at G0.
 
 **You interact with one thing only: the `rebuild-pipeline` skill** (or the `/product-rebuild:rebuild`
-command). It detects where the project stands, reports progress, dispatches subagents
-for parallel work, and stops at every gate to ask for your decision. You never need to
-remember phase mechanics or file formats.
+command). It detects where the project stands, reports progress, runs rspec's stages, dispatches build
+lanes, and stops at every gate to ask for your decision.
 
-The full methodology and its rationale live in [`docs/PLAYBOOK.md`](docs/PLAYBOOK.md).
+The methodology and its rationale live in [`docs/PLAYBOOK.md`](docs/PLAYBOOK.md).
 
 ## The pipeline in one picture
 
-![Rebuild pipeline: G0 reference and license posture, then a preflight that checks the reference actually builds and runs and blocks G1 while it reads Not-ready. Into G1 parallel mining — ground truth, features, NFR and UX flows in parallel, then a second wave once ground truth lands: Rules, one cited Rule Card per behavior. Into G2 feature matrix, Gate 1 taxonomy lock (the feature matrix and the rule cards together — rules are taxonomy), G3 milestone slicing, Gate 2 slice-plan lock (locks slice boundaries; the order stays revisable), G4a system design, Gate 3 architecture lock, G4b data model and contracts, Gate 4 contract lock. Then a repeating per-slice loop: record first against the legacy system (AC flows and, for an own-code reference, equivalence traces) before any lane starts; G5 parallel build (specs and AC citing rule_id, backend, frontend, infra); then a slice boundary — record progress, G6 parity across AC, equivalence and upstream, slice review, the build runbook that S1 writes and later slices amend, and an advisory reorder of the tail — and back round to the next slice in the order plan/sequence.yaml says. Out of the loop to GP production readiness and Gate 5 prod-ready lock, which does not lock while any red equivalence trace is unexplained.](docs/img/pipeline.png)
+![Rebuild pipeline 3.0: G0 reference, posture, playbook and budgets, then a preflight that holds rspec's discovery while it reads Not-ready. rspec's stages produce the spec: init, discover and features (Gate 1 feature lock), stories and tech with the vendored playbook (Gate 3 architecture lock), audit, verify and handoff (Gate 2 slice-plan lock), check and the hidden-test split (Gate 4 contract lock). Then a repeating per-slice loop: step 0, sdlc build lanes on rspec's criteria, spec questions answered by rspec amend; then a slice boundary that runs G6 cheapest first: open suite, hidden suite, equivalence, coverage, bug-hunter and a human sample, with every finding routed to sdlc, rspec, the user or the orchestrator. Out of the loop to GP production readiness and Gate 5.](docs/img/pipeline.png)
 
-Green is parallel or automated work; amber is a gate — a human decision that locks. Dashed
-amber is advisory: you look, you decide, and nothing blocks if you don't. Grey phases are yours
-to drive with the skill's help. The loop is the shape of the build: every slice ends deployed,
-then stops at a boundary before the next one starts.
+Green is automated or agent work; amber is a gate — a human decision that locks. Dashed amber is a human
+step inside the loop. The loop is the shape of the build: every slice ends deployed, then stops at a
+boundary before the next one starts.
 
 Three ideas carry everything:
 
-1. **Artifacts, not vibes.** Every phase reads and writes schema-validated files in a
-   dedicated *workbench repo* — the pipeline's state store. `git log` on it is your
-   project's decision history.
-2. **Gates, not momentum.** Five points where the pipeline deliberately stops for a
-   human decision. Between gates, work fans out to parallel agents. Locked artifacts
-   are enforced — a hook physically blocks edits to them.
-3. **A playbook, not a blank slate — but only for architecture.** Gate 3's decisions start
-   from an *architecture playbook* your project picks at G0: one file in
-   [`references/playbooks/`](skills/rebuild-pipeline/references/playbooks) declaring which
-   concerns exist and where its answers live, or one you write yourself. Two ship — a Go +
-   Nuxt modular monolith (the org default) and a Flutter client against an existing API — and
-   an ADR is required to *diverge* from an answer, not to adopt one. Everywhere else (taxonomy,
-   slicing, contracts) stays a per-product decision, deliberately.
+1. **Verification sits with the producer.** rspec verifies its own spec against the running reference,
+   sdlc verifies each lane's tests, bug-hunter reproduces each finding with a fresh verifier. This plugin
+   adds only what needs two of them at once: locking, hidden tests, parity and routing.
+2. **Gates, not momentum.** Five points where the pipeline deliberately stops for a human decision, each
+   locking rspec's artifacts by hash. Locked artifacts are enforced — a hook blocks edits to them.
+3. **The reference is the oracle.** Agreement between agents is never evidence. A check counts when it
+   compares against the running reference, a recorded test or a cited source — which is why some tests are
+   hidden from the lanes, and why a person compares a sample of each slice with the reference.
 
 ## Install
 
 ```bash
-# product-rebuild has its own marketplace; its dependencies, sdlc and sdlc-extras
-# (2.4 or later, 2.x or 3.x), come from sdlc's, so add both
+# product-rebuild has its own marketplace; its dependencies come from theirs, so add all four
 /plugin marketplace add tammai/sdlc
+/plugin marketplace add tammai/rspec
+/plugin marketplace add tammai/bug-hunter
 /plugin marketplace add tammai/product-rebuild
 /plugin install product-rebuild@product-rebuild
 
-# or for local development, load your working copy and sdlc's for one session:
-claude --plugin-dir /path/to/sdlc --plugin-dir /path/to/product-rebuild
+# or for local development, load your working copies for one session:
+claude --plugin-dir /path/to/sdlc --plugin-dir /path/to/rspec --plugin-dir /path/to/bug-hunter --plugin-dir /path/to/product-rebuild
 ```
 
-Claude Code installs sdlc and sdlc-extras itself, from the `sdlc` marketplace, which is why that one must be
-added too. Without them this plugin is disabled with a dependency error (`claude plugin list` names it).
-An install of `product-rebuild@sdlc` (2.0.0 to 2.1.2) stops updating once sdlc's marketplace drops it:
-uninstall it and install `product-rebuild@product-rebuild`.
+Claude Code installs sdlc, sdlc-extras, rspec and bug-hunter itself, from their marketplaces, which is why
+each must be added. Without them this plugin is disabled with a dependency error (`claude plugin list`
+names it).
 
-Requires Python ≥ 3.9 (standard library only: there is nothing to `pip install`, and the YAML reader
-ships inside the plugin), git, and Docker (you will run the reference product locally — it's
-mandatory, not optional). The code repos you scaffold at G5 need whatever their own stack needs
-(Go, Node, Flutter), and the scaffold tells you before it starts if a tool is missing. It never
-installs one for you. The one other plugin it needs is sdlc, above.
+Requires Python ≥ 3.9 (standard library only: there is nothing to `pip install`, and the YAML reader ships
+inside the plugin), git, and Docker (you will run the reference product locally — it is what the tests are
+recorded against). The code repos you scaffold at G5 need whatever their own stack needs (Go, Node,
+Flutter), and the scaffold tells you before it starts if a tool is missing.
 
 ## Walkthrough: start to finish
 
-### 1. Start
+### 1. Start (G0)
 
-In any directory, say **"start a rebuild project"** or run `/product-rebuild:rebuild` (the plugin-qualified name always works; a bare `/rebuild` may also, when no other plugin defines one). The skill
-interviews you:
+In any directory, say **"start a rebuild project"** or run `/product-rebuild:rebuild`. The skill interviews
+you:
 
-- **Which reference?** Name a product, or a category — it will propose candidates and
-  compare them on domain fit, codebase readability, and upstream activity.
-- **Distribution intent?** This decides the *license posture*: private learning allows
-  reading any OSS source; possible closed-source distribution later means clean-room
-  treatment of copyleft references (behavior/docs/API only, no code reading). Recorded
-  in `license-posture.md` before anything is mined. If the reference is code you already own,
-  this collapses to a question about *your* distribution plans instead.
-- **What is being rebuilt, and against which playbook?** Two fields, and the cheapest thirty
-  seconds in the project: `target_shape` (`fullstack`, or `client-only` when the API already
-  exists and stays) and `playbook` (a registry entry, a file of your own, or `none` to keep
-  every architecture decision blank-slate). Four later phases read them — target shape alone
-  changes what G1 mines, flips Gate 4 from *authoring* a contract to *transcribing* one,
-  decides how G5 creates the repo, and selects Gate 5's checklist. Discovering it at Gate 4
-  means a month of mining the wrong things.
+- **Which reference?** Name a product, or a category — it proposes candidates.
+- **Distribution intent and posture.** `license-posture.md` records the licence decision; `sources.yaml`
+  `reference.posture` records who may read the reference: `strict` (the spec side only observes behaviour),
+  `observe` (the default for a third-party reference: the spec side may also read the code) or `own-code`
+  (the default for your own app: build lanes may read it too). Which posture a licence allows is your call.
+- **What is being rebuilt, and against which playbook?** `target_shape` (`fullstack` or `client-only`) and
+  `playbook` (a registry entry, a file of your own, or `none`). The playbook gives the stack and the scaffold
+  manifest every code repo is created from.
+- **Budgets**, shown once in `rebuild.yaml`: parallel lanes, recorders, hunters and bug-hunter tokens per
+  slice, fix rounds.
 
-It then scaffolds your **workbench** (`<name>-workbench/`): the directory tree, schemas,
-gate files (all open), validation scripts, and CI. There is nothing to install: its scripts are Python and run with
-`python3 scripts/<name>.py`.
+It scaffolds your **workbench** (`<name>-workbench/`), and `python3 scripts/preflight.py` proves the
+reference builds and runs at the pinned commit before anything reads it.
 
-### 2. Mining (G1) — mostly hands-off
+### 2. The spec (rspec), Gates 1, 3, 2, 4
 
-The skill dispatches miner agents in parallel across four lanes (then a fifth, **rules**, once ground truth lands): **ground truth** (the
-reference's actual schema, routes, permissions, jobs — when the license posture allows),
-**features** (changelogs, docs), **NFR** (how it behaves running), **UX flows** (how key
-features actually work). The **rules** lane runs after ground truth, as a second wave, because each
-Rule Card (a business rule with the source line that proves it) cites entities the ground-truth lane found.
-Your two jobs: get the reference running locally, and verify the drafted UX flows against it when asked. Every finding carries evidence or it gets
-rejected at validation.
+The skill runs rspec's stages in the workbench and never does their work: `rspec:init`, `discover`,
+`features` (you approve the list → **Gate 1**), `stories`, `tech` (the playbook is vendored to `adr/` first
+and its stack is rspec's preference; you decide each ADR → **Gate 3**), `audit` and `verify` (tests recorded
+against the running reference), `handoff` (vertical slices of at most ~10 criteria → **Gate 2**), `check`.
+Then `holdout.py split` hides 25% of each slice's recorded tests in a repo beside the workbench that no
+lane can read, and **Gate 4** locks the contracts, the criteria lock and the test bundle (refusing, under
+`observe` and `own-code`, while fewer than 90% of MVP criteria have a recorded test, unless you sign a reason).
 
-For a `client-only` rebuild, lane D points at the *client*: every API call site (which becomes
-the frozen contract), every field the app reads or caches, and an inventory of what the old app
-left on people's devices — secure-storage keys, local database, files, push registration.
-That last one wants a device restored from a real backup rather than a fresh install, because a
-fresh install has none of the state a two-year-old install has, which is exactly the state that
-breaks on upgrade.
+### 3. Build (G5) — per slice
 
-### 3. Gates 1–2: shape the map, order the work
+Step 0 holds a slice until each criterion has a recorded test or rspec's reason. Each lane is an **sdlc
+feature** in spec-backed mode: `lane_plan.py` opens it with ACs citing rspec's criterion IDs, its open tests
+and a lock copy, and sdlc's Build proves every criterion red then green. A lane that finds a criterion wrong
+asks a spec question; the slice's questions go to `rspec:amend` in one batch. Code repos are created by this
+plugin's `scaffold-repo` skill from the locked scaffold manifest.
 
-- **Gate 1 (taxonomy):** the skill proposes how features group into domains — this
-  becomes your bounded contexts. You adjust and approve.
-- **Gate 2 (slice plan):** everything will be built (that's the point), so you decide
-  *order*: vertical slices, dependency-sorted, weighted toward the lifecycle lessons you
-  want first (first deploy, first live migration, first background job...). Every slice
-  ends deployed. The gate locks slice **boundaries**; the **sequence** lives in an ungated
-  `plan/sequence.yaml`, so reordering the pending tail between slices is a logged decision
-  (`python3 scripts/sequence.py reorder S6 --before S4 --reason "..."`) rather than a gate reopen.
-  Only the tail moves, dependencies are still enforced, and every move lands in
-  `plan/sequence-decisions.md`.
+### 4. The slice boundary (G6)
 
-At every gate the skill presents a review — what locks, the judgment calls, the risks —
-and locks only on your explicit yes: `python3 scripts/gate.py lock gate-N` under the hood.
+```bash
+python3 scripts/boundary.py S3
+```
 
-### 4. Gates 3–4: the learning core
+Cheapest step first, stopping at the first that leaves a build defect or spec gap open: the open suite
+(each failure re-run once), the hidden suite, equivalence (recorded traffic replayed, under `observe` or
+`own-code`), coverage and the slice review, bug-hunter, and a **human sample** — 2–3 features you compare with
+the running reference. `route.py` sends each reproduced finding where it belongs: a build defect to an sdlc
+fix lane, a spec gap to `rspec:amend`, a reference defect to you, a flaky test to the orchestrator. Every
+accepted difference is one entry in `docs/departures.yaml`, read by every check.
 
-- **Gate 3 (architecture):** decisions start from the **architecture playbook you picked at
-  G0** — one of [`references/playbooks/`](skills/rebuild-pipeline/references/playbooks)
-  (`web-modular-monolith`, the org default: Go + Nuxt modular monolith, API-first;
-  `mobile-flutter`, a Flutter client against an existing API), or a file you wrote yourself.
-  The playbook's frontmatter carries the list of concerns to decide and which of its sections
-  answers each one; concerns it marks `N/A` stay fully open, mirror-or-diverge against the
-  reference, decided from scratch. Agents draft one ADR per concern proposing to mirror the
-  playbook, and only argue for diverging when this product's shape gives a concrete reason —
-  the reference's own architecture is recorded for the learning record but doesn't drive it.
-  You decide each ADR. *Undocumented* divergence — from the playbook where it has an answer,
-  from the reference otherwise — is the failure mode the format prevents. The playbook is
-  copied into the workbench and locked with the ADRs, so the sections they cite can't shift
-  under you later. Only after this gate do code repos get created — their count is an output
-  of your decomposition decision. Each pins the workbench as a read-only submodule at gate tags.
-- **Gate 4 (contracts):** data model first — one Mermaid ERD per bounded context, checked
-  for entities and required before the gate can lock — then three interface layers (public
-  API, internal, async/events). Locking cuts the tag your code repos build against.
+### 5. Production readiness (GP) and Gate 5
 
-### 5. Build (G5) — the steady-state loop
-
-Per slice: spec agents write module specs ending in **acceptance criteria** (each one an
-observable behavior mapping to exactly one test) — you review specs before code — then
-backend/frontend/infra lanes build in parallel against the locked contracts. The slice
-is done when it's **deployed** and its `done_means` is demonstrably true.
-
-Code repos are created by this plugin's `scaffold-repo` skill from the scaffold manifest your
-locked playbook ships: it takes the stack from the Gate 3 ADRs, asks only what they leave open,
-shows you a proposal and runs the stack's own generator; then sdlc's setup, given the answers the
-workbench already holds, proves the five commands pass on day one and writes the rules, guardrails
-and CI. The result is a skeleton, not a feature kit; the first slice builds the first real module.
-
-Each lane is an **sdlc feature**: when you approve a slice's specs, the pipeline writes each lane's
-sdlc record from them (the criteria, your approval), the lane builds through sdlc's Build (every
-criterion's test seen failing, then passing, through `verify.py`), and sdlc's Review and Ship follow,
-reviews chosen by sdlc's own table. For a
-client-only rebuild this lane *is*
-the build, split per feature module, and "deployed" means a build a real person can install
-from an internal track — not a simulator run.
-
-### 6. Parity (G6) and the finish line (GP)
-
-After each slice and monthly, the parity loop runs automatically: AC test results,
-coverage diff against the matrix, scope-creep detection, and re-mining the reference's
-changelog (it keeps shipping while you build — new features enter your backlog at slice
-boundaries, never mid-slice; skipped entirely for a reference that has stopped shipping,
-which is the normal case when you are replacing your own app). When the slice plan completes,
-**Gate 5** verifies production readiness *by doing*: you restore a backup for real, you run an
-incident drill from the runbook. Evidence, not assertion.
-
-A shipped client gets its own checklist instead, because it breaks all three assumptions the
-service one makes — you cannot roll a release back, the data at risk is on devices you cannot
-reach, and someone else's review queue gates the deploy. So "restore a backup" becomes
-"upgrade in place over the old app, on the oldest supported OS, once with the migration
-interrupted", and the kill switch gets flipped for real. Locking Gate 5 is the finish.
+One checklist, rspec's `production-readiness.md`, with **evidence produced by doing**: each NFR's stated
+verification run against the production candidate (`gp.py nfr`), a backup restored for real, an incident drill
+from the runbook, each with the name of who performed it. **Gate 5** refuses while a hidden test failed or did
+not run, a red equivalence trace is unexplained, a high finding is open, a departure is only proposed, or an MVP
+criterion is below level 1. Locking it is the finish.
 
 ## Knowing where you are
 
 Ask the skill "where are we?" anytime, or run in the workbench:
 
 ```bash
-python3 scripts/gate.py status     # gate states + current phase
-python3 scripts/validate.py           # artifacts vs schemas, contract $refs, lock integrity
-python3 scripts/parity.py             # coverage report into parity/<date>.md
-python3 scripts/slice_review.py S3 # the between-slices standing report (advisory)
-python3 scripts/sequence.py status # execution order: what's frozen, what's orderable now
+python3 scripts/gate.py status        # gate states, current phase, and rspec's own progress
+python3 scripts/validate.py           # overlays, posture, scaffold manifest, lock integrity
+python3 scripts/parity.py             # coverage of rspec's feature list into parity/<date>.md
+python3 scripts/slice_review.py S3    # the between-slices standing report (advisory)
+python3 scripts/sequence.py status    # execution order: what's frozen, what's orderable now
 python3 scripts/pause_check.py        # safe to stop? (includes what hasn't been pushed off-machine)
 python3 scripts/autopilot.py preflight   # ready to run unattended between gates?
 ```
 
-## The slice boundary
-
-Four of the five gates close before a line of product code exists, and the fifth is terminal.
-That leaves the build — the longest stretch of the project — with no scheduled moment to stop
-and look, which is where "the pipeline runs, but where are we?" comes from.
-
-So after each slice: record progress in `plan/progress.yaml`, then one call runs the rest (archives the
-slice's lane plans, runs parity and the slice review, and says whether the upstream re-mine is due):
-
-```bash
-python3 scripts/boundary.py S3
-```
-
-It generates `plan/slice-reviews/S3.md` from what is on disk — never composed — and answers
-four things:
-
-1. **Does it run?** The cumulative AC suite, compared against the previous run *by test name*.
-   Every per-slice deploy criterion asserts only its own slice's features, so until now "did S3
-   break S1" had nowhere to surface.
-2. **What shipped**, against the matrix, with anything deferred named.
-3. **Where that puts us** — slices shipped, features recorded covered, position in the order,
-   what is next.
-4. **What is pressing on the plan** — findings you recorded mid-slice, which pending slices are
-   orderable right now, and how far the order has drifted from its Gate 2 baseline.
-
-It is **advisory**: it locks nothing, and nothing stops the next slice starting without it. The
-teeth in this design sit on the *reorder* instead — that one needs a reason and is logged — so a
-plan that drifts leaves a record either way. A mid-slice finding goes in `plan/progress.yaml`
-`notes:` and surfaces at the boundary by itself; reordering while a slice is in flight is
-refused.
-
 ## Autopilot
 
-The gates are where judgment lives. Everything between them — the mining lanes, a matrix
-merge, per-slice spec → backend → frontend → infra, a parity report — is work you would
-otherwise advance by typing "continue". Say **"autopilot"** and the skill checks the project
-is in a safe state, tells you exactly what it would run and where it would stop, and waits
-for a yes. Then it works unit by unit, writing each result to disk and committing before
-starting the next.
+Say **"autopilot"** and the skill checks the project is in a safe state, tells you exactly what it would run
+and where it would stop, and waits for a yes. It runs rspec's stages under rspec's own autopilot rules, lanes
+under sdlc's, and boundaries, writing each result to disk and committing before the next. It **halts at every
+gate**, and **parks** what only you may decide — a feature drop, a departure, the human sample, a production
+deploy, Gate 5 — blocking only what depends on it, so the rest of the slice goes on.
 
-It stops at **every gate**, with the review written to `plan/gate-reviews/gate-N.md` so the
-decision doesn't depend on scrollback. It also stops on trouble — a failing validation, a
-subagent that came back empty, or any of the non-gate calls that are yours to make (license
-posture, spec approval, marking a slice done, adopting an upstream feature).
+It watches the clock: at 80% of your 5-hour usage window a hook pauses it — saves, commits, pushes, runs the
+pause check. It watches its own context too: past 250k tokens it stops at the next unit boundary and asks you
+to `/clear` and `/product-rebuild:rebuild`. The 5-hour figure reaches it through your status line only;
+`autopilot.py preflight` prints the block to add if it is missing.
 
-And it watches the clock. At 80% of your 5-hour usage window it pauses itself: saves, commits,
-pushes, runs the pause check, and asks whether to continue after the reset or stop there.
-That threshold is enforced by a hook rather than by good intentions — the write is blocked,
-mid-slice, whether or not the unit felt nearly finished.
-
-It also watches its own context. Every turn re-bills the whole session, so once the
-orchestrator passes 250k tokens it stops at the next unit boundary and asks you to `/clear`
-and `/product-rebuild:rebuild`. Everything is on disk by then, so a fresh session loses nothing.
-
-```bash
-python3 scripts/autopilot.py preflight    # is this safe to start?
-python3 scripts/autopilot.py status       # what did the last run do, and where did it stop?
-```
-
-One-time setup: the 5-hour figure is piped by Claude Code to your **status line only**, so it
-has to be persisted to disk before anything else can read it. `preflight` prints the block to
-add if it's missing. It needs a Claude Pro/Max plan, and an interactive session — no status
-line means no signal, so autopilot can't run headless. This plugin ships no status-line
-script; the snapshot comes from yours, so on a new machine `preflight` fails until you add it.
-A second, optional block persists the session's context size the same way; without it the
-context limit simply doesn't apply.
-
-**Plugin updates reach your workbench by themselves.** Each workbench carries its own copy of
-the scripts and schemas, so a project isn't changed under it mid-phase. At session start the
-skill brings that copy up to the plugin you're running: only files it can prove you never
-edited, only between slices, with autopilot off and a clean tree, as one commit. Anything
-it won't touch is named in one line for you to decide.
+**Plugin updates reach your workbench by themselves.** Each workbench carries its own copy of the scripts and
+schemas. At session start the skill brings that copy up to the plugin you're running: only files it can prove
+you never edited, only between slices, with autopilot off and a clean tree, as one commit.
 
 ## What's in this plugin
 
 ```
-.claude-plugin/plugin.json      manifest
+.claude-plugin/plugin.json      manifest (depends on sdlc, sdlc-extras, rspec, bug-hunter)
 commands/rebuild.md             /product-rebuild:rebuild — run or resume the pipeline
 skills/rebuild-pipeline/        THE skill you interact with
   SKILL.md                      orchestration protocol (state → report → act, gate rules)
-  references/g*.md              one file per phase, loaded only when that phase runs
-  references/playbooks/         the architecture-playbook registry — one file per playbook,
-                                each declaring its own concerns → sections map; write your own
-  references/rubrics/           one scoring rubric per gate, for the judge pass at Step 5.1b
-  schemas/*.schema.json         finding / feature / slice / sequence / progress / lock schemas
-  scripts/rebuild_init.py      workbench scaffolder
-  scripts/gate.py              gate status / lock / reopen (hashes + tags)
-  scripts/validate.py          schema, contract-$ref and lock-integrity validation (also in CI)
-  scripts/playbook.py          playbook resolution + the ADR concern/citation checks
-  scripts/erd.py               data-model checks shared by validate and gate
-  scripts/basis.py             evidence-basis checks shared by validate and parity
-  scripts/flows.py             the logged-decision log for AC flow assertions (unlock/relock)
-  scripts/parity.py            G6 coverage report + AC pass rate from the suite's JUnit
-  scripts/acsuite.py           JUnit reader shared by parity and slice-review; counts a rerun once
-  scripts/lanes_check.py       is a build lane still working? `watch` runs the check as one background process; `stamp` records which commits a test run saw
-  scripts/run_phases.py        a several-phase test run as one tracked background process
-  scripts/lane_plan.py         a lane's sdlc record (change file, state at Build), written from the slice specs you approved
-  scripts/sequence.py          slice execution order — the logged-decision reorder mechanism
-  scripts/slice_review.py      the between-slices standing report (generated, advisory)
-  scripts/boundary.py          the slice boundary in one call: archive lane records, parity, slice review, re-mine due?
-  scripts/rules_for.py         a spec-writer's Rule Cards: the module's in full, every other card as an index line
-  scripts/cite_excerpts.py     each transcribed citation's source line beside its claim, for the rubric judge
-  scripts/gate_facts.py        the ERD-orphan and per-domain / per-slice counts the gate 1 and 2 rubrics ask for
-  scripts/evidence_bundle.py   verbatim path:start-end excerpts into one file, so no excerpt is retyped
-  scripts/pause_check.py       is it safe to pause the session? (advisory, not a gate)
-  scripts/equiv.py             record and replay request traces against the legacy system (own-code references)
-  scripts/preflight.py         does the reference actually build and run? blocks G1 until it does
-  scripts/upgrade.py           bring a workbench's vendored scripts up to the plugin you are running
-  scripts/yamlio.py            the YAML reader every checking script uses (over a vendored PyYAML, YAML 1.2 core)
-  scripts/schemacheck.py       the JSON-schema checker validate.py uses (no third-party dependency)
-  scripts/autopilot.py         unattended-run state: preflight / check / engage / log / disengage
-  scripts/routing.py           which model each subagent role dispatches on (.claude/model-routing.json)
-agents/                         miner, adr-drafter, data-model-drafter, spec-writer, rubric-judge, lane-worker
-                                subagents (a lane's reviews are sdlc's agents)
-hooks/                          PreToolUse guards: locked artifacts, recorded AC flows, the
-                                autopilot usage threshold and the build runbook; the code-repo
-                                guards (bash, spec gate, injection gate, commit gates), which
-                                judge only repos listed in a workbench's repos.yaml; the reference
-                                guard (build lanes may not read the reference or the hidden tests);
-                                a PostToolUse injection scan; and a SessionStart canary seed
-docs/PLAYBOOK.md                the full methodology
+  references/                   G0, G5, G6, GP and autopilot detail, loaded only when that phase runs
+  references/playbooks/         the architecture-playbook registry: stack and scaffold manifest per playbook
+  schemas/*.schema.json         progress, sequence, lock, preflight and autopilot schemas
+  scripts/rebuild_init.py       workbench scaffolder
+  scripts/gate.py               gate status / lock / reopen (hashes + tags), on rspec's artifacts
+  scripts/validate.py           the workbench's own files, and lock integrity (also in CI)
+  scripts/playbook.py           vendors the playbook and its scaffold manifest to adr/; their checks
+  scripts/holdout.py            the hidden tests: split at Gate 4, run at G6
+  scripts/lane_plan.py          step 0, a lane's sdlc record from rspec's criteria, spec questions, archive
+  scripts/boundary.py           G6 cheapest first, the human sample, the re-mine reminder
+  scripts/route.py              routes each finding by class into fix rounds
+  scripts/departures.py         the one departures registry every check reads
+  scripts/equiv.py              record and replay request traces against the legacy system
+  scripts/parity.py             coverage of rspec's feature list + AC pass rate from the suite's JUnit
+  scripts/slice_review.py       the between-slices standing report (generated, advisory)
+  scripts/sequence.py           slice execution order over rspec's build plan, logged reorders
+  scripts/flows.py              unlock/relock the read-only recorded tests, with a logged reason
+  scripts/gp.py                 NFR evidence for GP
+  scripts/cost.py               contracts C7 cost lines per slice
+  scripts/acsuite.py            JUnit reader shared by parity and slice-review; counts a rerun once
+  scripts/lanes_check.py        is a build lane still working? (`watch`, `stamp`)
+  scripts/run_phases.py         a several-phase test run as one tracked background process
+  scripts/pause_check.py        is it safe to pause the session? (advisory, not a gate)
+  scripts/preflight.py          does the reference actually build and run at the pinned commit?
+  scripts/upgrade.py            bring a workbench's vendored scripts up to the plugin you are running
+  scripts/autopilot.py          unattended runs: preflight / check / engage / park / blocked / disengage
+  scripts/routing.py            which model each role dispatches on (.claude/model-routing.json)
+  scripts/yamlio.py, schemacheck.py   the YAML and JSON-schema readers (over a vendored PyYAML)
+skills/scaffold-repo/           creates each code repo from the locked scaffold manifest
+agents/lane-worker.md           the build-lane agent (its reviews are sdlc's agents)
+hooks/                          PreToolUse guards: locked artifacts, read-only recorded tests, the
+                                autopilot usage threshold, the build runbook; the code-repo guards (bash,
+                                spec gate, injection gate, commit gates), which judge only repos listed in
+                                a workbench's repos.yaml; the reference guard; a PostToolUse injection
+                                scan; and a SessionStart canary seed
+contracts/v1/                   the shared contracts the four plugins vendor byte-identical
+docs/PLAYBOOK.md                the methodology
+docs/MIGRATION-3.md             where each 2.x capability went
 ```
 
-**The reference guard is a guard, not a sandbox.** `sources.yaml` `reference.posture` says who may
-read the reference: `strict` (the spec side only observes behaviour), `observe` (the default for a
-third-party reference: the spec side may also read the code) or `own-code` (the default for your own
-app: build lanes may read it too). A build lane never reads the reference under `strict` or
-`observe`, and never the hidden tests under any posture. `hooks/scripts/reference_guard.py` denies a
-lane's Read, Grep, Glob and Bash calls that name those paths. It sees paths written in the call; a
-path computed at run time, or a script that opens the file itself, gets past it. Use `strict` for a
-sensitive reference, and check the guard's denials in the end-to-end runs. Which posture a licence
-allows is your call; G0 shows the licence and asks.
+**The reference guard is a guard, not a sandbox.** A build lane never reads the reference under `strict` or
+`observe`, and never the hidden tests under any posture. `hooks/scripts/reference_guard.py` denies a lane's
+Read, Grep, Glob and Bash calls that name those paths. It sees paths written in the call; a path computed at
+run time, or a script that opens the file itself, gets past it. Use `strict` for a sensitive reference, and
+check the guard's denials in the end-to-end runs.
 
 ## Design rules the plugin enforces (so you don't have to)
 
-- **No evidence, no finding.** Agents cannot write hallucinated facts into the matrix.
-- **Every architecture concern gets decided, or the gate will not lock.** Your playbook's
-  concern list is the ADR list: `gate.py lock gate-3` refuses while any of them has no ADR, and
-  validation rejects an ADR citing a section the playbook does not have. "Every cross-cutting
-  concern decided" stopped being a sentence and became a check.
-- **The playbook you decided against is pinned to your decisions.** G4a copies it into the
-  workbench and Gate 3 hashes that copy, so upgrading this plugin cannot re-point an accepted
-  ADR's "§7" at different content months later.
-- **Every gate review comes with a scored second opinion.** A judge subagent reads the
-  artifact set against that gate's rubric and files a report next to the review, with a
-  citation behind every score below 4. It is advisory on purpose — it informs the lock
-  decision and never blocks it — but it closes the space between "the schemas pass" and "a
-  human liked it", which is where an unusable taxonomy or a contract with no error responses
-  used to slip through.
-- **Evidence says where it came from, not just how sure the miner was.** Every finding's
-  evidence carries `basis` — transcribed from source at the pinned commit, observed running,
-  or inferred from docs. The parity report names the features standing entirely on inference,
-  and Gate 4 flags a contract entry frozen on one.
+- **No silent pass.** A check that cannot run says `not run: <reason>`, and no gate accepts that as a pass.
+- **Hidden tests stay hidden.** They live outside every code repo, the guard denies them to lanes, and a G6
+  report names the criterion and what the build did, never the test.
+- **One registry of accepted differences.** `docs/departures.yaml`; only a person decides an entry.
+- **The stack is locked with the ADRs.** Gate 3 hashes the vendored playbook and its scaffold manifest, so a
+  plugin upgrade cannot change what a code repo is created from.
 - **Locked means locked.** The hook blocks edits under a locked gate's paths; the escape hatch is a formal,
-  logged reopen with a reason — never a quiet edit. That hook matches `Write|Edit|MultiEdit` only: a shell
-  redirect, `sed -i` or `cp` through Bash is not intercepted, and `validate.py`'s locked-hash check is what
-  catches that drift.
-- **Subagents get their context in the brief, not from the transcript.** Every agent file carries a
-  context budget (briefs do not repeat it): no session transcripts or scratchpad dumps, no tool result over
-  ~20K characters, each file read once. The judge gets a pre-extracted evidence bundle of verbatim excerpts for
-  large contracts, because every subagent turn re-bills everything read so far — one audited day
-  spent ~85M tokens on a single drafter that read its parent's transcript.
-- **Gates are yours.** The skill never locks a gate on its own initiative — including on
-  autopilot, which halts at every one of them and hands you a written review.
-- **The workbench never contains product code.** It describes the product; code repos
-  consume it one-way, pinned at gate tags.
-- **Every slice ships.** Deployment is part of the definition of done — it's half the
-  curriculum.
-- **A parity suite is recorded against the reference, not written after the rebuild.** Where
-  the playbook supports it (today: a Flutter client replacing a runnable legacy mobile app),
-  the acceptance-criteria flows are framework-agnostic Maestro flows in the workbench, green
-  against the *old* app before the slice starts. Replayed unchanged against the rebuild, they
-  measure parity; written afterwards they would only agree with whatever got built. Loosening
-  an assertion to make a build pass takes a logged human decision, same register as a gate
-  reopen — a guard blocks the edit, and `unlock --reason "..."` writes the decision to
-  `parity/flows/DECISIONS.md` before it is allowed.
-- **The work leaves the machine.** Every repo gets a remote when it is created, private
-  unless the license posture says otherwise, and the pause check tells you when something
-  still hasn't been pushed. Months of decisions that re-mining cannot reproduce should not
-  live on one disk.
+  logged reopen with a reason. That hook matches `Write|Edit|MultiEdit` only: a shell redirect or `sed -i`
+  through Bash is not intercepted, and `validate.py`'s locked-hash check is what catches that drift.
+- **Recorded tests are read-only.** Loosening an assertion takes `flows.py unlock --acceptance --reason`, a
+  logged decision, and a weakening is written as a departure.
+- **Gates are yours.** The skill never locks a gate on its own initiative — including on autopilot.
+- **The workbench never contains product code.** It describes the product; code repos consume it one-way,
+  pinned at gate tags.
+- **Every slice ships.** Deployment is part of the definition of done.
+- **The work leaves the machine.** Every repo gets a remote when it is created, private unless the license
+  posture says otherwise, and the pause check tells you when something still hasn't been pushed.
 
 ## FAQ
 
-**Can I use this for a commercial competitive product?** It's built for rebuild-to-learn.
-The license posture step will force the right questions, but competitive-intelligence
-workflows are out of scope.
+**Can I use this for a commercial competitive product?** It's built for rebuild-to-learn. The posture step
+forces the right questions, but competitive-intelligence workflows are out of scope.
 
 **What if I disagree with a locked decision later?** Reopen the gate with a reason —
-`python3 scripts/gate.py reopen gate-3 --reason "..."`. It's logged, downstream staleness is
-surfaced, and history stays honest.
+`python3 scripts/gate.py reopen gate-3 --reason "..."`. It's logged, and history stays honest.
 
-**Multiple projects?** One workbench per project, always. The plugin (schemas, scripts,
-process) is the shared part; every workbench pins the schema version it was created with.
+**Multiple projects?** One workbench per project, always.
 
-**Can I rebuild my own legacy app rather than someone else's product?** Yes, and it is a
-better-supported case than it sounds: record `reference.kind: own-code` and
-`reference.upstream: frozen`. Mining is unrestricted, the running instance is the app you
-already have, and the parity loop stops tracking upstream because there is none. That trade is
-in your favour — a frozen reference is a permanent arbiter for "what did the old app actually
-do here", so keep it *installable* for the life of the project. Losing that always happens by
-accident.
+**Can I rebuild my own legacy app?** Yes: `reference.kind: own-code`, `reference.upstream: frozen`, posture
+`own-code`. The running instance is the app you already have, and the upstream re-mine is off. A frozen
+reference is a permanent arbiter for "what did the old app actually do here", so keep it *installable* for
+the life of the project.
 
-**Can it rebuild only the client, against an API we are not touching?** That is
-`target_shape: client-only`. Gate 4 then locks a *transcription* of the existing API rather
-than a design, anything the rebuild needs added goes in a separate `requested.yaml` (it is a
-request to another team, not a contract you own), and `contracts/data-model/` describes the
-on-device store instead of a server schema.
+**Can it rebuild only the client, against an API we are not touching?** That is `target_shape: client-only`
+with the `mobile-flutter` playbook (or your own): Gate 4 locks a *transcription* of the existing API rather
+than a design.
 
-**None of the shipped playbooks fit my stack. Now what?** Write one — it is a Markdown file
-with a frontmatter block declaring its concerns, and
-[`references/playbooks/README.md`](skills/rebuild-pipeline/references/playbooks/README.md) has
-the contract and the four rules tooling enforces. Point `architecture.playbook` at your file
-(in the registry, or inside your own workbench for a project-local one). Or set it to `none`
-and every Gate 3 ADR goes back to a blank-slate decision against the reference, which is how
-the pipeline worked before playbooks existed.
-
-**What if my playbook has no scaffold manifest?** Gate 3 refuses to lock. A playbook declares
-`scaffold: <file>` in its frontmatter, pointing at a JSON manifest (packages, the stack options for each,
-generator commands, the five commands); one with no manifest, or `scaffold: none`, fails at the gate and
-not at G5, when the first lane needs a repo. Writing one is the price of a playbook for a new stack;
-`references/playbooks/README.md` has the format. With `architecture.playbook: none` you write
-`adr/scaffold.json` yourself, beside your stack ADR.
+**None of the shipped playbooks fit my stack.** Write one — a Markdown file with a frontmatter block and a
+scaffold manifest; [`references/playbooks/README.md`](skills/rebuild-pipeline/references/playbooks/README.md)
+has the format. Gate 3 refuses a playbook with no manifest, so a stack nothing can scaffold fails there, not
+at G5. With `architecture.playbook: none` you write `adr/scaffold.json` yourself.

@@ -9,7 +9,7 @@ Locking records sha256 hashes of every file under the gate's `protects:` paths. 
 order (1, 3, 2, 4, 5) and, from 3.0.0, lock rspec's artifacts in docs/; `status` also prints rspec's
 own progress (its scripts/progress.py).
 
-Standard library only, plus guarded imports of its siblings (erd.py, playbook.py): lock files use a
+Standard library only, plus lazy imports of its siblings (playbook.py, sequence.py, gp.py, ...): lock files use a
 fixed YAML subset written and parsed here, so `status` keeps answering on a workbench whose other
 scripts are missing or broken. It is a script and not a line in a doc because the lock is the
 pipeline's one irreversible act and the hashes must be computed the same way every time.
@@ -38,7 +38,7 @@ LOCKS = "locks"
 # matches, and `status` reported "0/18 slices done" on a workbench with eight done — a wrong
 # phase, at the step the orchestration protocol trusts over its own memory. Same helper as
 # playbook.py's _read_text; copied, not imported, because this file must run when others are
-# missing (see the erd import in `lock` below).
+# missing (its siblings are imported lazily, inside the commands that need them).
 def read_text(p):
     with open(p, encoding="utf-8", errors="replace", newline="") as fh:
         return re.sub(r"\r\n?", "\n", fh.read())
@@ -64,9 +64,9 @@ SPEC = "docs"
 # Paths a gate protects REGARDLESS of what its lock file's `protects:` list says, unioned in at
 # lock time and written into the lock file (which hands them to gate-guard). `protects:` is
 # written once at scaffold time, so this is how a path added by a later release reaches a
-# workbench scaffolded earlier. Empty since 3.0.0: the one entry, findings/rules/, was the Rule
-# Cards that 05 D2 retired.
-REQUIRED_PROTECTS = {}
+# workbench scaffolded earlier. gate-3's adr/ holds the vendored playbook and its scaffold manifest
+# (the stack every code repo is created from); 3.0 release candidates scaffolded gate-3 without it.
+REQUIRED_PROTECTS = {"gate-3": ["adr/"]}
 PHASE_BEFORE = {
     "gate-1": "rspec init → discover → features (Gate 1 approves the feature list)",
     "gate-3": "rspec stories → tech (Gate 3: ADR approval, rspec handoff step 1)",
@@ -281,13 +281,24 @@ def proposed_adrs():
 def _lock_gate3_checks(gid):
     # An ADR the user decided says so. Nothing else moves Proposed to Accepted, and the Kutt
     # rebuild locked eleven ADRs whose own files said proposed until the orchestrator noticed and
-    # changed them by hand: the hash would have pinned "proposed" as the locked decision. The 2.x
-    # playbook checks (a vendored adr/playbook.md, one ADR per concern) are gone with G4a: the
-    # playbook now reaches rspec:tech as a stack preference, and rspec owns the ADRs.
+    # changed them by hand: the hash would have pinned "proposed" as the locked decision. rspec owns
+    # the ADRs; the playbook's concern list is no longer checked against them.
     undecided = proposed_adrs()
     if undecided:
         print(f"Cannot lock {gid}: still Status: Proposed in {SPEC}/decisions/: {', '.join(undecided)}. "
               f"Decide each with the user (rspec handoff step 1) first.", file=sys.stderr)
+        return 1
+    # The stack a code repo is created from is locked with the ADRs that chose it: scaffold-repo reads
+    # adr/'s scaffold manifest at G5, so a gate-3 without one is a stack nothing can create.
+    import playbook
+    res = playbook.check_playbook()
+    scaffold = res.get("scaffold") or {}
+    problems = res["problems"] + (scaffold.get("problems") or [] if res["disabled"] else [])
+    if res["missing_vendored"]:
+        problems.append(f"{playbook.VENDORED_PLAYBOOK} is not vendored")
+    if problems:
+        print(f"Cannot lock {gid}: no scaffold manifest a code repo can be created from:\n  " + "\n  ".join(problems)
+              + f"\n  {playbook.PLAYBOOK_REMEDY}", file=sys.stderr)
         return 1
     return None
 
@@ -390,8 +401,7 @@ def _lock_gate5_checks(gid):
     # -------------------------------------------------------------------------
     # Gate 5 refuses to lock while the newest equivalence run has a failure nobody explained.
     #
-    # Gate 5 is terminal. Nothing downstream catches an overclaim here, which is why its rubric is
-    # almost entirely about honesty — and a red equivalence trace is the least deniable thing in
+    # Gate 5 is terminal. Nothing downstream catches an overclaim here, and a red equivalence trace is the least deniable thing in
     # the project: it says the rebuild returns something the old system did not, on traffic
     # recorded from the old system before the rebuild existed. Locking over it would be the
     # pipeline's own definition of done disagreeing with its own evidence.
@@ -567,9 +577,8 @@ def cmd_lock(gid, lock, argv):
         pass  # git unavailable — same fallback as the commit/tag step below
 
     # Union in anything this gate must protect that its scaffolded `protects:` predates.
-    # Absent directories contribute no files and no hashes, so a project with no Rule Cards
-    # locks exactly as it did before — the line appears in the lock file and protects an
-    # empty set, which is the correct description of that project.
+    # Absent directories contribute no files and no hashes: the line appears in the lock file and
+    # protects an empty set, which is the correct description of that project.
     protects = list(dict.fromkeys([*lock["protects"], *REQUIRED_PROTECTS.get(gid, [])]))
     added = [p for p in protects if p not in lock["protects"]]
     if added:

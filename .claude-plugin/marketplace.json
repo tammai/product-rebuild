@@ -1,6 +1,6 @@
 {
   "name": "product-rebuild",
-  "description": "Gated, agent-orchestrated pipeline for rebuilding an existing product end to end, on top of sdlc.",
+  "description": "Gated pipeline for rebuilding an existing product end to end, orchestrating rspec, sdlc and bug-hunter.",
   "owner": {
     "name": "Tam Mai",
     "email": "tam.mai@bigin.vn"
@@ -14,7 +14,7 @@
     {
       "name": "product-rebuild",
       "source": "./",
-      "description": "Rebuild an existing product end-to-end to learn the full product development lifecycle, on top of sdlc. A gated, agent-orchestrated pipeline: mine a reference product, build a feature matrix, slice milestones, decide architecture via mirror-or-diverge ADRs, lock contracts, then build each slice as sdlc features in parallel, and finish at a verified production-readiness gate.",
+      "description": "Rebuild an existing product end-to-end to learn the full product development lifecycle. An orchestrator over rspec (the spec, verified against the running reference), sdlc (each slice's build lanes) and bug-hunter (defect search): gates lock rspec's artifacts, hidden tests stay out of the lanes, each slice boundary runs G6 cheapest first and routes every finding, and the pipeline finishes at a verified production-readiness gate.",
       "author": {
         "name": "Tam Mai",
         "email": "tam.mai@bigin.vn"
@@ -24,7 +24,7 @@
       "license": "MIT",
       "keywords": [
         "product-rebuild",
-        "feature-matrix",
+        "rspec",
         "adr",
         "gated-pipeline",
         "agent-orchestrated"

@@ -128,6 +128,8 @@ hold = os.path.join(proj, "p-holdout")
 
 if ONLY in (None, "split", "run"):
     print("\n# split (AC-007)")
+    run([sys.executable, os.path.join("scripts", "playbook.py"), "vendor"], wb)
+    commit(wb)
     for gid in ("gate-1", "gate-3", "gate-2"):
         r = run([sys.executable, os.path.join("scripts", "gate.py"), "lock", gid, "--by", "Eval"], wb)
         check(f"{gid} locks", r.returncode == 0, r.stdout + r.stderr)

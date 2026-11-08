@@ -1,8 +1,7 @@
 # Autopilot — unattended stretches between gates
 
 Autopilot runs the mechanical work the user would otherwise advance by typing "continue":
-mining lanes, matrix and slice drafts, ADR and contract drafts, per-slice module builds,
-parity reports. It **halts at every gate**. Locking stays a human act (SKILL.md Step 5) —
+rspec's stages between gates (under rspec's own autopilot rules), per-slice lanes, G6 boundaries. It **halts at every gate**. Locking stays a human act (SKILL.md Step 5) —
 autopilot never runs `gate.py lock`, and `stop_at_gates` has no off switch.
 
 It is off unless the user asks for it, and asking for it is not the same as consenting to
@@ -108,17 +107,15 @@ the `gate.py lock` the user will run at the halt.
 
 ## Halting
 
-**At a gate.** Run `validate.py`, then dispatch the **rubric judge** (SKILL.md Step 5.1b) —
-an unattended run is exactly where a semantic read of the artifacts is worth most, because
-nobody has been looking over its shoulder for the last several hours. Then write the full gate
-review to `plan/gate-reviews/gate-N.md` — what is being locked, the key decisions inside it,
-open risks, what the rubric report flagged, what becomes immutable, and every point where the
-draft diverged from `adr/playbook.md` or from the reference. Commit both files,
+**At a gate.** Run `validate.py`, then write the full gate review to `plan/gate-reviews/gate-N.md` —
+what is being locked, the key decisions inside it, open risks, what rspec's audit flagged (its three
+auditors are the semantic read of the spec), what becomes immutable, and every point where the
+stack diverged from `adr/playbook.md` or from the reference. Commit it,
 then `disengage --reason gate-review --next "..."`, run `pause_check.py`, and present the
 review. The user decides; the file is there so the decision does not depend on scrollback.
 
 **At a slice boundary.** Run the between-slices sequence in `g5-build.md` — record progress,
-then `boundary.py <Sn>` (archive, parity, slice review, re-mine check), commit all of it — *before* halting for the "marking a slice done"
+then `boundary.py <Sn>` (archive, G6 cheapest first, re-mine check), commit all of it — *before* halting for the "marking a slice done"
 decision. The review is the artifact that decision gets made against, and an unattended run that
 halts without writing one hands the user a question and none of the evidence for it.
 
@@ -133,12 +130,10 @@ halts without writing one hands the user a question and none of the evidence for
 | A subagent fails twice, or returns nothing | `error` |
 | Intent is ambiguous (SKILL.md 4c), or a human decision is due | `needs-user-decision` |
 
-**Decisions autopilot may take alone:** lane dispatch and finding merges, dedup, canonical
-naming drafts, the dependency graph, slice-order drafts, ADR drafts against
-`adr/playbook.md`, data-model and contract drafts, module specs, slice code against
-locked contracts, parity reports, and fixing its own validation failures. Vendoring the
-selected playbook to `adr/playbook.md` at G4a entry is also autopilot's to do — it is a copy,
-not a decision. **Choosing or switching a playbook is not**: if the applicability check finds
+**Decisions autopilot may take alone:** lane dispatch, slice code against locked contracts,
+G6 boundary runs and routing, parity reports, and fixing its own validation failures. Vendoring
+the selected playbook to `adr/` (`playbook.py vendor`, before rspec:tech) is also autopilot's —
+it is a copy, not a decision. **Choosing or switching a playbook is not**: if the applicability check finds
 that the selected playbook's `not-applicable-when:` describes this rebuild, halt with
 `needs-user-decision` rather than picking another one or falling back to blank-slate.
 
@@ -157,19 +152,12 @@ scattered across the phase references; this is the whole list:
 
 - license posture, and the G0 remote-purpose question (durability, or durability + CI)
 - `sources.yaml` review, and confirming the reference runs locally
-- taxonomy approval and canonical-name spot-checks (G2)
-- learning-weighting for slice order (G3)
-- the G4a team-composition question — `g4a-architecture.md` says to ask it *every time*,
-  because no other artifact in this pipeline records team facts
-- each ADR decision, in dependency order (G4a) — drafting is delegable, deciding is not
-- the G4b coherence and callee checks, including before a re-lock after a reopen
-- spec approval before any code is written (G5). Once the user approves, cutting each lane's
-  worktree and running `lane_plan.py` is autopilot's: the record only carries the approval
-  just given to the file the repo's spec gate reads (`g5-build.md` step 1b). So is
-  `lane_plan.py --amend`, but only after the user has approved the corrected spec.
-- **a lane that raised an `amend:` question**, meaning it found its approved spec wrong.
-  Correcting the spec is a spec approval, so the halt is `needs-user-decision`, with the
-  lane's report attached.
+- rspec's own approvals (the feature list, each ADR), under rspec's autopilot rules
+- the lane approval for a slice (G5). Once the user approves, cutting each lane's worktree and
+  running `lane_plan.py` is autopilot's: the record only carries the approval just given to the
+  file the repo's spec gate reads (`g5-build.md` step 1).
+- **a spec question that changes an MVP criterion's `then`**: `rspec:amend` needs the user's
+  approval for it, so the halt is `needs-user-decision`, with the lanes' questions attached.
 - **the stops in a lane's sdlc Review** (G5 step 4b): the review choice on a high-risk lane, a
   second review round that still fails, and a high finding the lane disputes. Running the
   reviews sdlc's table picks for a low-risk lane, and sending a lane its findings, are autopilot's,
@@ -177,7 +165,7 @@ scattered across the phase references; this is the whole list:
 - a block from a code repo's own guard (`spec-gate-guard`, `bash-guard`, …) that the lane
   cannot resolve within the repo's rules. It is the harness speaking, so never edit a guard
   or its registration to get past it.
-- **marking a slice done** — the slice is not done until deployed and `done_means` is
+- **marking a slice done** — the slice is not done until deployed and its `Done when` is
   demonstrably true
 - **reordering the slice sequence** (`sequence.py reorder`). Generating the review that
   surfaces a reorder candidate is autopilot's; deciding to move a slice is not. It is a change
@@ -254,7 +242,7 @@ Two consequences worth knowing:
 - **A run left `engaged` by a session that died will block your manual edits** in that
   workbench. The block message names the fix: `disengage --reason error`. Preflight flags the
   same leftover state before it can bite.
-- **A blocked subagent gets different instructions.** A miner or spec-writer that trips the
+- **A blocked subagent gets different instructions.** A lane or an rspec agent that trips the
   threshold is told to stop and report upward, explicitly *not* to run `disengage` — ending
   the run belongs to the orchestrator, which is the only party that knows the `next_action`.
 

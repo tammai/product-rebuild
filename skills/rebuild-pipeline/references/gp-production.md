@@ -22,7 +22,7 @@ performed on a database nobody owns, and no rehearsal of the one release that ca
 undone.
 
 Checklist — each item needs EVIDENCE (log, recording, doc link), not assertion:
-- Security: authn/authz reviewed against the lane-D permission matrix; secrets
+- Security: authn/authz reviewed against `docs/domain.md`'s permissions table; secrets
   management; dependency/container scans green; headers, rate limits, input validation tested.
 - Data safety: automated backups running; restore ACTUALLY performed into a clean
   environment and verified; migration rollback exercised once.

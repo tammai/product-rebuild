@@ -567,9 +567,9 @@ def cmd_preflight(args, state):
     else:
         blockers.append("gate.py status failed: Command failed: python3 scripts/gate.py status")
 
-    # 1b. The G0 preflight (preflight.json). An unattended run's first act at G1 is to
-    #     dispatch miners at every lane in parallel, and a wrong `pinned_commit` makes every
-    #     lane-D citation they write wrong — silently, because a finding's hash is of the
+    # 1b. The G0 preflight (preflight.json). An unattended run's first act after G0 is
+    #     rspec's discovery, and a wrong `pinned_commit` makes every `[code]` citation it
+    #     writes wrong — silently, because a finding's hash is of the
     #     finding, not of the thing it describes. That is the one failure an unattended run
     #     cannot notice and cannot undo cheaply: by the time a human reads it, a gate has
     #     hashed it. So Not-ready is a blocker here and not a note.
@@ -596,7 +596,7 @@ def cmd_preflight(args, state):
             verdict = _get(pf, "verdict")
             if verdict == "Not-ready":
                 bl = _get(pf, "blockers")
-                blockers.append("G0 preflight reads Not-ready — G1 must not dispatch miners:\n" +
+                blockers.append("G0 preflight reads Not-ready — rspec's discovery must not start:\n" +
                                 "\n".join(f"      - {_js_str(b)}" for b in (bl if isinstance(bl, list) else [])) +
                                 "\n      Fix the cause and re-run `python3 scripts/preflight.py`. PREFLIGHT.md has the detail.")
             elif verdict == "Ready-with-gaps" and (_get(lanes, "D") == "degraded" and _get(lanes, "B") == "blocked"

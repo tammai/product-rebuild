@@ -17,8 +17,8 @@ PORTING NOTES (Node original: parity.mjs). The report is a committed, human-read
 its text is reproduced exactly, including how JS prints a missing field: `${f.name}` with no
 `name:` is the word `undefined`, and a `null` is the word `null` (`js_str`). Where JS sorts an
 array of [key, object] pairs with no comparator, it sorts the strings "key,[object Object]"
-(see `_pair_sort_key`); that is kept because it decides row order. The AC, equivalence and
-basis sections each import their library guarded, as the original did, so a hand-upgraded
+(see `_pair_sort_key`); that is kept because it decides row order. The AC and equivalence
+sections each import their library guarded, as the original did, so a hand-upgraded
 workbench missing one loses that section with a warning rather than the whole report. The helpers
 below are copied from acsuite.py rather than imported for the same reason: the
 import is allowed to fail and the report must still render.
@@ -290,8 +290,8 @@ def main(argv=None):
     # another day's numbers would put a pass rate under a heading that did not produce it.
     # ---------------------------------------------------------------------------
     AC_JUNIT = f"parity/{date}-ac.xml"
-    # The reader itself lives in acsuite.py, shared with slice_review.py. Imported guarded, like
-    # erd.py and playbook.py: a hand-upgraded workbench that copied this file without it loses
+    # The reader itself lives in acsuite.py, shared with slice_review.py. Imported guarded: a
+    # hand-upgraded workbench that copied this file without it loses
     # the AC section with a warning rather than dying on an unresolved import. Losing the section
     # is safe here precisely because AC_TITLE then stays out of OWNED below, so a previously
     # generated one is preserved instead of erased.
@@ -338,66 +338,6 @@ def main(argv=None):
                       f"{ac['failed']} failed.{skipped} Source: `{AC_JUNIT}`.{failed}\n")
 
     # ---------------------------------------------------------------------------
-    # Rules table — per-Rule-Card pass/fail, from the same JUnit run as the AC rate above.
-    #
-    # The question coverage could never answer. Coverage counts FEATURES: how much of the
-    # reference this rebuild has built. A feature can be fully built, marked covered, and
-    # subtly wrong — the invoice total rounds before tax instead of after, the state machine
-    # allows a transition the reference forbade. Those are Rule Cards (lane R, G1), and until
-    # an AC cited one there was nothing to report against.
-    #
-    # Rendered only when findings/rules/ is non-empty: a project that never ran lane R gets no
-    # empty table, for the same reason parity says which parity mechanisms apply rather than
-    # showing blank columns.
-    # ---------------------------------------------------------------------------
-    RULES_TITLE = "Rules (lane R)"
-    rules_section = ""
-    if ac_lib and hasattr(ac_lib, "read_rule_cards"):
-        cards = ac_lib.read_rule_cards(".", parse)
-        if cards:
-            if not ac or ac.get("unreadable"):
-                what = f"`{AC_JUNIT}` could not be read" if ac and ac.get("unreadable") else f"no `{AC_JUNIT}` for today"
-                rules_section = (f"\n## {RULES_TITLE}\n\n{len(cards)} Rule Card(s) on disk, but "
-                                 f"{what} — "
-                                 "no rule can be reported green or red. Do not read this as a pass.\n")
-            else:
-                g_ = ac_lib.group_by_rule((counted or ac)["cases"], [c["id"] for c in cards])
-                by_rule, untested, green, red, skipped_only = g_["byRule"], g_["untested"], g_["green"], g_["red"], g_["skippedOnly"]
-                by_domain = {}
-                for c in cards:
-                    by_domain.setdefault(c["domain"], []).append(c)
-                rows = []
-                # [...map.entries()].sort(): String([domain, [card, card]]) is "domain,[object Object],...".
-                for domain in sorted(by_domain, key=lambda d: _u16(d + "," + ",".join(["[object Object]"] * len(by_domain[d])))):
-                    lst = by_domain[domain]
-                    g = sum(1 for c in lst if c["id"] in green)
-                    r = sum(1 for c in lst if c["id"] in red)
-                    u = sum(1 for c in lst if c["id"] in untested)
-                    rows.append(f"| {domain} | {g} of {len(lst)} | {r} | {u} |")
-                detail = []
-                if red:
-                    detail.extend(["", "Red:"])
-                    for rid in red:
-                        g = by_rule[rid]
-                        card = next((c for c in cards if c["id"] == rid), None)
-                        kind = card["kind"] if card and truthy(card.get("kind")) else "?"
-                        dom = card["domain"] if card and truthy(card.get("domain")) else "?"
-                        detail.append(f"- {rid} ({js_str(kind)}, {dom}) — {g['failed']} of {g['total']} test(s) failing")
-                if skipped_only:
-                    detail.extend(["", "Skipped only (neither green nor red — a skipped AC is not a passing one): "
-                                   + ", ".join(skipped_only)])
-                if untested:
-                    detail.extend(["", f"**Untested: {len(untested)}** — {', '.join(untested)}.",
-                                   "A rule is joined to the suite by its id appearing in a test NAME (g5-build.md step 1). "
-                                   "A rule with no test and a rule whose test forgot to name it are indistinguishable here, "
-                                   "and both mean the same thing: nothing on disk demonstrates the rule holds."])
-                rules_section = (f"\n## {RULES_TITLE}\n\n"
-                                 f"{len(green)} of {len(cards)} Rule Cards green, {len(red)} red, "
-                                 f"{len(untested)} untested. Source: `{AC_JUNIT}`.\n\n"
-                                 "| Domain | Green | Red | Untested |\n|---|---|---|---|\n" + "\n".join(rows) + "\n"
-                                 + "\n".join(detail) + "\n")
-
-    # ---------------------------------------------------------------------------
     # Equivalence (lane E8) — does the rebuild produce what the OLD system produced?
     #
     # The AC suite asks whether the rebuild does what the spec says. Coverage asks how much of the
@@ -441,7 +381,6 @@ def main(argv=None):
                 by_feature.setdefault(tr["feature"], {"recorded": [], "replayed": 0, "green": 0, "red": []})["recorded"].append(tr["name"])
             replayed_total = green_total = 0
             red_cases = []
-            rule_lines = []
             if eq and not eq.get("unreadable"):
                 for c in eq["cases"]:
                     # classname carries "<feature-id> <rule-id>…" — equiv.py writes it that way precisely
@@ -459,15 +398,6 @@ def main(argv=None):
                             g["red"].append(c["caseName"] or c["name"])
                     if c["state"] != "passed":
                         red_cases.append(c)
-                # Per Rule Card, where a trace cites one — the same grouping the AC rules table uses.
-                cards = ac_lib.read_rule_cards(".", parse)
-                if cards:
-                    g_ = ac_lib.group_by_rule(eq["cases"], [c["id"] for c in cards])
-                    if len(g_["byRule"]):
-                        rule_lines.extend(["", f"Per Rule Card: {len(g_['green'])} green, {len(g_['red'])} red, "
-                                           f"{len(cards) - len(g_['byRule'])} card(s) cited by no trace."])
-                        if g_["red"]:
-                            rule_lines.append(f"Red rules: {', '.join(g_['red'])}.")
             rows = []
             for f in sorted(by_feature, key=_pair_sort_key):
                 g = by_feature[f]
@@ -496,45 +426,7 @@ def main(argv=None):
                                "refuses while the newest run has a failure no decision names."])
             equiv_section = (f"\n## {EQUIV_TITLE}\n\n{header}\n\n"
                              "| Feature | Recorded | Replayed | Green | Red |\n|---|---|---|---|---|\n" + "\n".join(rows) + "\n"
-                             + "\n".join(rule_lines) + "\n".join(detail) + "\n")
-
-    # ---------------------------------------------------------------------------
-    # Weakest parity claims: features whose evidence is ALL `inferred`.
-    #
-    # `basis` (findings/**.yaml, evidence entries) records where a fact came from — transcribed
-    # from source at the pinned commit, observed at runtime, or inferred from docs/changelogs/API
-    # responses. A feature standing entirely on inferred evidence is one nobody read out of the
-    # source and nobody watched happen; the parity number counts it exactly like the rest, which
-    # is precisely why it is worth naming separately.
-    #
-    # The join from a feature to its findings is best-effort and the report says so — see
-    # basis.py's feature_basis(). A feature that joins to nothing is reported as unjoined rather
-    # than as clean, because a zero produced by a failed join is indistinguishable from a zero
-    # produced by good evidence.
-    # ---------------------------------------------------------------------------
-    basis_section = ""
-    try:
-        import basis as basis_lib
-        res = basis_lib.feature_basis()(features)
-        inferred_only, unjoined = res["inferred_only"], res["unjoined"]
-        if inferred_only or (unjoined and len(unjoined) < len(features)):
-            lines = []
-            if inferred_only:
-                lines.append(f"Inferred-only features: {len(inferred_only)} — every piece of evidence behind "
-                             f"{'this feature' if len(inferred_only) == 1 else 'these features'} is `basis: inferred` "
-                             "(docs, changelogs, API responses, reasoning). Nothing was transcribed from source and "
-                             "nothing was observed running. These are the weakest parity claims in this report.")
-                lines.extend(["", *[f"- {js_str(_get(f, 'id'))} {js_str(_get(f, 'name'))}" for f in inferred_only]])
-            if unjoined:
-                lines.extend(["", f"{len(unjoined)} feature(s) could not be joined to any finding, so their "
-                              "basis is unknown rather than sound — this line exists so the count above is read with "
-                              "its denominator."])
-            basis_section = "\n## Evidence basis\n\n" + "\n".join(lines) + "\n"
-    except Exception:
-        # basis.py absent in a hand-upgraded workbench — validate.py reports that. A failure while
-        # joining (a malformed findings file) is swallowed too, as the Node report did: the
-        # section is a warning about weak evidence and must not stop the report that carries the rest.
-        pass
+                             + "\n".join(detail) + "\n")
 
     # A G6 run is part generated, part hand-written: the AC suite result and the
     # upstream re-mine are authored by a human or the orchestrator. Re-running on the
@@ -547,9 +439,7 @@ def main(argv=None):
         "Descoped (by recorded decision)",
         "Slice progress",
         *([AC_TITLE] if ac_section else []),
-        *([RULES_TITLE] if rules_section else []),
         *([EQUIV_TITLE] if equiv_section else []),
-        *(["Evidence basis"] if basis_section else []),
     ]
     path = f"parity/{date}.md"
     preserved = ""
@@ -571,7 +461,7 @@ def main(argv=None):
                 "\n"
                 f"Coverage: {len(buckets['covered'])}/{in_scope} covered ({pct}%), {len(buckets['partial'])} partial, "
                 f"{len(buckets['missing'])} missing, {len(buckets['planned'])} planned{descoped_note}.\n"
-                f"{ac_section}{rules_section}{equiv_section}{basis_section}\n"
+                f"{ac_section}{equiv_section}\n"
                 "## Missing (in a done slice but not covered — investigate)\n"
                 f"{list_md(suspicious)}\n"
                 "\n"
@@ -593,10 +483,8 @@ def main(argv=None):
                    + (f" ({len(counted['rerunPasses'])} on rerun — {counted['label']})" if counted["rerunPasses"] else "") + ".")
     elif ac and not ac.get("unreadable"):
         ac_note = f" AC {ac['passed']}/{ac['total']} passed."
-    rm = re.search(r"^(\d+) of (\d+) Rule Cards green", rules_section, re.ASCII | re.MULTILINE)
-    rule_note = f" Rules {rm.group(1)}/{rm.group(2)} green." if rm else ""
     em = re.search(r"^(\d+) trace\(s\) recorded, (\d+) replayed, (\d+) green", equiv_section, re.ASCII | re.MULTILINE)
-    print(f"Wrote {path} — coverage {pct}%.{ac_note}{rule_note}"
+    print(f"Wrote {path} — coverage {pct}%.{ac_note}"
           f"{f' Equivalence {em.group(3)}/{em.group(1)} green.' if em else ''}"
           f"{' Hand-written sections preserved.' if preserved else ''}")
     return 0

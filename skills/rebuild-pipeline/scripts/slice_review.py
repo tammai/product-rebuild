@@ -12,7 +12,7 @@ WHY IT IS GENERATED AND NOT WRITTEN
 
 Everything here comes off disk: plan/progress.yaml, plan/sequence.yaml, the AC suite's JUnit
 output, rspec's docs/build-plan.md and docs/features.md. None of it is composed. A slice review an agent writes is a
-summary of what that agent believes it did, which is the failure `verifier`, `rubric-judge`
+summary of what that agent believes it did, which is the failure fresh reviewers
 and g5-build.md's "a verification script names only what it RAN" all exist to prevent — and a
 slice review is exactly the artifact that outlives the session that produced it. So the
 script states facts and cites their source; judgement goes in the conversation on top of it,

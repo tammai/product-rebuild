@@ -3,7 +3,7 @@
 first fix it needs, does every finding go where contracts C6 says, does the human sample become findings,
 and does one departures registry explain differences everywhere?
 
-  python3 skills/rebuild-pipeline/eval/g6_eval.py [route|boundary|sample|departures|fix]
+  python3 skills/rebuild-pipeline/eval/g6_eval.py [route|boundary|sample|departures|fix|remine]
 
 WHY IT EXISTS. G6 is where a build is judged against the reference rather than against its own tests. A
 boundary that runs the expensive steps over a build with a known defect wastes the budget; a router that
@@ -331,6 +331,23 @@ if ONLY in (None, "departures"):
     check("while gate-1 hashes departures.yaml, adding a departure after its lock is refused, nothing written",
           rr.returncode == 0 and r.returncode == 1 and "gate-1" in r.stderr and read(wb, "docs", "departures.yaml") == before,
           rr.stdout + rr.stderr + r.stdout + r.stderr)
+
+if ONLY in (None, "remine"):
+    print("\n# the upstream re-mine: due every 30 days, done through rspec (docs/MIGRATION-3.md)")
+    proj, wb = project("remine", split=False)
+    w(wb, "sources.yaml", "reference:\n  kind: third-party\n  upstream: active\n")
+    r = script(wb, "boundary.py", "S1")
+    check("a re-mine never recorded is due, naming rspec's coverage pass and triage",
+          "Upstream re-mine: DUE. None is recorded" in r.stdout and "rspec:features' coverage pass" in r.stdout
+          and "rspec:features triage" in r.stdout, r.stdout[-900:] + r.stderr)
+    check("remine-done records today's date", script(wb, "boundary.py", "remine-done").returncode == 0
+          and re.fullmatch(r"\d{4}-\d\d-\d\d\n", read(wb, "parity", "last-remine")) is not None)
+    check("a recorded re-mine is not due", "Upstream re-mine: not due. Last on" in script(wb, "boundary.py", "S1").stdout)
+    w(wb, "parity/last-remine", "2020-01-01\n")
+    check("a 30-day-old re-mine is due again",
+          re.search(r"DUE\. Last on 2020-01-01, \d+ days ago", script(wb, "boundary.py", "S1").stdout) is not None)
+    w(wb, "sources.yaml", "reference:\n  kind: own-code\n  upstream: frozen   # replaced app\n")
+    check("a frozen reference says so", "reference is frozen, no re-mine" in script(wb, "boundary.py", "S1").stdout)
 
 server.shutdown()
 shutil.rmtree(base, ignore_errors=True)

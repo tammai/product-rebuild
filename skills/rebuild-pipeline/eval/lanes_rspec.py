@@ -3,7 +3,7 @@
 does step 0 hold a slice whose criteria have no recorded test, do spec questions reach one batch, and
 does the flow guard keep the recorded bundle read-only?
 
-  python3 skills/rebuild-pipeline/eval/lanes_rspec.py [lane|step0|questions|flows]
+  python3 skills/rebuild-pipeline/eval/lanes_rspec.py [lane|step0|questions|flows|archive]
 
 WHY IT EXISTS. sdlc 3.5 builds spec-backed only from what is inside the code repo (config `spec_lock`,
 `acceptance/manifest.json`), and the rebuild's lock and bundle live in the workbench. lane_plan.py is
@@ -217,6 +217,41 @@ if ONLY in (None, "flows"):
     check("…and the guard lets the edit through while it is unlocked", edit(target).returncode == 0)
     run([sys.executable, os.path.join("scripts", "flows.py"), "relock", "--acceptance"], wb)
     check("relock puts the guard back", edit(target).returncode == 2)
+
+if ONLY in (None, "archive"):
+    print("\n# the slice review reads each lane's record, and only a shipped lane is archived")
+    if ONLY == "archive":
+        lane_plan("S1", "api", "--worktree", "../app-lane", "--features", "F-ISS-01", "--approved-by", "Eval")
+    cdir = os.path.join(lane, "docs", "sdlc", "changes")
+    change_p = os.path.join(cdir, sorted(os.listdir(cdir))[0])
+    state_p = next(os.path.join(lane, ".sdlc", "state", f) for f in os.listdir(os.path.join(lane, ".sdlc", "state"))
+                   if f.endswith(".md"))
+
+    def review():
+        run([sys.executable, os.path.join("scripts", "slice_review.py"), "S1"], wb)
+        return read(wb, "plan", "slice-reviews", "S1.md")
+
+    sr = review()
+    check("the slice review lists the lane's sdlc record", re.search(r"- api: sdlc `.*-s1-api` · Status: active", sr)
+          is not None and "no longer matches what lane_plan.py wrote" not in sr, sr[:1500])
+    w(lane, os.path.relpath(change_p, lane), read(change_p).replace("→ F-ISS-01.AC1", "→ F-ISS-01.AC9"))
+    check("a lane that rewrote its cited criteria is named in the review",
+          "no longer matches what lane_plan.py wrote" in review())
+    r = lane_plan("archive", "S1", "api")
+    check("archive refuses a lane sdlc has not shipped", r.returncode == 1 and "Status: active" in r.stderr, r.stderr)
+    w(lane, os.path.relpath(state_p, lane), read(state_p).replace("Status: active", "Status: done"))
+    r = lane_plan("archive", "S1", "api")
+    check("a shipped lane is archived to the workbench, its edited criteria flagged", r.returncode == 0
+          and os.path.isdir(os.path.join(wb, "plan", "lane-plans", "archive", "S1-api"))
+          and "acceptance criteria differ" in r.stdout, r.stdout + r.stderr)
+    check("a lane is archived once", lane_plan("archive", "S1", "api").returncode == 1)
+    recp = os.path.join(wb, "plan", "lane-plans", "S1.yaml")
+    rec = json.loads(re.sub(r"^#.*\n", "", read(recp), flags=re.M))
+    rec["lanes"]["ghost"] = {"worktree": os.path.join(base, "no-such-worktree")}
+    w(wb, "plan/lane-plans/S1.yaml", "# eval\n" + json.dumps(rec))
+    r = run([sys.executable, os.path.join("scripts", "boundary.py"), "S1"], wb)
+    check("boundary names a lane it cannot archive, and does not pass", r.returncode == 2 and "ghost: NOT archived" in r.stdout,
+          r.stdout[:800])
 
 shutil.rmtree(base, ignore_errors=True)
 print(f"\n{failures} failure(s)." if failures else "\nall passed")

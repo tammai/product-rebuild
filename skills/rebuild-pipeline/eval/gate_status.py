@@ -17,6 +17,7 @@ themselves are in gates_rspec.py.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -92,6 +93,28 @@ check("an ADR still proposed is named; decided ones are not",
       gate.proposed_adrs() == ["0001-decomposition.md"], gate.proposed_adrs())
 write("docs/decisions/0001-decomposition.md", "# ADR-0001\n\n- Status: Accepted\n")
 check("all decided: nothing named", gate.proposed_adrs() == [], gate.proposed_adrs())
+
+# --- G0 holds rspec's discovery until preflight says the reference is the pinned one ------------
+ref = os.path.join(base, "reference")
+os.makedirs(ref)
+for cmd in (["git", "init", "-q"], ["git", "-c", "user.email=e@x", "-c", "user.name=e", "commit", "-q", "--allow-empty", "-m", "r"]):
+    subprocess.run(cmd, cwd=ref, check=True, capture_output=True)
+head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ref, capture_output=True, text=True, check=True).stdout.strip()
+
+
+def preflight(pinned):
+    write("sources.yaml", f"project: gs\nreference:\n  name: ref\n  repo: https://example.invalid/ref.git\n"
+                          f"  pinned_commit: {pinned}\n  checkout: {ref.replace(os.sep, '/')}\n  license: MIT\n  kind: third-party\n")
+    r = subprocess.run([sys.executable, os.path.join(wb, "scripts", "preflight.py")], cwd=wb, capture_output=True,
+                       text=True, encoding="utf-8", errors="replace")
+    with open(os.path.join(wb, "preflight.json"), encoding="utf-8") as f:
+        return r.returncode, json.load(f).get("verdict")
+
+
+check("a checkout at another commit than pinned_commit is Not-ready, exit 1", preflight("0" * 40) == (1, "Not-ready"),
+      preflight("0" * 40))
+code, verdict = preflight(head)
+check("at the pinned commit preflight passes (Ready or Ready-with-gaps)", code == 0 and verdict.startswith("Ready"), verdict)
 
 print("\nall passed" if not failures else f"\n{failures} failed")
 sys.exit(1 if failures else 0)

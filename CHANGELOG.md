@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 3.0.0 in progress (version `3.0.0-rc.1`, no tag): product-rebuild becomes an orchestrator over rspec, sdlc
-and bug-hunter (spec `docs/specs/rebuild-upgrade/05-product-rebuild.md`). Parts 1 to 5 of 6 below.
+and bug-hunter (spec `docs/specs/rebuild-upgrade/05-product-rebuild.md`). All six parts below; where each 2.x
+capability went is in `docs/MIGRATION-3.md`.
 
 ### Breaking
 
@@ -71,6 +72,29 @@ and bug-hunter (spec `docs/specs/rebuild-upgrade/05-product-rebuild.md`). Parts 
   contracts C7 line in `logs/<Sn>/cost.jsonl`, and `boundary.py` prints the slice's cost by stage.
 - **Autopilot parks what it may not decide** (05 P10): `autopilot.py park|unpark|blocked`; a parked feature drop,
   departure, human sample, deploy or Gate 5 blocks only what depends on it.
+- **G6's coverage and regression read rspec's plan** (05 P6 step 4): `parity.py`, `slice_review.py`, `sequence.py`
+  and `gate.py status` read slices from `docs/build-plan.md` (a slice's dependencies from its stories'
+  `depends_on`) and features from `docs/features.md` (a Drop counts as descoped), with `plan/progress.yaml` and
+  `plan/sequence.yaml` as before; `boundary.py` prints step 4 as `not run: <reason>` when a report cannot run.
+- **The 2.x spec side is deleted** (05 P1, D2, D3), each capability placed first in `docs/MIGRATION-3.md`, whose
+  rows `eval/migration_3.py` runs (`--external` runs the cited rspec, sdlc and bug-hunter tests from a copy):
+  - the agents `miner`, `spec-writer`, `data-model-drafter`, `adr-drafter` and `rubric-judge`, the G1–G4b
+    references (`g1-mining`, `g2-matrix`, `g3-slicing`, `g4a-architecture`, `g4b-contracts`,
+    `architecture-default`) and the gate rubrics;
+  - **lane R (Rule Cards)**: `rules_for.py`, `rule.schema.json`, `validate.py`'s rule checks, parity's rules
+    table, and the `rules_recall.py` eval with CLAUDE.md's rule that measured lane R on it. The fixture moved to
+    `docs/rspec-pr/rules-recall/` as a recall test proposed to rspec; 3.0.0 is not released until rspec has it;
+  - `cite_excerpts.py`, `gate_facts.py`, `evidence_bundle.py`, `erd.py`, `basis.py`, the `feature`, `finding`,
+    `rule` and `slice` schemas, `lane_plan.py --specs` (and its `--amend`), `playbook.py excerpt`, and the evals
+    and fixtures that tested them;
+  - new workbenches no longer get `findings/`, `matrix/`, `plan/specs/` or `contracts/`; `validate.py` checks only
+    the workbench's own files (rspec's spec is `rspec:check`'s).
+- **`adr/` holds the vendored playbook and its scaffold manifest only** (coordinator pr-6): `python3
+  scripts/playbook.py vendor` copies them before `rspec:tech`, gate-3 locks `adr/` beside `docs/decisions/` and
+  refuses without a valid manifest, so the stack scaffold-repo creates code repos from is locked with the ADRs.
+  A workbench scaffolded by an earlier 3.0 release candidate gets `adr/` added to gate-3 at its next lock.
+- **Routing** has three roles: `build-lane`, `lane-review`, `lane-ui-review`; rspec routes its own agents.
+- Docs: README, `docs/PLAYBOOK.md` and the pipeline picture describe the 3.0 pipeline.
 
 ### Added
 
@@ -93,6 +117,11 @@ and bug-hunter (spec `docs/specs/rebuild-upgrade/05-product-rebuild.md`). Parts 
   `verified_by: {agent: null, result: "not run: spec question"}`, and may leave `repro` and `observed` null.
   Every other finding still needs `verified_by.result: reproduced`, and a 1.0.0 finding stays valid. `source`
   is now a kebab-case name (`^[a-z][a-z0-9-]*$`).
+
+- **Evals in groups**: `lane_guards.py` (adds a `runbook` group for the build-runbook guard) and
+  `run_supervision.py` run one group by name, so `docs/MIGRATION-3.md` can cite the passing ones;
+  `lanes_rspec.py archive`, `g6_eval.py remine`, `gates_rspec.py scaffold`, `coverage_rspec.py` and
+  `gate_status.py`'s preflight checks are new.
 
 ### Fixed
 

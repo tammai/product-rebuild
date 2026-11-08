@@ -40,6 +40,11 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 REMINE_FILE = os.path.join("parity", "last-remine")
 REMINE_DAYS = 30
+# rspec owns discovery (05 D3) but has no refresh: its coverage pass builds the reference list (docs navigation
+# and the last 12 months of changelog) once and reuses docs/audit/reference.md. So the re-mine is this repo's
+# reminder and rspec's work (coordinator pr-6 Q3); docs/MIGRATION-3.md places it.
+REMINE_HOW = ("delete docs/audit/reference.md, rerun rspec:features' coverage pass, triage what it adds with "
+              "rspec:features triage, then: python3 scripts/boundary.py remine-done")
 SAMPLE_SIZE = 3  # P6: 2–3 features; all of them when the slice has fewer
 CLASSES = "build-defect|spec-gap|reference-defect|accepted-departure|test-defect|flaky|environment"
 
@@ -70,24 +75,23 @@ def _save_state(sid, st):
 
 
 def _remine_status():
-    """(text, due) for 2.x's 30-day upstream re-mine (g6-parity.md step 3). Printed for information only: it is a
-    2.x capability that 05 P1's capability table places before any deletion, and it is not one of P6's boundary
+    """(text, due) for the 30-day upstream re-mine. Printed for information only: it is not one of P6's boundary
     conditions, so it never holds a boundary."""
     src = _read("sources.yaml") if os.path.exists("sources.yaml") else ""
     block = re.search(r"^reference:\n((?:[ \t]+.*\n|\n)*)", src, re.M)
     if block and re.search(r"^[ \t]+upstream:[ \t]*[\"']?frozen[\"']?[ \t]*(?:#.*)?$", block.group(1), re.M):
         return "Upstream re-mine: reference is frozen, no re-mine.", False
     if not os.path.exists(REMINE_FILE):
-        return "Upstream re-mine: DUE. None is recorded. After it runs: python3 scripts/boundary.py remine-done", True
+        return f"Upstream re-mine: DUE. None is recorded. To re-mine: {REMINE_HOW}", True
     raw = _read(REMINE_FILE).strip()
     try:
         last = datetime.strptime(raw, "%Y-%m-%d").date()
     except ValueError:
-        return f"Upstream re-mine: DUE. {REMINE_FILE} holds {raw!r}, not a date. After it runs: python3 scripts/boundary.py remine-done", True
+        return f"Upstream re-mine: DUE. {REMINE_FILE} holds {raw!r}, not a date. To re-mine: {REMINE_HOW}", True
     age = (date.today() - last).days
     if age >= REMINE_DAYS:
-        return (f"Upstream re-mine: DUE. Last on {raw}, {age} days ago (interval {REMINE_DAYS}). After it runs: "
-                f"python3 scripts/boundary.py remine-done"), True
+        return (f"Upstream re-mine: DUE. Last on {raw}, {age} days ago (interval {REMINE_DAYS}). To re-mine: "
+                f"{REMINE_HOW}"), True
     return f"Upstream re-mine: not due. Last on {raw}, {age} days ago (interval {REMINE_DAYS}).", False
 
 

@@ -1,8 +1,10 @@
-# G5 — Parallel spec & build, per slice
+# G5 — Parallel build, per slice
 
 Goal: maximum safe fan-out, one slice at a time. Lane COUNT is an output of Gates 1 and
 3, not a constant. Work happens in code repos; the workbench is read-only input
-(submodule pinned to gate tags).
+(submodule pinned to gate tags). The slices, their criteria and their recorded tests are rspec's
+(`docs/build-plan.md`, `docs/criteria.lock.json`, `docs/acceptance/`); nothing here writes a spec.
+SKILL.md 4e is the slice loop in short; this file is the detail.
 
 **The first time a code repo is created**, run the repo checklist in `g5-first-slice.md` (step 0 creates
 it with `scaffold-repo`, then register it, give it a remote, confirm `pause-check` sees it, decide what the remote
@@ -11,39 +13,19 @@ step 1 registers it. Read that file now if no code repo exists yet.
 
 ## Per-slice sequence
 
-0. **Record this slice's AC flows against the legacy app — before any module starts.**
-   Applies when the locked playbook says so: `playbooks/mobile-flutter.md` §15, i.e. a
-   `client-only` mobile rebuild whose legacy app is still runnable. Other shapes and
-   playbooks skip step 0 entirely; their AC suite is written with the code, as step 1 has
-   always said.
-
-   The precondition, checked before dispatching anything: every acceptance criterion in this
-   slice has a Maestro flow under the workbench's `parity/flows/<feature-id>/`, and
-   `maestro test parity/flows/<feature-id>` is **green against the legacy app**. If flows are
-   missing or red there, recording them *is* this slice's first work — not a prerequisite
-   somebody else clears.
-
-   **Refuse to start the slice otherwise, and name the missing flows** rather than starting
-   the modules and circling back. A flow written after the rebuild exists is a flow written
-   against the rebuild: it asserts what was built, says nothing about the reference, and
-   every later run agrees with the code by construction. That property cannot be recovered
-   afterwards short of reinstalling the old app and re-recording — which is exactly the work
-   that was skipped, now with a build in the way.
-
-   Where a flow genuinely cannot be recorded — Maestro cannot drive that surface, or the
-   legacy app no longer builds that screen — record *that*, per flow, in the flow file's
-   header. It is then a normal test rather than a parity test and the slice proceeds. An
-   unrecorded flow nobody declared is indistinguishable from one nobody wrote, which is how
-   a parity suite quietly becomes a regression suite.
+0. **Step 0: every criterion of the slice has a recorded test or rspec's reason.**
+   `python3 scripts/lane_plan.py step0 <Sn>` names each criterion with neither a level 2 test in
+   `docs/acceptance/` nor rspec's recorded reason for level 1 (`unrecordable`, `read-only reference`);
+   run `rspec:verify --only <features>` for them and check again. `lane_plan.py` opens no lane of a slice
+   that fails it. A test recorded against the reference before the build exists is what makes the suite
+   a parity suite: one written after the rebuild agrees with whatever got built.
 
 0a. **Record this slice's equivalence traces against the legacy system — before the backend
-   lane starts.** Applies when `reference.kind: own-code` and the E4 preflight says the
-   reference runs; every other project skips it and `parity.py` says the lane does not apply.
-   This is step 0's `fullstack` branch: where a `client-only` mobile rebuild records Maestro
-   flows against the old app, a rebuild that owns a backend records what the old **system**
-   returned.
+   lane starts.** Applies under posture `observe` or `own-code` when preflight says the reference
+   runs locally; every other project skips it and `equiv.py status` says why. Where rspec's recorded
+   tests check each criterion, a trace records what the old **system** returned for a whole request.
 
-   For each feature in this slice, author the requests out of its UX flows and Rule Cards, then:
+   For each feature in this slice, author the requests out of its criteria in `docs/features/`, then:
 
    ```sh
    python3 scripts/equiv.py record <feature-id>   # writes parity/equiv/<feature-id>/*.trace.yaml
@@ -61,7 +43,7 @@ step 1 registers it. Read that file now if no code repo exists yet.
 
 0b. **Load the build runbook — S2 onward, before dispatching any lane.** Read
    `plan/BUILD_RUNBOOK.md` and pass it as a fixed input in every backend, frontend and infra
-   brief (`subagent-briefs.md` part 2). It is not optional context: it is what S1 learned
+   brief (`subagent-briefs.md`). It is not optional context: it is what S1 learned
    about this project's codegen, harness, reference quirks, fixtures and deploy
    prerequisites, and a lane that does not read it will rediscover all of it at full price.
 
@@ -73,121 +55,44 @@ step 1 registers it. Read that file now if no code repo exists yet.
    checklist), and fails open when the marker is missing — so a repo created before this
    shipped is unguarded rather than broken.
 
-1. **Specs + AC** — dispatch `spec-writer` per module in the slice, briefed per
-   `subagent-briefs.md` — including part 6, the model `scripts/routing.py` resolved for this
-   role, which is the worker tier (set `models.spec-writer` to `opus` in `.claude/model-routing.json` for a from-scratch module spanning many contracts). Spec inputs: the
-   module's matrix features + flows + ground truth + contracts, **plus the module's Rule Cards** —
-   a fixed input, not an optional one. Cut them per module: `python3 scripts/rules_for.py --features
-   <the module's feature ids> --entities <the entities it writes> --out plan/rules-for/<Sn>-<module>.md`
-   and pass that path. It gives the cards that name the module's features, and the `invariant` cards on
-   entities it writes, in full, and every other card in the touched domains as one index line, so the
-   writer sees every card's id and never the evidence of rules that are not its module's (the whole
-   `findings/rules/<domain>.yaml` of every touched domain was the input before, and was paid for on
-   every turn). Name the full `findings/rules/<domain>.yaml` paths in the brief too, for a card the index
-   makes relevant. Specs are written to `plan/specs/<Sn>/<module>.md` in the workbench (they
-   describe the product; code repos reach them through the submodule pin). Every spec ends
-   with acceptance criteria: testable behaviors, each mapping 1:1 to a test at the lowest
-   level that can observe it (see "Test depth and UI depth"). Where behavior is ambiguous, the RUNNING REFERENCE is the arbiter — check it,
-   never guess. Run `python3 scripts/validate.py` when the spec-writers return and before you present them: it checks the
-   `rule_id` join against lane R's cards, so a bad id surfaces now and not at a later check. Specs pass user
-   review (propose-before-act) before any code. Present them as one approval, with three things a lane
-   otherwise has to invent or ask about mid-build:
-   - **The lanes**: which specs each lane builds, in which repo. `slices.yaml` names features, not modules,
-     so the split is yours to propose: one lane per bounded context touched (step 2), merged where two
-     contexts live in one repo and are small. Split a lane that would carry more than about 80 criteria
-     rather than raising its track: the Kutt rebuild's 145-criterion lane took 85 minutes in one context.
-     Lanes stay sdlc track M; sdlc's L adds a plan self-approval and a backlog of parts that this
-     approval and the lane split already cover.
-   - **The packages each lane will add**, runtime and test (a spec that names Playwright or happy-dom
-     needs them installed), so the approval covers them. A lane adding one this list missed logs it with
-     `state.py deviation`.
-   - **The contract questions the specs raised, de-duplicated** across writers (several specs meet the
-     same gap), each with its proposed answer.
-   **Approved with changes**: you edit the specs to match, show the diff, commit, and the user approves
-   that commit. `lane_plan.py` records the commit it ran against, so an edit after it is an amendment.
+1. **Lanes from rspec's criteria** — propose the lanes as one approval: which features each lane builds, in
+   which repo (one lane per bounded context touched, merged where two contexts live in one repo and are small),
+   the packages each will add, and the contract questions the slice raises. At most `rebuild.yaml`
+   `budgets.parallel_lanes` lanes are open per slice. Then, per lane:
 
-   **Every acceptance criterion that implements a Rule Card carries `rule_id:`.** This is
-   the join that makes lane R worth mining: without it the cards are a document nobody reads
-   at the moment they are needed, which is precisely the state G1 mined them out of. It buys
-   three things that did not exist before — `validate.py` reports the share of criteria in
-   rule-bearing domains that cite no rule, `acsuite.py` and `parity.py` can say "12 of 14
-   rules in `billing` are green" rather than only counting features, and a criterion that
-   drifts from the reference has a locked, cited card to be wrong against.
+   - **One worktree and one branch per lane**, `slice/<Sn>-<lane>`, cut from the repo's main branch
+     (`git -C <repo> worktree add -b slice/S3-billing ../<repo>-S3-billing`). The lane name is lowercase
+     letters, digits and dashes: it becomes part of the sdlc feature's name. The spec gate reads the approval
+     per branch, so two lanes sharing a checkout would share one. On S1 the repo does not exist yet: run the
+     repo checklist (`g5-first-slice.md`, step 0) first.
+   - **Open the lane**: `python3 scripts/lane_plan.py <Sn> <lane> --worktree <path> --features <F-…,F-…>
+     --approved-by "<who approved>" [--risk high]`. It writes the lane's sdlc feature at Build (ACs citing the
+     criterion IDs, sdlc's spec-backed mode), with your approval in its Gate log, which is what the spec gate
+     (`hooks/scripts/spec_gate_guard.py`) reads; copies the lane's open recorded tests into the worktree's
+     `acceptance/` (each checked against the workbench manifest's sha256) and the lock to
+     `.rebuild/criteria.lock.json`. Hidden tests never reach a lane. `--risk high` when the lane touches auth,
+     payments, secrets, PII, a schema migration or a breaking change to a public API: sdlc's review table
+     reads it. It commits nothing in the code repo.
+   - **The lane fills in the how, never the what.** It writes each task's files, the Public Surface and the
+     Test and Run cells, and never edits a criterion: `slice_review.py` re-hashes the ACs against what was
+     recorded and names any lane whose criteria changed underneath it.
+   - **When a lane finds a criterion wrong**, it asks with sdlc's `state.py question`, which blocks its part.
+     `python3 scripts/lane_plan.py questions <Sn>` batches the slice's questions for `rspec:amend` (the user
+     approves a change to an MVP criterion's `then`); after the re-verify, `lane_plan.py refresh <Sn> <lane>`
+     re-copies the lock and tests, and the lane's `state.py questions` unblocks it.
+   - **At slice end**, once sdlc has shipped every lane (`Status: done`), `boundary.py <Sn>` archives each lane
+     (`lane_plan.py archive <Sn> <lane>` by hand): the lane's change and state files are copied to
+     `plan/lane-plans/archive/` in the workbench. It refuses a lane sdlc has not shipped.
 
-   **An `invariant` card is cited from every module that writes its entities.** A module spec
-   that writes any entity in an invariant's `entities[]` carries a criterion that performs the
-   write and then asserts the property. One invariant is therefore cited from several slices,
-   and that is the point: each new writer is a new way to break it. `validate.py` lists the
-   invariants no criterion cites yet. That is advisory, because before the first slice that
-   writes the entity it is expected.
-
-   **Name the `rule_id` in the test too.** The AC→test mapping is 1:1, so the test that
-   implements a criterion carries that criterion's rule id in its name (or its `classname`).
-   That string is the only thing the JUnit output carries, and it is what the per-rule column
-   groups on — a test that implements a rule but never names it is invisible to the rules
-   table and reads there exactly like a rule with no test at all.
-
-   **Where the card and your reading disagree, stop.** The card is gate-1 locked and carries
-   `path` + `commit` + `line` into the reference's own source. A spec quietly specifying
-   something else is the drift lane R exists to prevent, arriving by a different door.
-
-   **Price the E2E criteria's prerequisites while writing them, not when running them.**
-   For the smoke journey and the slice's one UI-level criterion, if it has one, name what has to exist for it to run at all — which operation
-   creates the state it asserts on, which credential, which network path — and check each
-   one is reachable through the locked contract. A criterion nobody can execute is
-   indistinguishable from a passing one right up to the end of the slice, and by then the
-   code is written: one project found its two hardest deploy ACs unrunnable *after* the
-   whole slice was built and pushed, for two independent reasons, one of which was a Gate 4
-   reopen. Both were answerable in a minute at spec time.
-1b. **Lane records — after spec approval, before any lane writes feature code.** Each lane is one
-   sdlc feature in its own worktree, opened at sdlc's Build with your approval already in it
-   (`specs/Spec Wrap sdlc instead of porting it.md`). The plugin's spec gate
-   (`hooks/scripts/spec_gate_guard.py`) allows no edit over ~20 lines in a code repo until an active
-   sdlc feature in that worktree carries the approval for its branch, and sdlc itself has no such
-   block. It is a plugin hook, so it runs for every pipeline tool call whatever directory the session
-   started in (see "The guards run for lanes" under Guardrails). Your approval of the slice's specs is
-   the approval the gate wants, and this step carries it there:
-
-   - **One worktree and one branch per lane**, `slice/<Sn>-<lane>`, cut from the repo's main
-     branch (`git -C <repo> worktree add -b slice/S3-billing ../<repo>-S3-billing`). The lane name
-     is lowercase letters, digits and dashes: it becomes part of the sdlc feature's name, and sdlc
-     refuses any other. The gate reads the approval per branch, so two lanes sharing a checkout would
-     share one. On S1 the repo does not exist yet: run the repo checklist (`g5-first-slice.md`,
-     step 0) first, then cut the worktrees.
-   - **Write each lane's record** with `python3 scripts/lane_plan.py <Sn> <lane> --worktree <path> --specs
-     <the specs this lane builds> --approved-by "<who approved them>" [--risk high]`. `--approved-by` is the
-     person whose approval this is, as they gave it (in the chat, or relayed by a coordinator: say so,
-     `"Tam Mai (relayed by the coordinator)"`); without it the record falls back to git's `user.name` and says so. `--risk high` when the lane touches auth, payments,
-     secrets, PII, a schema migration or a breaking change to a public API: sdlc's review table reads
-     it. The script writes the change file (one `AC-nnn` per criterion, verbatim, `rule_id` kept) and,
-     through sdlc's own `state.py`, the state file at Build with the approval (approver, specs,
-     workbench commit, branch) in its Gate log. It prints sdlc's install folder, which the lane's
-     brief names. It refuses specs with uncommitted changes, a worktree on the wrong branch, a repo
-     sdlc has not set up, and a lane whose record is still open. It records each lane in
-     `plan/lane-plans/<Sn>.yaml` with a hash of the approved criteria. It commits nothing in the code
-     repo: the lane's first commit carries the record.
-   - **The lane fills in the how, never the what.** The specs name criteria, not files or tests, so
-     the lane writes each task's files, the Public Surface and the Test and Run cells, as sdlc's own
-     Define would. It never edits a criterion. `*.md` is exempt from the gate, so nothing mechanical
-     stops it: sdlc's trust anchor reports an edit above `## Review` as it happens, and
-     `slice_review.py` re-hashes the criteria against what was recorded and names any lane whose
-     approved criteria changed underneath it.
-   - **When a lane finds the spec wrong**, it raises `state.py blocker <feature> raise "amend: …"`,
-     which freezes its own non-trivial edits through the gate, and reports. Take it to the user. Once
-     the corrected spec is approved and committed, run `python3 scripts/lane_plan.py <Sn> <lane> --worktree
-     <path> --specs <...> --amend --reason "..."`. An unchanged criterion keeps its id and its test; a
-     changed one takes a new id and starts at `TBD`. The reason is logged under `## Amendments` and in
-     the Gate log, and the lane's `amend:` question is resolved.
-   - **At slice end**, once sdlc has shipped every lane (`Status: done`) and the slice is deployed,
-     `boundary.py <Sn>` (see "Between slices") archives each lane; by hand it is `python3
-     scripts/lane_plan.py archive <Sn> <lane>`. It copies the lane's change and state files to
-     `plan/lane-plans/archive/` in the workbench, as evidence beside the specs. The record stays in the
-     code repo too: sdlc keeps it with the code, so `git blame` leads from a line to its criterion. It
-     refuses a lane sdlc has not shipped, and it records an edited criterion for the slice review to name.
+   **Price the E2E criteria's prerequisites at approval, not when running them.** For the smoke journey and
+   the slice's one UI-level criterion, name what has to exist for it to run at all — which operation creates
+   the state it asserts on, which credential, which network path — and check each is reachable through the
+   locked contract. A criterion nobody can execute is indistinguishable from a passing one right up to the end
+   of the slice.
 2. **Backend** — one lane per bounded context touched (module or service per Gate 3).
    On the first slice this is where the repo checklist in `g5-first-slice.md` runs (`scaffold-repo`), and the lane
    starts from the generated skeleton and the locked contracts; on every slice after, the repo
-   already exists and this step starts at codegen from `contracts/`.
+   already exists and this step starts at codegen from the locked `docs/openapi.json`.
 3. **Frontend** — same: first slice creates the repo through `scaffold-repo` (`nuxt`
    or `next` per Gate 3), thereafter build against the generated typed client. May split
    per feature area.
@@ -195,7 +100,7 @@ step 1 registers it. Read that file now if no code repo exists yet.
    **For a `client-only` rebuild, this lane is the whole build** and lane 2 does not exist —
    there is no backend to write. It splits per feature module instead of per bounded context,
    still one agent per module, still against a **generated** client (from the frozen
-   `contracts/openapi/`, committed, with CI regenerating and diffing it). The migration work
+   `docs/openapi.json`, committed, with CI regenerating and diffing it). The migration work
    the `on-device-migration` ADR decided is its own module in whichever slice first touches
    session or local data — never a task appended to a feature module, because it is the one
    piece of code that runs once per user with no undo.
@@ -204,7 +109,7 @@ step 1 registers it. Read that file now if no code repo exists yet.
 
    - **Assign migration numbers when the slice starts.** For each lane whose spec changes the
      schema, take the next free number (or a range) on the repo's main branch, in lane order,
-     and write it into that lane's spec before you approve it, so it is part of what was approved.
+     and name it in the lane approval, so it is part of what was approved.
      Put the same number in the lane's brief (the brief names the number; the migration rules are in `lane-worker`'s agent file). A lane
      never picks its own: in one slice three lanes each added a migration at the same time.
    - **No lane runs `up` on a shared stack from a tree missing a lower-numbered migration.** A
@@ -307,8 +212,8 @@ test. A rule such as "an expired invite returns E-410" is an API test; it does n
 browser. Browser/device E2E is reserved for what only a running UI can show, and the budget
 is fixed:
 
-- **One smoke journey per checkpoint slice** (g3-slicing.md): the three-to-five-step path
-  named in `done_means`, run against the deployment. That is the deploy criterion.
+- **One smoke journey per checkpoint slice**: the three-to-five-step path named in the
+  slice's `Done when`, run against the deployment. That is the deploy criterion.
 - **At most one more E2E per slice**, for the single criterion whose risk is in the UI
   itself (a drag, an upload, an auth redirect). More than that is a signal a lower-level
   test was skipped; push it down.
@@ -316,15 +221,14 @@ is fixed:
   checkpoint, nothing new. The cumulative regression signal comes from the lower-level
   suites, which are cheap.
 
-Specs say the level each criterion is tested at (`spec-writer`), and the one-to-one mapping
-holds: fewer E2E tests means the criteria moved down a level, not that they lost a test.
+rspec's recorded tests are already at the level they observe; a lane's own tests follow the same rule, and
+the one-to-one mapping holds: fewer E2E tests means the criteria moved down a level, not that they lost a test.
 
 **UI is functional until the product is usable.** Lanes build the screens a criterion needs
 to reach and observe behavior — default components, real loading/empty/error states, no
 bespoke styling, no animation, no pixel parity. Do not spend lane budget, or a review
-round, on visual detail. Polish is its own pass (see g3-slicing.md): it starts once the first
-checkpoint is verified or the functional slices are done, runs against the mined UX flows and
-the reference's screens, and is the one place visual comparison tools (Maestro, screenshots)
+round, on visual detail. Polish is its own pass: it starts once the first checkpoint is
+verified or the functional slices are done, runs against rspec's `screens.md` and the reference's screens, and is the one place visual comparison tools (Maestro, screenshots)
 earn their cost. A UI defect found in a functional slice goes to `notes:` unless it blocks
 the criterion.
 
@@ -422,10 +326,10 @@ relaxed to compensate.
   APK". A slice whose deploy criterion is satisfied by a simulator run has skipped the half of
   the curriculum that signing, provisioning, store processing and rollout actually teach —
   and every one of those fails for the first time on the day you need it to work.
-- **The slice is not done until deployed** and its `done_means` demonstrably true —
+- **The slice is not done until deployed** and its `Done when` demonstrably true —
   the deploy is half the curriculum. Confirm with the user before marking a slice done,
-  and record it in `plan/progress.yaml`, never in the gate-locked `plan/slices.yaml` —
-  see `g6-parity.md`. Use `deployed` rather than `done` when a `done_means` clause is
+  and record it in `plan/progress.yaml`, never in the gate-locked `docs/build-plan.md` —
+  see `g6-parity.md`. Use `deployed` rather than `done` when a `Done when` clause is
   knowingly unmet, so the status stays honest without switching off creep detection.
 - **A verification script names only what it RAN.** Skip modes, partial runs and
   human-blocked steps must not print a banner covering criteria they skipped, and a
@@ -445,15 +349,13 @@ shape. They are in `g5-first-slice.md`, section 2. Read it when you price that s
 Five steps, in order, then return here for the next slice. Steps 2 and 3 are one call.
 
 1. **Record the slice's outcome** in `plan/progress.yaml` — `slices:` *and* `features:`.
-   Filling in only the first is the natural thing to do and it is the documented trap: every
-   feature then falls through to `matrix/features.yaml`'s `status:`, which is gate-1 MINING
-   output about the reference, and the two vocabularies share the words `covered`, `partial`
-   and `missing` so nothing looks wrong.
+   Filling in only the first is the natural thing to do, and then every feature of the slice reads as
+   `planned` in the coverage figures.
 2. **Run the boundary** — `python3 scripts/boundary.py <Sn>`, after step 1 because parity reads
-   `plan/progress.yaml`. One call does what was four to six turns: archives each of the slice's lane plans
-   (a plan that will not archive is named, not skipped), runs G6 parity (`g6-parity.md`), runs the slice
-   review, and says whether the upstream re-mine is due (`g6-parity.md` step 3). It exits 2 when something
-   needs you: an unarchived lane, a failed step, or a due re-mine.
+   `plan/progress.yaml`. It archives each of the slice's lanes (a lane that will not archive is named, not
+   skipped) and runs G6 cheapest first (SKILL.md 4f): the open suite, the hidden suite, equivalence, coverage
+   and the slice review, bug-hunter and the human sample. It also says whether the upstream re-mine is due.
+   It exits 2 until the boundary passes.
 3. **Read the slice review** it printed (`plan/slice-reviews/<Sn>.md`). Generated from what is on disk,
    never composed: does the whole product still run (cumulative AC suite, and what regressed
    since the last run), what shipped, where that puts us in the order, what is pressing on the

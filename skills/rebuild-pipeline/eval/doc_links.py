@@ -23,14 +23,13 @@ SKIP_DIRS = {".git", "_vendor", "specs", "eval", "node_modules", "__pycache__", 
 
 ref_names = {n for n in os.listdir(REFS) if n.endswith(".md")}
 script_names = {n for n in os.listdir(SCRIPTS) if n.endswith(".py")}
-rubric_names = {n for n in os.listdir(os.path.join(REFS, "rubrics"))}
 failures = []
 checked = 0
 
 for dirpath, dirs, files in os.walk(ROOT):
     dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
     for f in files:
-        if not f.endswith((".md", ".py", ".json", ".sh")) or f == "CHANGELOG.md":
+        if not f.endswith((".md", ".py", ".json", ".sh")) or f in ("CHANGELOG.md", "MIGRATION-3.md"):
             continue
         path = os.path.join(dirpath, f)
         try:

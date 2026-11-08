@@ -126,8 +126,8 @@ and it is worth naming before the slice rather than discovering mid-verification
   "allow loopback" flag the outbound side has. That one governs where *we* deliver to;
   this is where a *third party* delivers to, and loopback is never a valid answer.
 - **A provider-side registration path.** Something must create the subscription and store
-  whatever verifies its deliveries. Check it exists — this is the read-with-no-writer trap
-  in `g4b-contracts.md`, and the inbound leg is where it hides best, because the receiver
+  whatever verifies its deliveries. Check it exists — a contract that reads a value nothing
+  writes is a trap, and the inbound leg is where it hides best, because the receiver
   looks complete on its own.
 - **Watch the credential's shape.** A machine credential presented by CI usually is not a
   bearer token, and sending it as one produces a 401 that reads like an infrastructure
@@ -151,7 +151,7 @@ Written at the S1 boundary from what the S1 lanes reported. Required reading for
 backend, frontend and infra lane from S2 on (`runbook_guard.py` enforces it). Append
 amendments; never rewrite.
 
-## Codegen from contracts/
+## Codegen from the locked contract (docs/openapi.json)
 How it was invoked, verbatim. What it got wrong, and what was done about it.
 
 ## Harness quirks

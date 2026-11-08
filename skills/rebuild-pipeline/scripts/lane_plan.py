@@ -1,53 +1,38 @@
 #!/usr/bin/env python3
-"""lane_plan.py — write a G5 build lane's sdlc record from the slice specs you approved (2.0.0).
-Run from the workbench root, right after the slice's specs are approved and before the lane
-is dispatched.
+"""lane_plan.py — open a G5 build lane as an sdlc feature from rspec's criteria (05 P5). Run from the workbench
+root, once the slice passes step 0 and before the lane is dispatched.
 
-  python3 scripts/lane_plan.py S3 billing-backend --worktree ../app-S3-billing \\
-       --specs plan/specs/S3/billing.md,plan/specs/S3/invoicing.md --approved-by "Ada Lovelace" [--risk high]
-  python3 scripts/lane_plan.py S3 billing-backend --worktree ../app-S3-billing \\
-       --specs plan/specs/S3/billing.md --amend --reason "AC 4 contradicted R-BILL-002"
-  python3 scripts/lane_plan.py archive S3 billing-backend     # slice end: record copied to the workbench
+  python3 scripts/lane_plan.py step0 S3                       # every criterion has a level 2 test or rspec's reason
+  python3 scripts/lane_plan.py S3 billing --worktree ../app-S3-billing --features F-BIL-01,F-BIL-02 \\
+       --approved-by "Ada Lovelace" [--risk high]
+  python3 scripts/lane_plan.py S3 fix-r1-bil --worktree ../app-S3-fix --fix 1 --findings BH-0003,BH-0007
+  python3 scripts/lane_plan.py questions S3                   # batch the lanes' spec questions for rspec:amend
+  python3 scripts/lane_plan.py refresh S3 billing             # re-copy the lock and open tests after an amend
+  python3 scripts/lane_plan.py archive S3 billing             # slice end: record copied to the workbench
 
-WHAT IT WRITES. A lane is one sdlc feature in its worktree (specs/Spec Wrap sdlc instead of
-porting it.md). This script writes that feature's record at the moment you approve the specs:
-  - the change file, `<docs_dir>/changes/<feature>.md`: `## Why` names the approved specs, the
-    workbench commit and the approver; one `AC-nnn` per spec criterion, verbatim, `rule_id`
-    included; an `## Acceptance tests` table whose Test and Run cells say `TBD`;
-  - the state file, through sdlc's own `state.py new`, then `state.py advance` to Build with the
-    approval in the Gate log (APPROVAL_NOTE below). The feature starts at sdlc's Build.
-The lane then fills in the HOW, which an approved spec does not name: each task's files (written
-`TBD` here, because state.py requires a value), the Public Surface, and the Test and Run cells. sdlc's Define writes those by hand too. The WHAT, the
-criteria, is fixed here, hashed into plan/lane-plans/<Sn>.yaml, and changes only through
-`--amend`.
+WHAT IT WRITES. A lane is one sdlc feature in its worktree, in sdlc's spec-backed mode: a change file whose
+ACs cite the criterion IDs, the state file through sdlc's own `state.py new --criteria` and `state.py advance`
+to Build with the approval in the Gate log (APPROVAL_NOTE below), and in the code repo the lane's open tests and
+a lock copy (see "3.0.0: lanes from rspec's slices" below). The lane fills in the HOW: each task's files, the
+Public Surface, and the Test and Run cells. A wrong criterion is a spec question (sdlc's `state.py question`),
+answered by rspec:amend; nothing here edits a criterion.
 
-WHY A SCRIPT. The approval has to be written by something that is not the lane: a lane told to
-write its own record would be approving itself. The spec gate (hooks/scripts/spec_gate_guard.py)
-allows no non-trivial edit in a lane worktree until an active sdlc feature there carries the
-approval line for that worktree's branch. A doc can only ask the lane to behave; this writes the
-line the gate reads.
+WHY A SCRIPT. The approval has to be written by something that is not the lane: a lane told to write its own
+record would be approving itself. The spec gate (hooks/scripts/spec_gate_guard.py) allows no non-trivial edit in
+a lane worktree until an active sdlc feature there carries the approval line for that worktree's branch.
 
-THE FORMAT THE GATE READS: the Gate log note starts `rebuild-approval: branch <branch>;`, and an
-open question starting `amend:` freezes the lane (the lane raises it with `state.py blocker
-raise "amend: ..."` when it finds the spec wrong). These are hooklib's APPROVAL_NOTE and
-AMEND_PREFIX. This script is vendored into each workbench and runs alone, so it carries its own
-copy; eval/lane_plan.py imports both sides and fails if they stop agreeing. If you change one,
-change both.
+THE FORMAT THE GATE READS: the Gate log note starts `rebuild-approval: branch <branch>;`, and an open question
+starting `amend:` freezes the lane. Those are hooklib's APPROVAL_NOTE and AMEND_PREFIX. This script is vendored into each workbench and runs alone, so it carries its own copy;
+eval/lane_plan.py imports both sides and fails if they stop agreeing. If you change one, change both.
 
 FINDING SDLC. `state.py` is sdlc's, so this script needs sdlc's install folder: `--sdlc-root`, else
-$SDLC_PLUGIN_ROOT, else the newest `sdlc@sdlc` in `installed_plugins.json` under $CLAUDE_CONFIG_DIR
-or ~/.claude. The plugin depends on sdlc, so an install without one cannot load the pipeline.
+$SDLC_PLUGIN_ROOT, else the newest `sdlc@sdlc` in `installed_plugins.json` under $CLAUDE_CONFIG_DIR or ~/.claude.
+Build's stage number is read from the state file the installed sdlc just wrote (stage_numbers()), never assumed.
 
-WHICH SDLC. Any from 2.4 on. sdlc 3.0 renumbered its phases (2.x: Define 1, Build 4, Review 5,
-Ship 8; 3.x: 1, 2, 3, 4), so nothing here names a stage by number: Build's number is read from the
-state file the installed sdlc just wrote (stage_numbers()), and a lane's position is read by the
-phase name on its `Current:` line, which both write.
-
-It refuses rather than guesses: specs with uncommitted changes (the approval would point at text
-no commit holds), a worktree on a branch other than slice/<Sn>-<lane>, a repo sdlc has not set up,
-and a lane whose record is open (use --amend). It never commits in the code repo: `state.py new`
-records `Base:` as HEAD at that moment, and a commit rewritten after it leaves Base pointing at a
-commit that no longer exists (the 2026-11-03 lane spike did exactly that).
+It refuses rather than guesses: a worktree on a branch other than slice/<Sn>-<lane>, a repo sdlc has not set up,
+a lane whose record is open, a slice that fails step 0, a lane beyond the slice's lane cap. It never commits in
+the code repo: `state.py new` records `Base:` as HEAD at that moment, and a commit rewritten after it leaves Base
+pointing at a commit that no longer exists.
 """
 
 import hashlib
@@ -227,22 +212,6 @@ def _git(cwd, *a):
     return _trim(r.stdout)
 
 
-# The acceptance criteria of one spec: the list items under `## Acceptance criteria`, the same
-# section and item shape validate.py counts for its rule_id figures, numbered heading
-# (`## 5. Acceptance criteria`) included. Change the heading pattern in both together.
-# The heading line itself is skipped: `5. Acceptance criteria` matches the list-item pattern.
-def _acceptance_criteria(text):
-    sec = None
-    for c in re.split(r"^##\s+", text, flags=re.M)[1:]:
-        if re.match(r"^([0-9]+[a-z]?\.\s*)?acceptance criteria\s*\Z", _trim(c.split("\n")[0]), re.I):
-            sec = c
-            break
-    if sec is None:
-        return []
-    return [_trim(re.sub(r"^\s*(?:[0-9]+\.|[-*])\s+", "", l, count=1))
-            for l in sec.split("\n")[1:] if re.match(r"^\s*(?:[0-9]+\.|[-*])\s+\S", l)]
-
-
 def sdlc_root(args):
     """sdlc's install folder (the one holding scripts/state.py), or None."""
     for cand in (_opt(args, "--sdlc-root"), os.environ.get("SDLC_PLUGIN_ROOT")):
@@ -318,54 +287,6 @@ REVIEW_PLACEHOLDER = ["## Review", "",
                       "<!-- Written once, in sdlc's Review, by the orchestrator (G5 step 4b). Keep it last. -->"]
 
 
-def _review_section(text):
-    m = re.search(r"^## Review\n[\s\S]*\Z", text, re.M)
-    return m.group(0).rstrip("\n").split("\n") if m else None
-
-
-def _change_text(slice_id, lane, branch, specs, commit, approver, date, acs, tests, amendments, review=None):
-    """acs: [(id, module, criterion)]; tests: {id: (test, run)}; review: the existing `## Review` lines."""
-    approved = ", ".join(f"`{s}`" for s in specs)
-    rows = [f"| {i} | {tests.get(i, ('TBD', '`TBD`'))[0]} | {tests.get(i, ('TBD', '`TBD`'))[1]} |" for i, _, _ in acs]
-    # The title is a Conventional subject on purpose: sdlc's ship.py makes it the commit subject, and the
-    # repo's commit-msg hook and this plugin's commit gate refuse any other (the 2026-11-03 e2e run's
-    # "S1 pricing: rebuild build lane" would have been refused in a real rebuild repo).
-    return "\n".join([
-        f"# feat({lane}): rebuild slice {slice_id}",
-        "",
-        "## Why",
-        "",
-        f"**Request (verbatim):** Build lane {slice_id} `{lane}` of the rebuild against its approved specs.",
-        "",
-        f"Approved specs: {approved} at workbench commit `{commit}`, approved by {approver} on {date}; branch `{branch}`. "
-        "The specs are the source and this file is their index plus the tests. It was written by the rebuild "
-        "pipeline's `lane_plan.py`: fill in only the Test and Run cells below. A criterion changes only through "
-        "`lane_plan.py --amend`; when one is wrong, raise `state.py blocker \"amend: <what and why>\"` and report.",
-        "",
-        "## Acceptance criteria",
-        "",
-        *[f"- **{i}** — `{mod}`: {crit}" for i, mod, crit in acs],
-        "",
-        "## Acceptance tests",
-        "",
-        "| AC | Test | Run |",
-        "|---|---|---|",
-        *rows,
-        "",
-        "## Must never break",
-        "",
-        "- Each criterion's behaviour exactly as its approved spec states it: a disagreement is an amendment, never a quiet change.",
-        "",
-        "## Out of scope",
-        "",
-        "- Anything the approved specs do not ask for.",
-        *(["", "## Amendments", "", *amendments] if amendments else []),
-        "",
-        *(review or REVIEW_PLACEHOLDER),
-        "",
-    ])
-
-
 def _archive(args):
     def die(msg):
         return _die("lane-plan archive", msg)
@@ -400,208 +321,6 @@ def _archive(args):
     print(f"{slice_id} {lane}: sdlc feature {lrec['feature']} done, record copied to {dest_dir}" +
           (" — WARNING: its acceptance criteria differ from what was approved; slice-review will name it."
            if st["ac_edited"] else ""))
-    return 0
-
-
-def _write_record(args):
-    def die(msg):
-        return _die("lane-plan", msg)
-    value_flags = ("--worktree", "--specs", "--reason", "--branch", "--sdlc-root", "--risk", "--track", "--approved-by")
-    slice_id, lane = (_positionals(args, value_flags) + [None, None])[:2]
-    amend = "--amend" in args
-
-    if not os.path.exists(os.path.join("locks", "pipeline.yaml")):
-        return die("no locks/pipeline.yaml here — run from the workbench root.")
-    if not slice_id or not lane or not _opt(args, "--worktree") or not _opt(args, "--specs"):
-        return die('usage: lane_plan.py <Sn> <lane> --worktree <path> --specs <a.md,b.md> [--approved-by <name>] [--risk low|high] '
-                   '[--track M|L] [--amend --reason "..."] [--branch <name>] [--sdlc-root <dir>]')
-    if amend and not _opt(args, "--reason"):
-        return die("--amend needs --reason: the amendment log is the only record the approved criteria changed.")
-    risk = _opt(args, "--risk") or "low"
-    track = (_opt(args, "--track") or "M").upper()
-    if risk not in ("low", "high") or track not in ("M", "L"):
-        return die("--risk is low or high, --track is M or L.")
-    # sdlc refuses a feature name that is not lowercase letters, digits and dashes.
-    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", lane) or not re.fullmatch(r"S\d+", slice_id):
-        return die("the slice is S<n> and the lane is lowercase letters, digits and dashes (sdlc names features that way).")
-
-    worktree = os.path.abspath(_opt(args, "--worktree"))
-    specs = [s.replace("\\", "/") for s in (_trim(s) for s in _opt(args, "--specs").split(",")) if s]
-
-    # The approval must point at committed text.
-    for s in specs:
-        if not os.path.exists(s):
-            return die(f"no such spec {s}")
-        if not s.startswith(f"plan/specs/{slice_id}/"):
-            return die(f"{s} is not under plan/specs/{slice_id}/")
-    try:
-        dirty = _git(".", "status", "--porcelain", "--", *specs)
-
-        def tracked(s):
-            try:
-                _git(".", "ls-files", "--error-unmatch", s)
-                return True
-            except (subprocess.CalledProcessError, OSError):
-                return False
-        untracked = [s for s in specs if not tracked(s)]
-    except (subprocess.CalledProcessError, OSError):
-        return die("the workbench is not a git repository, so there is no commit for the approval to point at.")
-    if untracked:
-        return die(f"not committed: {', '.join(untracked)}. Commit the approved specs first.")
-    if dirty:
-        return die(f"uncommitted changes to approved specs:\n{dirty}\nCommit them first — the approval has to point at text a commit holds.")
-    commit = _git(".", "rev-parse", "--short", "HEAD")
-    # The approver is whoever approved the specs, which the orchestrator knows and git does not: in the
-    # Kutt rebuild the approval came through a coordinator, and git's user.name recorded the machine's
-    # owner. --approved-by names it; git's user.name stays the fallback, marked as such in the record.
-    approver = (_opt(args, "--approved-by") or "").strip()
-    if not approver:
-        try:
-            approver = _git(".", "config", "user.name")
-        except (subprocess.CalledProcessError, OSError):
-            approver = ""
-        if not approver:
-            return die("no --approved-by and git user.name is unset in the workbench, so the approval would name nobody.")
-        approver += " (git user.name; pass --approved-by)"
-
-    try:
-        branch = _git(worktree, "branch", "--show-current")
-    except (subprocess.CalledProcessError, OSError):
-        return die(f"{worktree} is not a git worktree.")
-    expected = _opt(args, "--branch") or f"slice/{slice_id}-{lane}"
-    if branch != expected:
-        return die(f"{worktree} is on '{branch or '(detached)'}', expected '{expected}'. One lane, one worktree, one "
-                   f"branch: the spec gate reads the approval per branch.")
-    docs = _docs_dir(worktree)
-    if not docs:
-        return die(f"{worktree} has no .sdlc/config.json: the code repo is not set up for sdlc. "
-                   "Set it up first (g5-first-slice.md, step 0), then cut the lane's worktree.")
-    rec = read_lane_plans(slice_id) or {"slice": slice_id, "lanes": {}}
-    lanes = rec.setdefault("lanes", {})
-    prior = lanes.get(lane) or {}
-    # An open lane keeps the sdlc that opened it. The Kutt rebuild's sdlc went from 2.4.1 to 3.0.2
-    # mid-slice, and 3.x's state.py refuses the 2.x state file the lane already had; the old install
-    # stays in the plugin cache, so an amendment uses the recorded folder while it exists.
-    pinned = prior.get("sdlc_root") if prior and not prior.get("archived") else None
-    if pinned and not _opt(args, "--sdlc-root") and os.path.exists(os.path.join(pinned, "scripts", "state.py")):
-        sdlc = pinned
-    else:
-        sdlc = sdlc_root(args)
-    if not sdlc:
-        return die("sdlc's install folder was not found (needs scripts/state.py). Pass --sdlc-root <dir> "
-                   "or set SDLC_PLUGIN_ROOT; `claude plugin list` shows whether sdlc@sdlc is installed.")
-    if prior and not prior.get("archived") and not amend:
-        return die(f"{slice_id} {lane} already has an open sdlc feature ({prior.get('feature')}). "
-                   "Use --amend if the approved specs changed, or archive it once sdlc has shipped it.")
-    if amend and (not prior or prior.get("archived")):
-        return die(f"--amend: {slice_id} {lane} has no open record to amend.")
-
-    criteria = []
-    for s in specs:
-        mod = re.sub(r"\.md\Z", "", s.split("/")[-1])
-        for crit in _acceptance_criteria(_read_text(s)):
-            criteria.append((mod, crit))
-    if not criteria:
-        return die("the specs carry no `## Acceptance criteria` items, so there are no criteria to approve.")
-    if len(criteria) > 999:
-        return die("more than 999 criteria: sdlc numbers them AC-001 to AC-999. Split the lane.")
-
-    date = _local_date()
-    note_specs = ", ".join(specs)
-    if amend:
-        # Ids stay stable: an unchanged criterion keeps its id and its Test/Run cells (and so its red
-        # record in verify.py); a changed or new one takes the next unused id and starts at TBD.
-        change_p = os.path.join(worktree, prior["change"])
-        old = _read_text(change_p)
-        old_items = _ac_items(old)
-        by_text = {t: i for i, t in old_items}
-        old_tests = _test_rows(old)
-        used = {int(i[3:]) for i, _ in old_items}
-        nxt = max(used or {0}) + 1
-        acs, tests, added = [], {}, 0
-        for mod, crit in criteria:
-            text = f"`{mod}`: {crit}"
-            if text in by_text:
-                i = by_text.pop(text)
-                tests[i] = old_tests.get(i, ("TBD", "`TBD`"))
-            else:
-                i, nxt, added = f"AC-{nxt:03d}", nxt + 1, added + 1
-            acs.append((i, mod, crit))
-        dropped = len(by_text)
-        am = re.search(r"^## Amendments\n\n([\s\S]*?)\n*(?=^## |\Z)", old, re.M)
-        amendments = [l for l in (am.group(1).split("\n") if am else []) if l.strip()]
-        amendments.append(f"- {date} @ workbench {commit}, {approver}: {_opt(args, '--reason')} "
-                          f"(criteria added {added}, dropped {dropped})")
-        _write_text(change_p, _change_text(slice_id, lane, branch, specs, commit, approver, date, acs, tests, amendments,
-                                           _review_section(old)))
-        feature = prior["feature"]
-        try:
-            _state_py(sdlc, worktree, "log", feature,
-                      f"rebuild-approval: branch {branch}; amended: {note_specs} @ workbench {commit}; "
-                      f"approved by {approver}; reason: {_opt(args, '--reason')}")
-            state_text = _read_text(os.path.join(worktree, prior["state"]))
-            for q in _section_items(state_text, "Open questions"):
-                if q.startswith(AMEND_PREFIX):
-                    _state_py(sdlc, worktree, "blocker", feature, "resolve", q)
-        except RuntimeError as e:
-            return die(f"sdlc's state.py refused: {e}")
-        state_rel, change_rel = prior["state"], prior["change"]
-    else:
-        feature = f"{datetime.now().strftime('%Y-%m-%d')}-{track.lower()}-{slice_id.lower()}-{lane}"
-        change_rel = f"{docs}/changes/{feature}.md"
-        if os.path.exists(os.path.join(worktree, change_rel)):
-            return die(f"{change_rel} already exists in {worktree}: a record this script did not track.")
-        acs = [(f"AC-{n + 1:03d}", mod, crit) for n, (mod, crit) in enumerate(criteria)]
-        _write_text(os.path.join(worktree, change_rel),
-                    _change_text(slice_id, lane, branch, specs, commit, approver, date, acs, {}, []))
-        tasks = []
-        for s in specs:
-            mod = re.sub(r"\.md\Z", "", s.split("/")[-1])
-            ids = " ".join(i for i, m, _ in acs if m == mod)
-            tasks += ["--task", f"{mod} | {ids} | TBD"]
-        try:
-            out = _state_py(sdlc, worktree, "new", feature, "--track", track, "--risk", risk,
-                            "--footprint", "0", "--build", "inline: this lane, one subagent; the orchestrator runs Review",
-                            "--handoff", f"approved specs: {note_specs} (workbench {commit})", *tasks)
-            new_state = os.path.join(worktree, (out.get("event") or {}).get("state") or f".sdlc/state/{feature}.md")
-            build = (stage_numbers(_read_text(new_state)) or {}).get("Build") if os.path.exists(new_state) else None
-            if build is None:
-                raise RuntimeError("could not read Build's stage number from the state file it wrote "
-                                   "(no `## Stages` checklist, and not `Process: 2`): an sdlc this script does not know")
-            _state_py(sdlc, worktree, "advance", feature, str(build), "--gate", "pass", "--note",
-                      f"rebuild-approval: branch {branch}; specs {note_specs} @ workbench {commit}; "
-                      f"approved by {approver} (lane_plan.py)")
-        except RuntimeError as e:
-            # Leave nothing half-made behind: a change file with no state, or a state never advanced
-            # to Build, would read as a lane nobody approved.
-            for p in [os.path.join(worktree, change_rel)] + _state_files(worktree, feature):
-                try:
-                    os.unlink(p)
-                except OSError:
-                    pass
-            return die(f"sdlc's state.py refused: {e}. Nothing was left in the worktree.")
-        state_rel = (out.get("event") or {}).get("state") or f".sdlc/state/{feature}.md"
-
-    change = _read_text(os.path.join(worktree, change_rel))
-    try:
-        rel_worktree = os.path.relpath(worktree, ".")
-    except ValueError:
-        rel_worktree = worktree  # another drive on Windows
-    lanes[lane] = {
-        "worktree": rel_worktree, "branch": branch, "feature": feature,
-        "change": change_rel, "state": state_rel, "specs": specs,
-        "spec_sha256": {s: hashlib.sha256(_read_text(s).encode("utf-8")).hexdigest() for s in specs},
-        "workbench_commit": commit, "approved_by": approver, "approved_at": date,
-        "ac_sha256": ac_hash(change), "criteria": len(acs),
-        "amendments": (prior.get("amendments") or 0) + (1 if amend else 0),
-        "sdlc_root": sdlc, "sdlc_version": sdlc_version(sdlc),
-    }
-    _save_record(slice_id, rec)
-    print(f"{'amended' if amend else 'wrote'} sdlc feature {feature} in {worktree}: {len(acs)} criteria, at Build, "
-          f"approved @ workbench {commit} by {approver} for branch {branch}\n"
-          f"  change file: {change_rel}\n  state file:  {state_rel}\n  sdlc:        {sdlc} ({sdlc_version(sdlc)}): "
-          f"name this folder in the lane's brief, and use it for this lane to the end, even if sdlc is updated\n"
-          f"recorded in plan/lane-plans/{slice_id}.yaml")
     return 0
 
 
@@ -997,9 +716,7 @@ def main(argv=None):
         return _archive(argv[1:])
     if argv and argv[0] in ("step0", "refresh", "questions"):
         return {"step0": _step0, "refresh": _refresh, "questions": _questions}[argv[0]](argv[1:])
-    if "--features" in argv or "--fix" in argv:
-        return _write_rspec_lane(argv)
-    return _write_record(argv)
+    return _write_rspec_lane(argv)
 
 
 if __name__ == "__main__":

@@ -2,16 +2,27 @@
 
 **Purpose:** a repeatable process for rebuilding an existing product end-to-end as a way to learn the full product development lifecycle. The input is a reference product: typically OSS (an OpenProject, a Twenty CRM, a Webstudio), a well-understood category (CRM, project management, web builder), or **an app you already own and are replacing on a new stack** — a legacy React Native app rebuilt in Flutter is the same pipeline with three fields set differently at G0. The output is a completed, full-featured, production-ready codebase.
 
-**Scope:** reference selection through a running parity loop, including an explicit production-readiness gate. Out of scope: go-to-market, pricing, growth.
+**Scope:** reference selection through a verified production-readiness gate. Out of scope: go-to-market, pricing, growth.
 
-**Design goals:**
+**Since 3.0** product-rebuild is an orchestrator over three plugins, and owns only what needs two of them at once:
 
-1. Every phase reads and writes machine-readable artifacts with fixed schemas, so agents can run every automatable step without human glue work.
-2. Human judgment is concentrated into five explicit gates. Everything between gates is parallelizable.
-3. Nothing downstream of a gate may contradict what the gate locked. Changing a locked decision means formally reopening the gate, not patching around it.
-4. Divergence from the reference is welcome — that is where the learning is — but only *documented* divergence. Every architectural departure gets an ADR; undocumented drift is the failure mode. (Exception, scoped to G4a only: architecture/stack decisions default to the **architecture playbook the project selected** — see section 6. This goal governs everywhere else, and still governs the *reference*-divergence axis within G4a, plus every G4a concern its playbook marks `N/A`.)
-5. "Full features" is the declared end state, so scoping decisions are about *sequence*, never about cutting the destination.
-6. Nothing in the process is hardcoded to one kind of product. Two fields recorded at G0 — the **architecture playbook** and the **target shape** (`fullstack` or `client-only`) — parameterize G4a's standing answers, G4b's mode, G5's repo creation and GP's checklist. A playbook is a file in a registry, including one you write yourself; the pipeline reads its frontmatter rather than knowing anything about it.
+| Plugin | Owns |
+|---|---|
+| **rspec** | the spec and its verification: discovery, the feature list, stories with criterion IDs, domain rules, ADRs, contracts, the audit, tests recorded against the running reference, the build plan |
+| **sdlc** | the build: each lane is an sdlc feature in spec-backed mode, built, verified and reviewed by sdlc's own flow |
+| **bug-hunter** | defect search at each slice boundary, with every finding reproduced and classified |
+| **product-rebuild** | G0 (reference, posture, playbook, budgets), preflight, the gates and their locks, the hidden tests, the slice loop, G6, routing, GP |
+
+Where each 2.x capability went is in [MIGRATION-3.md](MIGRATION-3.md).
+
+**Design rules** (from the 3.0 spec set):
+
+1. **Verification sits with the producer.** rspec verifies its spec, sdlc its tests, bug-hunter its findings. This pipeline adds only locking, hidden tests, parity and routing.
+2. **The reference is the oracle.** Agreement between agents is never evidence. A check counts when it compares against the running reference, a recorded test or a cited source.
+3. **Writer and checker never share a context.** Every judge, verifier and reviewer starts fresh.
+4. **Cheap checks first, expensive checks gated.** A boundary stops at the first failure class that needs a fix.
+5. **No silent pass.** A check that cannot run reports `not run: <reason>`, which no gate accepts as a pass.
+6. **Human judgment is concentrated into five gates**, plus the decisions autopilot parks. Nothing downstream of a gate may contradict what it locked; changing a locked decision means formally reopening the gate.
 
 ---
 
@@ -20,408 +31,125 @@
 ### 1.1 Pipeline at a glance
 
 ```
-G0 Reference selection + license posture
-G1 Parallel mining          (lanes: ground truth / features / NFR / UX flows, then rules)
-G2 Feature matrix           ── GATE 1: taxonomy lock
-G3 Milestone slicing        ── GATE 2: slice-plan lock
-G4a System design           ── GATE 3: architecture lock (mirror-or-diverge ADRs)
-G4b Data model + contracts  ── GATE 4: contract lock
-G5 Parallel spec & build    (lanes: specs+AC / services / frontend / infra), per slice
-G6 Parity loop              ── feeds back into G1 on a schedule
-GP Production-readiness     ── GATE 5: prod-ready lock (terminal)
+G0 Reference, posture, playbook, budgets; preflight
+rspec init → discover → features           ── GATE 1: feature lock (features.md, domain.md, departures.yaml)
+rspec stories → tech                        ── GATE 3: architecture lock (accepted ADRs; adr/ playbook + scaffold manifest)
+rspec audit → verify → handoff              ── GATE 2: slice-plan lock (build-plan.md, ≤ 10 criteria a slice)
+rspec check; holdout.py split               ── GATE 4: contract lock (openapi.json, schemas/, criteria lock, test bundle)
+G5 per slice: step 0, sdlc lanes on rspec's criteria, spec questions → rspec:amend
+G6 per slice: open suite → hidden suite → equivalence → coverage → bug-hunter → human sample; route.py
+GP production readiness                     ── GATE 5: prod-ready lock (terminal)
 ```
+
+Gate names keep their 2.x numbers so locks, tags and docs stay readable; their order follows rspec (architecture before slicing).
 
 ### 1.2 Humans vs. agents
 
-| Work type | Owner | Notes |
+| Work | Owner | Notes |
 |---|---|---|
-| Ground-truth extraction from reference source (G1) | Agents, mid tier | Deterministic targets: migrations, routes, jobs |
-| Extraction from docs/tours/changelogs (G1) | Agents, low tier | Fixed output schema |
-| Dedupe / merge (G2) | Agents | Minimal — source access makes presence deterministic |
-| Dependency analysis & slice drafting (G3) | Agents | Human orders and locks the slices |
-| Mirror-or-diverge ADR drafting (G4a) | Agents, high tier | Human decides every ADR |
-| Contract drafting (G4b) | Agents | Human locks |
-| Spec + AC drafting, code, tests (G5) | Agents | Gated by CI and verify hooks |
-| Parity diff, upstream tracking (G6) | Fully automated | Test suite + matrix diff + changelog re-mine |
-| Production-readiness verification (GP) | Mixed | Restore drills and incident dry-runs are human |
-| All five gates | Human only | Non-delegable |
+| Discovery, stories, ADR drafts, contracts, audit, recorded tests | rspec's agents | rspec runs its own fan-out and checks |
+| Feature list approval, each ADR decision | Human, inside rspec | rspec stops for them |
+| Lane builds | sdlc features, one `lane-worker` agent each | sdlc's Build, Review on sdlc's table |
+| Defect search | bug-hunter | each draft reproduced by a fresh verifier |
+| G6 sequencing, routing, coverage reports | Automated (`boundary.py`, `route.py`) | |
+| The human sample at each boundary | Human | compares 2–3 features against the running reference |
+| Departures (accepted differences) | Human | never decided by an agent |
+| GP drills (restore, failover) | Human | performed, not described |
+| All five gates | Human only | non-delegable |
 
-Every row above that reads "Agents" is a stretch the pipeline can run unattended — that is what
-autopilot is: the agent rows, chained, checkpointing to disk after each one, stopping at the
-human rows. It does not move the line between the two columns. The last row is why: a mode that
-could lock a gate would turn the gate review into an audit log, and the value of a gate is that
-it is deliberate.
+Every agent row is a stretch the pipeline can run unattended — that is autopilot: the agent rows, chained, checkpointing to disk after each unit, parking what only a human may decide.
 
 ### 1.3 Artifact-first rule
 
-Every phase boundary is a file (or set of files) with a schema, validated in CI. If a phase's output cannot be validated by a script, the phase is not done. Prose documents (ADRs, specs) carry structured frontmatter so tooling can index them.
+Every phase boundary is a file with a contract (`contracts/v1/`: criteria, the criteria lock, the test bundle, departures, findings, cost lines), checked by a script. If a phase's output cannot be checked, the phase is not done.
 
 ---
 
-## 2. Phase G0 — Reference selection + license posture
+## 2. G0 — Reference, posture, playbook, budgets
 
-**Goal:** pick the reference and record the legal posture of the rebuild *before* any agent reads anything.
+**Goal:** pick the reference and record what may read it *before* any agent does.
 
-### 2.1 Select the reference
+- **The reference.** Prefer OSS with an active repo, real deployments and a public changelog. Or your own product: `reference.kind: own-code`, `reference.upstream: frozen` — the running instance is the app you already have, and the frozen reference is a permanent arbiter for ambiguous behavior. Keep it runnable for the life of the project.
+- **License posture** (`license-posture.md`): private learning allows reading any OSS source; intending closed distribution later means treating copyleft references clean-room. This playbook is process, not legal advice.
+- **`reference.posture`** in `sources.yaml` (G0 shows the licence and asks; the legal fit is yours):
 
-- **1 primary reference.** Prefer OSS with an active repo, real deployments, and a public changelog — you get ground truth (lane D) for free.
-- **Or your own product.** Record `reference.kind: own-code` and `reference.upstream: frozen`. Lane D is unrestricted, the running instance is the app you already have, and the reference stops moving — which costs you G6's upstream re-mine and buys you a permanent arbiter for ambiguous behavior. Keep it runnable for the life of the project.
-- **Optionally 1 secondary reference**, used only for UX-flow comparison where the primary's UX is weak or dated.
-- Selection criteria: domain you want to learn, codebase you can actually read (size, language familiarity), active upstream (so the parity loop has something to track), and a deployment story you can study.
+  | | strict | observe | own-code |
+  |---|---|---|---|
+  | Spec side reads reference code | no | yes (rspec OSS mode) | yes |
+  | Spec side observes and records behaviour | yes | yes | yes |
+  | Build lanes may read reference code | no | no | yes |
+  | Equivalence (traffic replay) | no | yes, on a local reference | yes |
 
-### 2.2 License posture — decide distribution intent now
+  Build lanes never read the hidden tests under any posture. `hooks/scripts/reference_guard.py` denies a lane's Read, Grep, Glob and Bash calls that name the reference checkout or the holdout. **It is a guard, not a sandbox**: a path computed at run time gets past it. Use `strict` for a sensitive reference.
+- **Architecture playbook and target shape** (`sources.yaml` `architecture:`): the playbook supplies the stack and the scaffold manifest code repos are created from (`web-modular-monolith`, the org default; `mobile-flutter` for a Flutter client; a file you wrote; or `none`). `target_shape` is `fullstack` or `client-only` (the API exists and stays). Getting it wrong means specifying the wrong product.
+- **Budgets** (`rebuild.yaml`, shown once): parallel lanes 3, recorders 4, hunters per slice 6, bug-hunter tokens per slice, fix rounds 2. The scripts that spend each one read it. Every orchestrated run writes a contracts C7 cost line (`cost.py add`, or bug-hunter's `--cost-log`), and the boundary prints the slice's cost by stage.
+- **Preflight**, last: `python3 scripts/preflight.py` checks the checkout is at `pinned_commit` (every `[code]` citation in the spec is written against it), finds the build, probes the running instance, and writes `PREFLIGHT.md` with a verdict. **Not-ready holds rspec's discovery and nothing else.** Running the reference's own build and tests is opt-in (`--run-build --run-tests`): they are a third party's commands.
+- **Off-machine from day one:** give the workbench a remote, private unless the posture allows distribution, and push gate tags after every lock (`git push && git push --tags`): code repos pin the workbench as a submodule at `gate-N/vN`.
 
-The rebuild's relationship to the reference source depends on one decision that must be recorded at G0, not discovered at launch:
+**Exit:** reference chosen with rationale; `license-posture.md` (with prior attempts and off-limits, whose paths also go in `sources.yaml` `denied:`); `sources.yaml` reviewed; workbench pushed; `PREFLIGHT.md` Ready or Ready-with-gaps.
 
-- **Internal / learning / private use:** reading any OSS source (including GPL/AGPL) as a reference is low-risk. Full lane-D mining allowed.
-- **Intending to distribute closed-source later:** treat copyleft references clean-room — mine behavior via the running product, docs, and API surface only; do not read the code. Restrict lane D accordingly.
-- **Permissive reference (MIT/Apache/BSD):** no restriction either way; you may even vendor code, with attribution.
+## 3. The spec: rspec's stages and Gates 1, 3, 2, 4
 
-Record the decision as `license-posture.md` with the chosen mode and its consequences for lane D. This playbook is process, not legal advice; if distribution plans are ambiguous, get a professional opinion before locking G0.
+The skill runs each stage with rspec's own skill and reads rspec's `progress.py` for where it stands; it never does a stage's work. The workbench holds the spec in rspec's single-repo layout (`docs/`).
 
-### 2.3 Enforcement
+- **Gate 1** (after `rspec:features`, the user approves the list) locks `features.md`, `domain.md` and `departures.yaml`. The rebuild's rspec goal is always `production`.
+- **Before `rspec:tech`**, `python3 scripts/playbook.py vendor` copies the playbook and its scaffold manifest to `adr/`, and its stack line becomes rspec's stack preference.
+- **Gate 3** (after the ADR approval, rspec handoff step 1) locks `docs/decisions/` and `adr/`; it refuses an ADR still `Proposed` and a workbench with no valid scaffold manifest, so the stack every code repo is created from cannot change under the project.
+- **Gate 2** (after `rspec:audit` and `rspec:verify`, and the build plan) locks `build-plan.md`: vertical slices, each shippable and testable on its own, at most about 10 criteria each.
+- **Hidden tests** (`python3 scripts/holdout.py split`, after `rspec:check`): 25% of each slice's level 2 tests, at least one per feature with three or more criteria, drawn from a recorded seed, moved to a git repo `<project>-holdout/` beside the workbench that no code repo may contain. Lanes never see them; at G6 they are run per criterion and reported with the observed behaviour only, so a failure report does not leak the test.
+- **Gate 4** locks `openapi.json`, `schemas/`, `criteria.lock.json` and `acceptance/manifest.json`, and records the holdout seed and list hash. Under `observe` or `own-code` it refuses while fewer than 90% of MVP criteria are at level 2 (a recorded test), unless the user signs a reason.
 
-- `sources.yaml` lists exactly what agents may fetch/clone, derived from the posture above.
-- If clean-room mode: the reference repo goes on the harness blocklist (pre-tool-use hook), same mechanism, inverted purpose.
-- License scanning in CI on the rebuild's repos from day one.
+Slice *order* is a logged decision (`sequence.py reorder --reason`); what is *in* a slice is a gate-2 reopen.
 
-### 2.4 Architecture playbook + target shape
+## 4. G5 — the slice loop
 
-Two fields in `sources.yaml`'s `architecture:` block, decided here because four later phases read them:
+1. **Step 0** (`lane_plan.py step0 <Sn>`): every criterion of the slice has a level 2 test or rspec's recorded reason; otherwise `rspec:verify --only <features>`.
+2. **Lanes** (`lane_plan.py <Sn> <lane> --features …`): each an sdlc feature whose ACs cite criterion IDs, with its open tests and a lock copy in the code repo. Code repos come from `scaffold-repo`, never by hand.
+3. **Spec questions**: a lane that finds a criterion wrong asks with sdlc's `state.py question`; the slice's questions are batched for `rspec:amend` (the user approves an MVP `then`), re-verified, and the lanes refreshed.
+4. **Recorded tests are read-only**: a committed file under `docs/acceptance/` changes only after `flows.py unlock --acceptance --reason` — loosening an assertion to make a build pass is a logged human decision.
 
-- **`playbook`** — which file supplies G4a's standing answers: an entry in `skills/rebuild-pipeline/references/playbooks/` (`web-modular-monolith`, the org default; `mobile-flutter` for a Flutter client), a workbench-local path to one you wrote, or `none` to make every G4a ADR a blank-slate decision. Read the candidate's `not-applicable-when:` frontmatter before recording it.
-- **`target_shape`** — `fullstack` (the rebuild owns both sides) or `client-only` (the API exists, is not changing, and the rebuild is one client of it). This flips G4b from drafting a contract to transcribing one, changes what lane D mines at G1, and selects GP's checklist. Getting it wrong is not a labelling error; it is mining the wrong things for a month.
+Detail: `skills/rebuild-pipeline/references/g5-build.md`, and `g5-first-slice.md` for the first repo, the first inbound integration and the build runbook.
 
-### 2.5 Preflight — prove the reference builds and runs
+## 5. G6 — each slice boundary, cheapest first
 
-The last G0 action, and the one that turns "confirm the user can run the reference locally" from a promise into a check:
+`python3 scripts/boundary.py <Sn>` runs, stopping at the first step that leaves a build-defect or spec-gap open:
 
-```sh
-python3 scripts/preflight.py                              # detect
-python3 scripts/preflight.py --run-build --run-tests   # …and execute the reference's own build/test commands
-```
+1. **Open suite**: the lanes' JUnit; each failure re-run once (a pass on the re-run is flaky, not a finding).
+2. **Hidden suite**: `holdout.py run`; 100% pass, or each failure explained by a departure.
+3. **Equivalence**: recorded traffic replayed against the build, under `observe` or `own-code` with a local reference.
+4. **Coverage and regression**: `parity.py` and `slice_review.py`, over rspec's feature list and build plan.
+5. **bug-hunter**: `bug-hunter:hunt --oracle <spec> --target rebuild --reference reference --format finding-v1 …`, browser mode when the code repo has Playwright.
+6. **Human sample**: 2–3 features drawn from a seed, weighted to criteria below level 2; a person compares them with the running reference and records `agree` or `differs`. Autopilot parks it.
 
-It writes `PREFLIGHT.md` and `preflight.json`, verdict **Ready** / **Ready-with-gaps** / **Not-ready**, plus a per-lane verdict for A–D. What it checks: the checkout's HEAD against `sources.yaml`'s `pinned_commit` (skipped for a black-box reference — leave `reference.repo`, `checkout` and `pinned_commit` all empty and lane D reads `degraded`, working from docs, API and the running product); a build definition (`.github/workflows`, `Dockerfile`, `Makefile`, in that order); an HTTP probe of the instance URL; a test target; whether the mined path is a subdirectory of a larger monorepo and which siblings mention it; whether the two G0 questions below were answered; and whether `scc`/`cloc` and `graphify` are on PATH.
+`route.py <Sn>` sends each reproduced finding by class: build-defect and test-defect to an sdlc fix lane, spec-gap to `rspec:amend` then a fix lane, reference-defect to the user (copy it, or add a departure), flaky and environment to the orchestrator. A third fix round is the user's decision.
 
-**Not-ready blocks G1 dispatch and nothing else.** `sources.yaml` and `license-posture.md` commit and push regardless — none of the causes changes a G0 decision, they change whether it is honest to start mining. In practice only one cause is a global Not-ready: the checkout at a different commit than `pinned_commit`. Every lane-D finding cites `path + pinned_commit`, so mining a different tree writes citations that are wrong the moment they are written and stay wrong through a gate lock that hashes them. An unreachable instance is a **gap** that blocks lanes B and C and leaves D free — B and C mine the running product, D does not.
+**One departures registry**: every accepted difference from the reference is an entry in `docs/departures.yaml` (contracts C5), read by every check and by bug-hunter; only a human decides one.
 
-Executing the build and test commands is opt-in because they are arbitrary commands out of a third party's CI, the same source the miner treats as untrusted input. Detected-but-not-executed is a named gap, never a pass.
+The boundary passes when both suites are green or explained, no high finding is open, bug-hunter has run and the sample is recorded. The upstream re-mine (every 30 days, while the reference ships) reruns rspec's coverage pass and triage; new features enter at a boundary, never mid-slice.
 
-Two G0 interview questions feed it, recorded in `license-posture.md`: **has this rebuild been tried before** (a failed prior attempt is the cheapest ground truth about where this one gets hard), and **what may agents not touch or read**. Put every path and URL from the second answer into `sources.yaml`'s `denied:` list as well — the prose is for you, the deny list is what the miners read.
+## 6. GP — production readiness and Gate 5
 
-**Exit criteria:** reference chosen with rationale; `license-posture.md` recorded, including prior attempts and off-limits; `sources.yaml` written including `architecture:`; harness hooks configured to match; **`PREFLIGHT.md` reads Ready or Ready-with-gaps**.
+One checklist: rspec's `production-readiness.md`. GP adds execution: each NFR's stated verification is run against the production candidate with evidence (`gp.py nfr`, `gp.py check`); drills are performed by a named person. Gate 5 refuses on an unchecked item, missing NFR evidence, a hidden test that failed or did not run, an unexplained red equivalence trace, an open high finding, a `proposed` departure, or an MVP criterion below level 1. A client app shipped to devices adds the client checklist in `references/gp-production.md`.
 
----
+## 7. Parallelization map
 
-## 3. Phase G1 — Parallel mining
+| Phase | Parallel across | Human |
+|---|---|---|
+| G0 | — | reference, posture, playbook, budgets |
+| rspec stages | modules (rspec's cap), audit agents, recorders | feature list, each ADR, **Gates 1, 3, 2, 4** |
+| G5 | lanes (budget, default 3) | lane approval, spec questions that change an MVP `then` |
+| G6 | hunters (budget, default 6) | departures, the human sample |
+| GP | checklist items | drills, **Gate 5** |
 
-**Goal:** an exhaustive, evidence-backed inventory of what the reference *is*. With source access, this phase trades inference for ground truth. Lanes run in parallel: one agent per lane × source.
+Serialization points, by design: the five gates, the migration queue, cross-lane shared changes, and the human drills in GP.
 
-### 3.1 Lane D — Ground truth (dominant lane when source is allowed)
+## 8. Upgrading a workbench
 
-Mine the reference codebase for deterministic facts:
+`rebuild_init.py` vendors the schemas and scripts into each workbench **at scaffold time**, on purpose — a workbench is a self-contained, versioned copy, and a project mid-slice is not improved by its tooling changing underneath it.
 
-- **Data model:** migrations / schema files → entities, relationships, constraints, tenancy columns. Transcribed as one Mermaid `erDiagram` at `findings/ground-truth/reference-erd.mermaid` — descriptive ground truth, scoped to the feature matrix, deliberately **not** gate-locked so G6 re-mining can update it. The rebuild's own model is a different artifact (§7.1).
-- **API surface:** route definitions, OpenAPI/GraphQL schemas, serializers
-- **Permission matrix:** roles, policies, guards — extracted as a features × roles table
-- **Background processing:** job classes, queues, schedules
-- **Events & integrations:** webhooks emitted, inbound integrations, feature flags
-- **Operational surface:** config options, env vars, seed data, upgrade scripts
+**A workbench made by an older major release is not upgraded.** 3.x orchestrates rspec, sdlc and bug-hunter; 2.x mined the reference itself, 1.x lanes worked under `PLAN.md`, and 0.x was a different plugin. There is no migration. `upgrade.py` refuses a workbench whose `locks/pipeline.yaml` does not say `rebuild_major: 3` and says to finish that rebuild on the release that made it (2.x: product-rebuild 2.2.0).
 
-Lane D output uses the same finding schema as other lanes but with `confidence: high` by default and `evidence` pointing to file paths + commit hash instead of URLs.
-
-### 3.2 Supporting lanes
-
-- **Lane A — Features:** changelog and release notes (feature *history* — what order the reference itself built things in is a free curriculum), docs, pricing page if one exists (which features the vendor considers premium).
-- **Lane B — NFR profile:** observed behavior of a running instance (deploy the reference locally — this is mandatory, not optional), documented limits, status page if hosted, scaling docs. Output aggregates into `nfr-profile.yaml`: tenancy model, realtime needs, background processing, search, file handling, expected scale.
-- **Lane C — UX flows:** operate the running reference; capture flows for top features (trigger → steps → outcome). Agents draft from tours/docs; a human verifies against the live instance. Secondary reference (if any) is mined here only.
-
-### 3.3 Fixed output schema (raw finding)
-
-```yaml
-# findings/<lane>/<source-id>.yaml
-- id: ref-schema-0042
-  lane: ground-truth | feature | nfr | flow
-  name: "Invite member"
-  summary: "One-sentence description"
-  evidence:
-    - path: "db/migrate/2024_add_invites.rb"   # lane D
-      commit: "abc1234"
-    - url: "https://docs.../invites"            # other lanes
-  flow:                                          # lane C only
-    trigger: "..."
-    steps: ["...", "..."]
-    outcome: "..."
-  confidence: high | medium | low
-```
-
-- **Lane R — Rules (a second wave, after lane D):** the reference's business rules as **Rule Cards**, `findings/rules/<domain>.yaml`, one array per domain. Six kinds: `calculation`, `validation`, `eligibility`, `state-transition`, `derivation` and `invariant` (a property that holds after every write to its entities, with no trigger). Each card is one given/when/then with concrete values and evidence that carries `path` + `commit` + `line` wherever it is `transcribed`. It runs after lane D because each card's `entities` must resolve against the ground-truth ERD. The failure side is mined on purpose: error handlers, retries, rollbacks and fallback defaults carry rules a rebuild drops without a test failing. The Gate 1 judge re-derives each cited line, and at G5 a spec's acceptance criteria cite their card as `rule_id` (see 8.1).
-
-Rules: no evidence, no entry (dropped at ingest); findings are content-hashed so re-runs are idempotent; deploying and using the reference locally is an exit requirement, not a nice-to-have.
-
-**Exit criteria:** reference running locally; lane D extraction complete (schema, routes, permissions, jobs); lanes A–C complete; lane R's Rule Cards cite real lines and entities; all findings validate; top-feature flows human-verified against the live instance.
-
----
-
-## 4. Phase G2 — Feature matrix → GATE 1: taxonomy lock
-
-**Goal:** one canonical map of the reference: features grouped into a domain taxonomy, each with ground-truth links and flow descriptions. With a single reference and source access, presence is deterministic — the work here is *organization*, not inference.
-
-### 4.1 Steps
-
-1. **Merge lanes:** join lane D facts with lane A/C context per feature; dedupe is minimal.
-2. **Canonical naming** (agent draft, human spot-check).
-3. **Taxonomy** (human decision): group features into domains. This is the first draft of your bounded contexts — G4a inherits it. Important: cut domains the way *you* would design the system, not necessarily the way the reference's codebase is organized; if you keep the reference's module structure, that is itself a mirror decision to note.
-4. **Attach flows and ground truth:** every feature links its flows, its schema entities, its routes, and its permission rows.
-
-### 4.2 Feature matrix schema
-
-```yaml
-# matrix/features.yaml
-- id: F-INV-001
-  name: "Invite member"
-  domain: "membership"
-  ground_truth:
-    entities: ["Invite", "Membership"]
-    routes: ["POST /api/v3/invites"]
-    permissions: ["admin", "project_admin"]
-    jobs: ["InviteExpiryJob"]
-  flows: [FL-INV-001]
-  history: { first_shipped: "v9.2", evidence: [ref-changelog-0117] }
-  confidence: high
-```
-
-### 4.3 GATE 1 — taxonomy lock
-
-Human locks the domain list, boundaries, and canonical names. Agents may add findings into the taxonomy afterward but may not restructure it.
-
-**Exit criteria:** matrix validates; every feature has ground-truth or documentary evidence; flows attached for top features; taxonomy signed off.
----
-
-## 5. Phase G3 — Milestone slicing → GATE 2: slice-plan lock
-
-**Goal:** since "full features" is the fixed destination, the decision here is *sequence*, not scope. Slice the matrix into vertical, independently shippable milestones ordered by dependency and learning value.
-
-### 5.1 Slicing rules
-
-- **Vertical slices:** each slice cuts through data model, API, and UI for a coherent set of features — never "all backend first."
-- **Dependency-ordered:** agents compute a dependency graph from ground truth (entity references, permission prerequisites); typical spine: auth + tenancy → core domain loop (the one workflow the product exists for) → collaboration surface → reporting / integrations / admin.
-- **Learning-weighted:** when dependencies allow multiple orders, prefer the slice that teaches the lifecycle stage you haven't done yet (first deploy, first migration on live data, first background job, first realtime feature).
-- **Independently shippable:** every slice ends deployed and usable, even if the audience is one user. Shipping cadence is the point of the exercise.
-- **A verifiable checkpoint within one or two slices:** the first or second slice must end with something deployed that a person can verify by walking a short journey named in `done_means`. If three slices pass without one, redraw the cut before locking.
-- **Functionality first, polish later:** slice UI is functional (defaults, real states, no pixel work); visual fidelity is one pass after the product is usable, tracked in `progress.yaml` notes, not as a slice.
-- The reference's own changelog history (lane A) is a sanity check: the order the reference built things in is usually a viable order.
-
-### 5.2 Slice plan schema
-
-```yaml
-# plan/slices.yaml
-- id: S1
-  name: "Auth + workspace tenancy"
-  features: [F-AUTH-001, F-AUTH-002, F-WS-001]
-  depends_on: []
-  learning_goals: ["first deploy", "session model", "tenancy pattern"]
-  done_means: "deployed; a user can sign up, create a workspace, log in"
-- id: S2
-  name: "Core project loop"
-  features: [F-PRJ-001, F-TSK-001, F-TSK-002]
-  depends_on: [S1]
-  learning_goals: ["first live migration", "domain modeling"]
-  done_means: "deployed; create project, add tasks, assign, complete"
-```
-
-### 5.3 GATE 2 — slice-plan lock
-
-The slice sequence is locked. New ideas and upstream reference changes (from G6) enter the backlog for insertion at future slice boundaries — they never reorder slices mid-flight.
-
-**Exit criteria:** every matrix feature appears in exactly one slice; dependency graph acyclic; each slice has `done_means` and learning goals; plan signed off.
-
----
-
-## 6. Phase G4a — System design → GATE 3: architecture lock
-
-**Goal:** decide the system's shape against the **architecture playbook this project
-selected** at G0 (`sources.yaml`'s `architecture.playbook` → one of
-`skills/rebuild-pipeline/references/playbooks/`, or a file the user wrote), with the
-reference product's own architecture (lane D) recorded as informational context rather
-than the decision driver for the concerns the playbook answers. This is a deliberate, scoped
-exception to design goal 4 above: for decomposition/stack and most cross-cutting concerns
-there *is* a default answer, and the ADR exists to justify departing from it — not to derive
-it from scratch each time.
-
-**The playbook, not this document, is the authority on which concerns exist and where their
-answers live.** Its frontmatter carries a `concerns:` map (concern key → section(s), or `N/A`),
-a `not-applicable-when:` list, a `target-shape:`, a `scaffold:` (the path of the playbook's scaffold manifest), and `decide-before:`
-ordering constraints. The org default (`playbooks/web-modular-monolith.md`, Go + Nuxt modular
-monolith, API-first, Fastify + Next.js alternate) maps eleven concerns and marks four `N/A`;
-`playbooks/mobile-flutter.md` maps twenty-one for a Flutter client against an existing API,
-of which only three — decomposition, files/media, data modeling — have a counterpart in the web
-playbook at all; the rest, from state management and offline policy to the platform floor and
-on-device migration, exist in neither the web playbook nor this document. A concern the playbook marks `N/A` stays a fully blank-slate,
-mirror-or-diverge-against-the-reference decision, exactly as every G4a concern worked before
-any default existed. (Taxonomy, slicing, and contracts stay per-product decisions too.) This
-phase is still the most expensive layer to change later — hence its own gate, before any
-contract exists.
-
-**G4a vendors the chosen playbook to `adr/playbook.md`**, which sits inside gate-3's
-`protects:` and is therefore hashed into the lock. Without that copy, an accepted ADR's
-"cites §7" points at whatever the plugin's registry says months later — and §7 means the
-auth engine in one playbook and the API client in another. `gate.py lock gate-3` refuses to
-lock while a selected playbook has not been vendored.
-
-Inputs: locked taxonomy (Gate 1), locked slice plan (Gate 2), `nfr-profile.yaml`, the
-reference's observed architecture from lane D, and `adr/playbook.md`.
-
-### 6.1 Decision sequence
-
-0. **Resolve, check, vendor (once, before any ADR is drafted):** resolve the playbook from
-   `sources.yaml`; confirm its own `not-applicable-when:` criteria don't describe this
-   rebuild (for the org default: team under ~10 engineers, no PMF, no concrete
-   decoupled-API-first driver); copy it to `adr/playbook.md`. If a criterion does apply,
-   either switch playbooks or set `playbook: none` — and then every ADR below reverts to the
-   pipeline's original blank-slate model. Record the outcome as a one-line note carried into
-   the Gate 3 review.
-1. **Bounded contexts:** confirm/adjust taxonomy domains into contexts. Each context owns its data and vocabulary.
-2. **Decomposition:** the playbook's default (modular monolith, for the org default; feature-first three-layer modules, for the Flutter one). Before drafting this ADR, ask the human directly whether any team-composition fact (stack familiarity, existing investment in a framework) favors the playbook's **alternate** column — this is the one fact the pipeline never persists elsewhere, so it's asked here every time, and recorded inline in this ADR's rationale. Otherwise propose the default; diverging requires a concrete reason from this product's NFR profile or shape — e.g. a hard scaling/isolation requirement, or an architectural-shape mismatch (the reference is fundamentally event-sourced with no queryable current-state table) — not just "the reference did it differently." Note the reference's own choice for the record; it's evidence about the *product domain*, not a vote on the rebuild's architecture.
-3. **Mirror-or-diverge, two axes per concern with a default:** every such ADR states (a) mirror-or-diverge **the playbook** — the actionable axis, gated — and (b) mirror-or-diverge **the reference's own approach** — informational, for the learning record and for tracking which lane-D ground-truth facts a *behavioral* reference-divergence invalidates (a pure tech-stack/language swap forced by the playbook's fixed stack doesn't count: React Native → Flutter is not a divergence event). These are independent: an ADR can mirror the playbook while diverging from the reference (the common case), or diverge from the playbook for a documented reason. Undocumented divergence from the playbook is the primary failure mode this gate enforces against, for the concerns that have an answer.
-4. **One ADR per concern in the playbook's `concerns:` map**, each declaring `concern:` (the key, verbatim) and `org-default:` (the section(s) the map names, or `N/A`). Pass the map's value to the drafter — never let it infer a section, because numbering is per-playbook. Honour `decide-before:` (the org default: background workers before events/queues, so the latter can cite the job-queue substrate its outbox relay runs on; the Flutter playbook: persistence and API client before offline/sync, persistence and session before on-device migration). Concerns mapped `N/A` are decided the original way: mirror-or-diverge against the reference only.
-   Tooling enforces the arithmetic: `python3 scripts/validate.py` rejects an ADR with no `concern:`, an unknown key, or a `§` citation the map never points at; `gate.py lock gate-3` refuses to lock while any mapped concern has no ADR. "Every cross-cutting concern decided" stops being a prose exit criterion and becomes a list.
-5. **Infra topology:** deployment units, environments, CI/CD shape — derived from the decomposition. For a `client-only` target shape, that is build flavors, signing identities and release channels rather than services and datastores.
-
-### 6.2 ADR format
-
-```markdown
-# ADR-007: <decision>
-status: accepted | superseded-by-ADR-0XX
-concern: <key from the playbook's concerns: map, verbatim>
-org-default: <cited section(s) of adr/playbook.md, or N/A where it has no answer>
-decision: mirror-default | diverge-from-default | silent-default   (or mirror | diverge, for N/A concerns)
-reference-approach: <what the reference does, lane-D evidence — informational unless org-default is N/A>
-rationale: <required in depth when diverging from the org default — name the NFR/shape fact, the rejected mirror-default alternative, and any prior ADR depended on; incl. learning goal if also diverging from the reference>
-consequences: <trade-offs accepted; lane-D facts invalidated by any behavioral divergence from the reference>
-reversal-condition: <observable fact that would reopen this>
-```
-
-`silent-default` is for a concern the playbook addresses in general but not this
-specific sub-question: propose a policy, flag it as newly introduced rather than sourced,
-skip the depth requirement (nothing to diverge from), but still explain the choice.
-
-Agents draft ADRs in parallel (except where `decide-before:` serializes them) — always with `adr/playbook.md` as the authority the ADR cites, a short excerpt of it cut for that concern (`python3 scripts/playbook.py excerpt <concern>`, so a drafter does not read the whole 60 to 70 KB file), with the concern key and the exact applicable section(s) or `N/A` named per ADR so the drafter never has to infer it — the human decides sequentially (later ADRs depend on earlier ones). This gate is the bottleneck by design — budget real time for it, especially any divergence-from-default proposal.
-
-### 6.3 GATE 3 — architecture lock
-
-Locks the playbook copy itself, the applicability-check outcome, context map, decomposition, all cross-cutting ADRs, and topology. No new service, datastore, queue, deployment target or top-level module downstream without reopening.
-
-**Exit criteria:** playbook vendored to `adr/playbook.md`; applicability check recorded; every context has a decomposition ADR; every concern in the playbook's map has an ADR (`gate.py` checks this); every ADR with an answer states mirror/diverge/silent-default against it with evidence; every `N/A` concern states mirror/diverge against the reference; topology diagram exists.
-
----
-
-## 7. Phase G4b — Data model + contracts → GATE 4: contract lock
-
-**Goal:** the interfaces that make G5 fan-out safe. Order: **data model first** (Gate 3 decided where data lives; this decides what it is), then three contract layers.
-
-**Two modes, per `architecture.target_shape`.** In `fullstack`, this phase *authors* the contracts and Gate 4 locks a design. In `client-only`, the API belongs to someone else: `contracts/openapi/` is a **transcription** of what G1 mined from the old client's call sites, Gate 4 locks *ground truth*, anything the rebuild needs added lives in a separate `requested.yaml` (it is a request to another team, not a design), and `contracts/data-model/` describes the **on-device** store rather than a server schema. Drafting the endpoint you wish existed generates a client that 404s.
-
-### 7.1 Data model → `contracts/data-model/<context>.mermaid`
-
-One Mermaid `erDiagram` per bounded context. Per context: entities, ownership, relationships, source-of-truth assignment. The reference's ERD (lane D, §3.1) is the starting draft; every deliberate deviation from it is annotated inline (it will matter when reading reference behavior later), and a *structural* deviation needed an ADR back at Gate 3. Cross-context references via IDs, never shared tables.
-
-Mermaid because it diffs, renders in review, and states cardinality in notation rather than in a sentence someone has to interpret. Tooling requires each diagram to declare at least one entity, and refuses to lock Gate 4 while no diagram exists — a header-only stub is not a data model. What tooling cannot check is whether the model agrees with the API; that is the coherence review in §7.3.
-
-### 7.2 Three contract layers
-
-1. **Public contract** — API surface for frontend/external consumers (e.g. OpenAPI); single source of truth for generated types.
-2. **Internal contracts** — interfaces between contexts (in-process if co-located, per-service specs if separated, per Gate 3).
-3. **Async contracts** — schemas for every event/queue message (AsyncAPI or equivalent), versioned and CI-validated.
-
-### 7.3 Rules
-
-- **Coherence check before every Gate 4 lock, both directions:** every API resource maps to an entity or a named projection of entities; every entity is reachable from the API or annotated `%% internal` with a reason. One direction alone passes a half-built contract. Not scriptable — "maps to" is a judgment about naming and intent.
-- Data models draft in parallel, one per bounded context (`data-model-drafter`; their files are independent because cross-context references are by id only); they must all land and be reviewed before the contracts, which then draft per context in parallel.
-- Everything in G5 traces to contract elements; anything not in a contract does not exist.
-- After the gate: additive changes allowed; breaking changes reopen the gate for the affected contract only.
-
-**Exit criteria:** data model reviewed with deviations-from-reference annotated; coherence check run in both directions with every projection and internal-only entity named; all three layers validate and codegen in CI; breaking-change policy documented.
-
----
-
-## 8. Phase G5 — Parallel spec & build (per slice)
-
-**Goal:** maximum safe fan-out, executed slice by slice. The four lane *types* expand into N actual lanes; the count is an output of Gates 1 and 3, not a playbook constant.
-
-### 8.1 Lane types
-
-1. **Specs + acceptance criteria** — one agent per module in the current slice. Each spec derives from the module's matrix features, their flows, their ground truth, and the relevant contracts. Every spec ends with **AC**: a testable behavior list (e.g. "inviting an already-registered email returns error E-409"). Each AC maps 1:1 to a test at the lowest level that can observe it; browser/device E2E is kept minimal — one smoke journey per checkpoint slice and at most one more per slice. Where behavior is ambiguous, the running reference instance is the arbiter — check it, don't guess. Specs pass propose-before-act review before code. Every criterion that implements a Rule Card carries its card's id as `rule_id:`, and the test that implements it names that id, which is the join that lets the parity report say "12 of 14 rules in `billing` are green" and not only count features. The spec-writer gets the module's cards in full plus an index of the rest (`python3 scripts/rules_for.py`), and an `invariant` card is cited from every module that writes its entities.
-2. **Backend** — one lane per bounded context touched by the slice (whether contexts are modules or separate services per Gate 3), building against contracts. Scaffolding and codegen first.
-3. **Frontend** — against the generated typed client; may split per feature area. For a `client-only` rebuild this lane *is* the build and lane 2 does not exist; it splits per feature module, and the on-device migration decided at Gate 3 is its own module in whichever slice first touches session or local data — never a task appended to a feature.
-4. **Infra** — CI/CD, environments, deployment. Mostly one lane; schema migrations serialize through a single migration queue regardless of lane count.
-
-### 8.2 Guardrails
-
-- Contract-first: no code against an interface absent from a locked contract.
-- CI on every lane: lint, tests, security scan, license scan, AC-coverage check (every AC has a test).
-- Cross-lane shared changes go through one serialized review path.
-- **Every slice ends deployed.** The deploy is part of the slice, not an afterthought — it's half the curriculum. For a client app, "deployed" means a build a real person can install (internal TestFlight / Play internal track, on a device that is not the build machine) — not a simulator run, not a CI artifact.
-- **Repo creation follows the locked playbook's scaffold manifest.** The `scaffold-repo` skill reads `adr/playbook.scaffold.json` (the manifest the playbook's `scaffold:` frontmatter names, vendored at G4a and locked at Gate 3), takes the stack from the ADRs, asks only what they leave open, and runs the stack's own generator in an empty directory. A playbook with no manifest fails Gate 3, so G5 never meets a stack it cannot create. The result is a skeleton whose five commands pass on day one, not a feature kit.
-
-**Exit criteria (per slice):** all specs approved; all ACs green; contract conformance passes; slice deployed and its `done_means` demonstrably true.
-
----
-
-## 9. Phase G6 — Parity loop
-
-**Goal:** keep the rebuild converging on the reference automatically, and keep the matrix honest while the reference continues shipping.
-
-1. **AC test suite:** "is the feature really done" is a test run, not a meeting.
-2. **Parity diff:** rebuild coverage vs. the matrix — covered / partial / missing per feature, plus anything built that isn't in the matrix (scope-creep detector).
-3. **Upstream tracking:** re-mine the reference's changelog and release notes on a schedule (e.g. monthly; content-hashed, so only real changes surface). New upstream features enter the matrix as backlog candidates for future slice boundaries — they never bypass the gates. Skipped entirely for `reference.upstream: frozen` (a legacy app being replaced has stopped shipping) — and said so in the report, because an absent section reads as a step that failed.
-
-**Output:** a recurring parity report: AC pass rate, matrix coverage, upstream movements, scope-creep items.
-
----
-
-## 10. Phase GP — Production readiness → GATE 5: prod-ready lock
-
-**Goal:** close the gap that learning projects habitually skip. Feature-complete ≠ production-ready; this gate exists so the difference is verified, not assumed. Run it when the slice plan completes (and a lightweight version at each slice's deploy).
-
-Two checklists: the service one below, and a **client-app** one in `references/gp-production.md` used in addition for anything shipped to a device and *instead* when the target shape is `client-only`. The distinction is not cosmetic — a client app cannot be rolled back, its data at risk sits on devices you cannot reach, and its deploy is gated by someone else's review queue, so "restore a backup" is replaced by "rehearse the in-place upgrade over the old app, on the oldest supported OS, once with the migration interrupted".
-
-Checklist — each item verified by doing, not by asserting:
-
-- **Security posture:** authn/authz reviewed against the permission matrix from lane D; secrets management; dependency and container scanning green; basic hardening (headers, rate limits, input validation) tested.
-- **Data safety:** automated backups running; **restore actually performed** into a clean environment and verified; migration rollback procedure exercised once.
-- **Observability:** structured logs, error tracking, basic metrics and alerts; you can answer "is it up, is it erroring, is it slow" without SSH.
-- **Operations:** deployment is one command/pipeline; rollback documented and rehearsed; upgrade path for future versions written; runbook for the top 3 failure modes.
-- **Docs:** install/deploy doc good enough that someone else could run it; architecture doc reflects final ADR state.
-- **Incident dry-run:** one simulated failure (kill the DB, fill the disk) handled using only the runbook.
-
-**Exit criteria:** every checklist item has evidence (a log, a recording, a doc link); gate signed off. This is the terminal gate — after it, the result matches the promise: completed, full-featured, production-ready.
-
----
-
-## 11. Parallelization & automation map
-
-| Phase | Parallel across | Automated | Human |
-|---|---|---|---|
-| G0 | — | license scan, source allowlist | reference choice, license posture |
-| G1 | lanes × sources | extraction, hashing, validation | run the reference; verify flows |
-| G2 | — | merge, naming draft | **GATE 1: taxonomy** |
-| G3 | — | dependency graph, slice drafts | **GATE 2: slice order** |
-| G4a | ADR drafting | drafts, consistency checks | **GATE 3: every ADR** |
-| G4b | contracts per context | codegen, validation | data model review, **GATE 4** |
-| G5 | modules × backend × FE × infra | code, tests, scans, AC checks | spec approvals, PR review |
-| G6 | re-mining lanes | tests, parity diff, report | reading the report |
-| GP | checklist items | scans, backup jobs | **GATE 5**; restore & incident drills |
-
-Serialization points, by design: the five gates, the data models landing before the contracts, the migration queue, cross-lane shared changes, and the human drills in GP. Everything else runs concurrently.
-
-## 12. Upgrading a workbench
-
-`rebuild_init.py` vendors the schemas and scripts into each workbench **at scaffold time**, on purpose — a workbench is a self-contained, versioned copy, and a project mid-G4 is not improved by its tooling changing underneath it. The cost is that a workbench scaffolded before a release does not get that release's new files, and a reference doc telling you to run `python3 scripts/<thing>.py` then names a path that does not exist.
-
-**A workbench made by an older major release is not upgraded.** 3.x orchestrates rspec, sdlc and bug-hunter; 2.x mined the reference itself, 1.x lanes worked under `PLAN.md`, and 0.x was a different plugin. Their scripts, their guards and their pipelines all differ, and there is no migration. `upgrade.py` refuses a workbench whose `locks/pipeline.yaml` does not say `rebuild_major: 3` and says to finish that rebuild on the release that made it (2.x: product-rebuild 2.2.0).
-
-Within 3.x there is a script for it. Dry run first. It is the default and it copies nothing:
+Within 3.x, dry run first (the default copies nothing), then apply:
 
 ```sh
 python3 scripts/upgrade.py
@@ -435,30 +163,21 @@ It classifies every vendored file against `locks/tooling.json`, the provenance m
 | `new` | the plugin has it, this workbench does not | copies |
 | `stale` | pristine vendored copy, plugin has moved on | copies |
 | `modified` | differs from the plugin **and** from its recorded hash — someone edited it here | **refuses** |
-| `unknown` | differs from the plugin, no recorded hash to compare (for example `locks/tooling.json` is missing) | **refuses** |
+| `unknown` | differs from the plugin, no recorded hash to compare | **refuses** |
 | `kept` | a local version a human chose to hold, on the record | never copies |
-| `held` | safe to copy, but its script/schema pair is refused (e.g. `autopilot.py` with a locally edited `autopilot.schema.json`) | waits for the pair |
+| `held` | safe to copy, but its script/schema pair is refused | waits for the pair |
 | `current` | identical to the plugin | nothing |
 
-**It runs itself.** At the start of every pipeline session (`SKILL.md` Step 2) the skill runs the *plugin's* copy with `--auto`, so a plugin update reaches the workbench without anyone remembering to. `--auto` copies only `new` and `stale` files, only when no slice is `in-progress`, no autopilot run is engaged and the tree is clean, commits the upgrade as one commit, runs `validate`, and prints one line. Otherwise it defers to a later session start. It never forces and never keeps; refused files are named for a human to settle as below.
+**It runs itself.** At the start of every pipeline session the skill runs the plugin's copy with `--auto`: only `new` and `stale` files, only when no slice is in progress, no autopilot run is engaged and the tree is clean, as one commit, followed by `validate`. A refused file stays refused until you settle it: port your change onto the plugin's version, take the plugin's with `--apply --force <path>`, or hold yours with `--keep <path>` (`--diff <path>` first). `--apply` does not commit; `--auto` does.
 
-A refused file stays refused on every later run. That is deliberate: an earlier draft recorded the refused file's current hash as its new baseline, which made the next run classify it `stale` and `--apply` overwrite the edit that had just been protected. Settle one of three ways — port your change onto the plugin's version and re-run, take the plugin's with `--apply --force <path>`, or hold yours on the record with `--keep <path>`. Read the diff first: `python3 scripts/upgrade.py --diff <path>`.
+## 9. Failure modes to watch
 
-The script finds the plugin through `--plugin <path>`, then `.rebuild-plugin` at the workbench root (an absolute path, written at scaffold time), then `$CLAUDE_PLUGIN_ROOT`. A marker or env path inside the installed-plugin cache (`…/plugins/cache/…/<version>/`) is followed to the newest version installed beside it: the marker names the version that scaffolded the workbench, and read literally it would pin every later upgrade to that version. A workbench scaffolded before 0.17.0 has neither the marker nor the manifest, so bootstrap it once: Every 1.x workbench has `upgrade.py` itself, so there is nothing to copy in by hand first.
-
-Two things worth knowing:
-
-- **`--apply` does not commit.** It prints "commit this in one go": a half-upgraded workbench is the state nothing else in the pipeline expects. `--auto` commits for you.
-- **New scripts arrive as `new`.** A release that adds a script (1.3.0 added `boundary.py`, 1.4.0 added `rules_for.py`, `cite_excerpts.py`, `gate_facts.py` and `evidence_bundle.py`) shows it under `new` in the dry run, and `--apply` copies it. Nothing else needs doing by hand.
-
-## 13. Failure modes to watch
-
-- **Reading code instead of running the product** — lane D without lanes B/C produces a rebuild of the schema, not the product. Mitigation: running instance is a G1 exit requirement.
-- **Undocumented divergence** — from the selected playbook, for decomposition and every concern its `concerns:` map answers (section 6, the gated axis there); from the reference, for the concerns it marks `N/A` and everywhere outside G4a. Mitigation: the applicable mirror-or-diverge field(s) are mandatory in every G4a ADR; review enforces it.
-- **A citation that means something else** — carrying "§7 is auth" from one project to the next, when the playbook changed underneath. Mitigation: the playbook is vendored into the workbench and hashed into Gate 3, `concern:` keys are checked against its map, and every cited `§` must be one that map points at. What no check catches is a plausible-looking wrong section, which is why the vendored copy exists rather than a reference to the registry.
-- **Mining the wrong lane D for the shape of the rebuild** — treating a client-only rebuild as fullstack, so a month of mining produces a server design nobody will build and the API the app actually depends on was never transcribed. Mitigation: `target_shape` is a G0 field, asked before G1 dispatches anything.
-- **Horizontal slicing** — "all backend first" delays every lifecycle lesson to the end. Mitigation: slice schema requires `done_means` phrased as user-visible behavior on a deployment.
-- **Taxonomy churn after Gate 1 / architecture by accident in G5** — same as ever: gate reopening is formal and logged; new infra requires an ADR.
-- **AC theater** — vague criteria that always pass. Mitigation: each AC names one observable behavior and maps to exactly one test; when ambiguous, the reference instance arbitrates.
-- **Skipping GP** — declaring victory at feature parity. Mitigation: the playbook's definition of done *is* Gate 5, and its items require evidence produced by doing.
-- **Chasing upstream mid-slice** — the reference ships something shiny and the plan reorders itself. Mitigation: upstream changes only enter at slice boundaries.
+- **Doing a stage's work by hand** — writing stories, criteria, ADRs or tests outside rspec skips its checks. Run the stage.
+- **A test written after the build** — it asserts what was built and says nothing about the reference. Step 0 holds a slice until its criteria have recorded tests or a reason.
+- **Leaking the hidden tests** — a lane brief that names the holdout, or a failure report that quotes a test. The guard denies the path and reports carry only the criterion and the observed behaviour.
+- **A difference accepted in one place and not another** — one registry, `departures.yaml`, read by every check.
+- **Undocumented divergence from the playbook** — the playbook is vendored and locked at Gate 3; an ADR diverges with a reason or it adopts the default.
+- **Horizontal slicing** — "all backend first" delays every lifecycle lesson to the end; rspec's slices are vertical and each ends deployed.
+- **Agreement mistaken for evidence** — a lane's tests agreeing with its code. The hidden suite, equivalence, bug-hunter against the reference and the human sample are the checks that compare with the reference.
+- **Skipping GP** — declaring victory at feature parity. The definition of done *is* Gate 5, and its items require evidence produced by doing.
+- **Chasing upstream mid-slice** — upstream changes enter only at slice boundaries.

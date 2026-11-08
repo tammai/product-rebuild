@@ -4,7 +4,7 @@ Run from the workbench root.
 Usage:
   python3 scripts/upgrade.py                     # dry run: what would change, and nothing else
   python3 scripts/upgrade.py --apply             # copy the safe ones; refuse locally modified
-  python3 scripts/upgrade.py --apply --force scripts/gate.py,schemas/rule.schema.json
+  python3 scripts/upgrade.py --apply --force scripts/gate.py,schemas/lock.schema.json
   python3 scripts/upgrade.py --diff scripts/gate.py   # full diff for one file
   python3 scripts/upgrade.py --keep scripts/parity.py # record: keep OUR version of this one
   python3 scripts/upgrade.py --plugin <path>     # override where the plugin lives
@@ -508,7 +508,7 @@ def main(argv=None):
                     names.add(n[0])
         for m in re.finditer(rf"^[ \t]*(?:try:[ \t]*)?import[ \t]+{mod_re}(?:[ \t]+as[ \t]+({ident}))?[ \t]*(?:#[^\n]*)?$", t, re.M):
             var = m.group(1) or mod
-            # The lookbehind skips the variable's name inside a path or a message ("scripts/erd.py").
+            # The lookbehind skips the variable's name inside a path or a message ("scripts/gate.py").
             for u in re.finditer(rf"(?<![\w./`'\"-]){re.escape(var)}\.({ident})", t):
                 if u.group(1) != "py":
                     names.add(u.group(1))

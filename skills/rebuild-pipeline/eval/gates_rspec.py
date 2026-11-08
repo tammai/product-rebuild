@@ -2,7 +2,7 @@
 """gates_rspec.py (eval) — 3.0.0, spec 05 P2: do the gates lock rspec's artifacts, in rspec's order,
 and does `gate.py status` read rspec's own progress instead of guessing it?
 
-  python3 skills/rebuild-pipeline/eval/gates_rspec.py [order|level2|progress]
+  python3 skills/rebuild-pipeline/eval/gates_rspec.py [order|scaffold|level2|progress]
 
 WHY IT EXISTS. In 3.0 rspec writes the spec and the tests, and the gates are the only record that a
 person approved them. A gate that locks the wrong files, or locks before rspec's own check of the
@@ -97,6 +97,7 @@ def through_gate2(wb):
         w(wb, rel, f"# {rel}\n")
     w(wb, "docs/build-plan.md", "# Build plan\n\n## Slice 1: issues\n\n| 1 | F-ISS-01 a | | | | | |\n")
     w(wb, "docs/decisions/0001-stack.md", "# Stack\n\n- Status: Accepted\n")
+    run([sys.executable, os.path.join("scripts", "playbook.py"), "vendor"], wb)
     commit(wb)
     for gid in ("gate-1", "gate-3", "gate-2"):
         r = gate(wb, "lock", gid, "--by", "Eval")
@@ -149,6 +150,8 @@ if ONLY in (None, "order"):
     check("gate-3 refuses while an ADR is still Proposed", r.returncode == 1 and "0001-stack.md" in r.stderr, r.stderr)
     w(wb, "docs/decisions/0001-stack.md", "# Stack\n\n- Status: Accepted\n")
     commit(wb)
+    run([sys.executable, os.path.join("scripts", "playbook.py"), "vendor"], wb)
+    commit(wb)
     r = gate(wb, "lock", "gate-3", "--by", "Eval")
     check("gate-3 locks docs/decisions/ once every ADR is decided",
           r.returncode == 0 and "  docs/decisions/0001-stack.md: " in lock_text(wb, "gate-3"), r.stdout + r.stderr)
@@ -162,6 +165,29 @@ if ONLY in (None, "order"):
     r = gate(wb, "lock", "gate-2", "--by", "Eval")
     check("gate-2 locks build-plan.md once the audit is done (verify skipped: reference.run.kind none)",
           r.returncode == 0 and "  docs/build-plan.md: " in lock_text(wb, "gate-2"), r.stdout + r.stderr)
+
+if ONLY in (None, "scaffold"):
+    print("\n# the stack a code repo is created from is locked with the ADRs (AC-031)")
+    wb = workbench("scaffold")
+    rspec_json(wb, "features-approved")
+    for rel in ("docs/features.md", "docs/domain.md", "docs/departures.yaml"):
+        w(wb, rel, f"# {rel}\n")
+    w(wb, "docs/decisions/0001-stack.md", "# Stack\n\n- Status: Accepted\n")
+    commit(wb)
+    gate(wb, "lock", "gate-1", "--by", "Eval")
+    r = gate(wb, "lock", "gate-3", "--by", "Eval")
+    check("gate-3 refuses while no playbook and scaffold manifest are vendored, naming the command",
+          r.returncode == 1 and "playbook.py vendor" in r.stderr, r.stdout + r.stderr)
+    r = run([sys.executable, os.path.join("scripts", "playbook.py"), "vendor"], wb)
+    check("playbook.py vendor copies the org default playbook and its scaffold manifest into adr/",
+          r.returncode == 0 and os.path.exists(os.path.join(wb, "adr", "playbook.md"))
+          and os.path.exists(os.path.join(wb, "adr", "playbook.scaffold.json")), r.stdout + r.stderr)
+    commit(wb)
+    r = gate(wb, "lock", "gate-3", "--by", "Eval")
+    lock3 = lock_text(wb, "gate-3")
+    check("gate-3 then locks adr/'s playbook and manifest with the ADRs",
+          r.returncode == 0 and "  adr/playbook.scaffold.json: " in lock3 and "  adr/playbook.md: " in lock3,
+          r.stdout + r.stderr + lock3)
 
 if ONLY in (None, "level2"):
     print("\n# Gate 4's level 2 floor (AC-012)")

@@ -43,8 +43,6 @@
   .group .lanes .box{flex:1;width:auto;padding:14px 12px}
   .group .lanes .box .t{font-size:24px}
   .group .lanes .box .s{font-size:19px;margin-top:3px}
-  /* Lane R runs AFTER ground truth, not beside it — a card cites entities, and until lane D
-     has transcribed the ERD there is nothing to cite against. The row break IS the dependency. */
   .group .wave{text-align:center;font-size:20px;color:var(--sub);margin:14px 0 12px}
   .group .wave b{color:#374151;font-weight:600}
 
@@ -63,20 +61,20 @@
      inside it, so their left border sits at x=90. The arm runs 22 -> 77 and the arrowhead's
      11px tip lands at 88 — two pixels shy of that border. Overshooting it puts the head
      inside the block, pointing at its empty padding, which reads as a broken arrow. The group
-     width is 1060 rather than wider precisely to leave this 90px gutter: the boundary's fifth
-     step wanted more room, and the arm needs somewhere to live more.
+     width is 1060 rather than wider precisely to leave this 90px gutter: the boundary's six
+     steps wanted more room, and the arm needs somewhere to live more.
      Vertical: the arms attach at each block's MID-HEIGHT rather than at the wrapper's edges,
-     so they meet the sides instead of grazing the rounded corners. The top arm now targets
-     the record step, not G5 — the next slice starts by recording against the legacy system,
-     and an arm pointing past that step would draw the wrong loop. */
-  .loopline{position:absolute;left:22px;top:72px;bottom:149px;width:2px;background:var(--arrow)}
+     so they meet the sides instead of grazing the rounded corners. The top arm targets
+     step 0, not G5 — the next slice starts by checking its criteria have recorded tests, and
+     an arm pointing past that step would draw the wrong loop. */
+  .loopline{position:absolute;left:22px;top:57px;bottom:149px;width:2px;background:var(--arrow)}
   .loopline::before,.loopline::after{content:"";position:absolute;left:0;height:2px;background:var(--arrow)}
   /* The two arms stop at different x on purpose: the top one leaves 11px for its arrowhead,
      which closes the gap to the border; the bottom one has no head, so it has to reach the
      border itself or it reads as a line that stops in mid-air. */
   .loopline::before{top:0;width:55px}
   .loopline::after{bottom:0;width:68px}
-  .loophead{position:absolute;left:77px;top:65px;
+  .loophead{position:absolute;left:77px;top:50px;
     border-top:7px solid transparent;border-bottom:7px solid transparent;border-left:11px solid var(--arrow)}
 
   .boundary{border-color:var(--advis-line);background:#fffdfa}
@@ -97,86 +95,72 @@
 <body>
 <div class="page">
 
-  <div class="box"><div class="t">G0 · Reference + license posture</div><div class="s">1 primary reference, intent recorded</div></div>
+  <div class="box"><div class="t">G0 · Reference, posture, playbook</div><div class="s">posture strict · observe · own-code · budgets</div></div>
   <div class="arrow short"></div>
-  <div class="box green"><div class="t">Preflight</div><div class="s">does the reference build and run? · Not-ready blocks G1</div></div>
+  <div class="box green"><div class="t">Preflight</div><div class="s">runs at the pinned commit? · Not-ready holds discovery</div></div>
   <div class="arrow"></div>
 
-  <div class="group">
-    <div class="gt">G1 · parallel mining</div>
-    <div class="lanes">
-      <div class="box green"><div class="t">Ground truth</div><div class="s">Schema, routes</div></div>
-      <div class="box green"><div class="t">Features</div><div class="s">Changelogs</div></div>
-      <div class="box green"><div class="t">NFR</div><div class="s">Run the ref</div></div>
-      <div class="box green"><div class="t">UX flows</div><div class="s">Live instance</div></div>
-    </div>
-    <div class="wave">↓ then, once ground truth lands — <b>a card cites entities that must already exist</b></div>
-    <div class="lanes">
-      <div class="box green"><div class="t">Rules</div><div class="s">Rule Cards — one behavior each, cited to path · commit · line</div></div>
-    </div>
-  </div>
+  <div class="box green"><div class="t">rspec · init → discover → features</div><div class="s">modules explored in parallel · you approve the list</div></div>
+  <div class="arrow"></div>
+  <div class="box gate"><div class="t">Gate 1 · feature lock</div><div class="s">features.md · domain.md · departures.yaml</div></div>
+  <div class="arrow"></div>
+  <div class="box green"><div class="t">rspec · stories → tech</div><div class="s">playbook vendored to adr/ · its stack is the preference</div></div>
+  <div class="arrow"></div>
+  <div class="box gate"><div class="t">Gate 3 · architecture lock</div><div class="s">accepted ADRs + the playbook's scaffold manifest</div></div>
+  <div class="arrow"></div>
+  <div class="box green"><div class="t">rspec · audit → verify → handoff</div><div class="s">fresh auditors · tests recorded against the reference</div></div>
+  <div class="arrow"></div>
+  <div class="box gate"><div class="t">Gate 2 · slice-plan lock</div><div class="s">vertical slices — the order stays revisable</div></div>
+  <div class="arrow"></div>
+  <div class="box green"><div class="t">rspec · check · hidden split</div><div class="s">25% of each slice's tests moved out of every lane's reach</div></div>
+  <div class="arrow"></div>
+  <div class="box gate"><div class="t">Gate 4 · contract lock</div><div class="s">contracts · criteria lock · tests · holdout seed</div></div>
   <div class="arrow"></div>
 
-  <div class="box green"><div class="t">G2 · Feature matrix</div><div class="s">Ground truth attached</div></div>
-  <div class="arrow"></div>
-  <div class="box gate"><div class="t">Gate 1 · taxonomy lock</div><div class="s">feature matrix <i>and</i> rule cards — rules are taxonomy</div></div>
-  <div class="arrow"></div>
-  <div class="box green"><div class="t">G3 · Milestone slicing</div><div class="s">Vertical, dependency-ordered</div></div>
-  <div class="arrow"></div>
-  <div class="box gate"><div class="t">Gate 2 · slice-plan lock</div><div class="s">locks slice boundaries — the order stays revisable</div></div>
-  <div class="arrow"></div>
-  <div class="box"><div class="t">G4a · System design</div><div class="s">Mirror-or-diverge ADRs</div></div>
-  <div class="arrow"></div>
-  <div class="box gate"><div class="t">Gate 3 · architecture lock</div></div>
-  <div class="arrow"></div>
-  <div class="box"><div class="t">G4b · Data model + contracts</div><div class="s">Public, internal, async</div></div>
-  <div class="arrow"></div>
-  <div class="box gate"><div class="t">Gate 4 · contract lock</div></div>
-  <div class="arrow"></div>
-
-  <!-- per-slice loop: build → boundary → next slice -->
+  <!-- per-slice loop: step 0 → build → boundary → next slice -->
   <div class="loop">
     <div class="loopline"></div><div class="loophead"></div>
 
-    <div class="box green wide"><div class="t">Record first — against the <i>legacy</i> system</div><div class="s">AC flows · equivalence traces (own-code) — before any lane starts, or they only ever agree with what gets built</div></div>
+    <div class="box green wide"><div class="t">Step 0 — every criterion has a recorded test</div><div class="s">or rspec's reason · recorded against the reference before any lane starts</div></div>
     <div class="arrow short"></div>
 
     <div class="group">
-      <div class="gt">G5 · parallel build, per slice</div>
+      <div class="gt">G5 · sdlc lanes, per slice</div>
       <div class="lanes">
-        <div class="box green"><div class="t">Specs + AC</div><div class="s">1 per module · AC cite <tt>rule_id</tt></div></div>
-        <div class="box green"><div class="t">Backend</div><div class="s">Per context</div></div>
-        <div class="box green"><div class="t">Frontend</div><div class="s">Typed client</div></div>
+        <div class="box green"><div class="t">Backend</div><div class="s">per context</div></div>
+        <div class="box green"><div class="t">Frontend</div><div class="s">typed client</div></div>
         <div class="box green"><div class="t">Infra</div><div class="s">CI/CD, deploy</div></div>
+        <div class="box green"><div class="t">Spec questions</div><div class="s">batched → rspec:amend</div></div>
       </div>
     </div>
-    <div class="note">↻ every slice ends <b>deployed</b> — a build a real person can install</div>
+    <div class="note">↻ every lane cites rspec's criterion IDs · every slice ends <b>deployed</b></div>
     <div class="arrow short"></div>
 
     <div class="group boundary">
-      <div class="gt">Slice boundary</div>
-      <div class="cap">the only cheap place to change the plan · advisory — nothing blocks the next slice</div>
+      <div class="gt">G6 · slice boundary, cheapest first</div>
+      <div class="cap">stops at the first step that leaves a build defect or spec gap open</div>
       <div class="lanes">
-        <div class="box green"><div class="t">Record</div><div class="s">progress.yaml</div></div>
-        <div class="box green"><div class="t">G6 · Parity</div><div class="s">AC · equivalence · upstream</div></div>
-        <div class="box green"><div class="t">Slice review</div><div class="s">Runs? · standing</div></div>
-        <div class="box green"><div class="t">Runbook</div><div class="s">S1 writes · later slices amend</div></div>
-        <div class="box advisory"><div class="t">Reorder tail</div><div class="s">logged, needs a reason</div></div>
+        <div class="box green"><div class="t">Open</div><div class="s">re-run once</div></div>
+        <div class="box green"><div class="t">Hidden</div><div class="s">per criterion</div></div>
+        <div class="box green"><div class="t">Equivalence</div><div class="s">traffic replay</div></div>
+        <div class="box green"><div class="t">Coverage</div><div class="s">slice review</div></div>
+        <div class="box green"><div class="t">Hunt</div><div class="s">bug-hunter</div></div>
+        <div class="box advisory"><div class="t">Sample</div><div class="s">you vs the reference</div></div>
       </div>
-      <div class="cap foot">↻ the upstream re-mine also runs on its own schedule</div>
+      <div class="cap foot">route.py → sdlc fix lane · rspec:amend · you · orchestrator — accepted differences in departures.yaml</div>
     </div>
   </div>
   <div class="note">↻ <b>next slice</b> — in the order <tt>plan/sequence.yaml</tt> says</div>
   <div class="arrow short"></div>
 
-  <div class="box"><div class="t">GP · Production readiness</div><div class="s">Restore + incident drills</div></div>
+  <div class="box"><div class="t">GP · Production readiness</div><div class="s">rspec's checklist · each NFR verified · drills performed</div></div>
   <div class="arrow"></div>
-  <div class="box gate"><div class="t">Gate 5 · prod-ready lock</div><div class="s">every red equivalence trace explained, or it does not lock</div></div>
+  <div class="box gate"><div class="t">Gate 5 · prod-ready lock</div><div class="s">no hidden failure, red trace or open high left unexplained</div></div>
 
   <div class="legend">
-    <div><span class="sw g"></span> Parallel / automated</div>
+    <div><span class="sw g"></span> Agents / automated</div>
     <div><span class="sw a"></span> Gate — human decision, locks</div>
-    <div><span class="sw v"></span> Advisory — you decide, nothing blocks</div>
+    <div><span class="sw v"></span> Human step in the loop</div>
   </div>
 </div>
 </body>

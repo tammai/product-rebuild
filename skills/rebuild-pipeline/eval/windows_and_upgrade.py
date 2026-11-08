@@ -123,12 +123,6 @@ check("gate-guard blocks an edit under a CRLF lock file", guard.returncode == 2,
       f"exit {guard.returncode}: {guard.stderr}")
 git("checkout", "--", "locks")
 
-# --- 3. numbered Acceptance criteria heading ----------------------------------------------
-w("plan/specs/a.md", "---\ndomains: [a]\n---\n# A\n\n## 5. Acceptance criteria\n\n1. It works.\n")
-v = run("validate.py")
-check("validate reads `## 5. Acceptance criteria`",
-      re.search(r"no `## Acceptance criteria` section", v["out"]) is None, v["out"][-800:])
-
 # --- 4. descoped + feature_notes ----------------------------------------------------------
 w("plan/progress.yaml", "slices:\n  S1: done\nfeatures:\n  F-A-001: covered\n  F-A-003: descoped\n"
   "feature_notes:\n  F-A-003: \"ruled out by the owner: no users\"\n")
@@ -152,11 +146,11 @@ w("plan/progress.yaml", "slices:\n  S1: done\n")
 commit("eval fixtures")
 
 # --- 5. upgrade: a CRLF re-checkout of a pristine copy is current --------------------------
-w("scripts/erd.py", crlf(read("scripts/erd.py")))
+w("scripts/flows.py", crlf(read("scripts/flows.py")))
 up = run("upgrade.py", "--plugin", PLUGIN)["out"]
 check("upgrade: a CRLF copy of a vendored file is not `modified`",
-      re.search(r"LOCALLY MODIFIED[\s\S]*scripts/erd\.py", up.split("UNKNOWN")[0]) is None, up)
-git("checkout", "--", "scripts/erd.py")
+      re.search(r"LOCALLY MODIFIED[\s\S]*scripts/flows\.py", up.split("UNKNOWN")[0]) is None, up)
+git("checkout", "--", "scripts/flows.py")
 
 # --- 6. upgrade: a forced partial upgrade that breaks an import is named --------------------
 # The workbench's acsuite gains two exports its own parity.py starts using, one through each

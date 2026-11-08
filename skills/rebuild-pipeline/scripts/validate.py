@@ -7,25 +7,17 @@ installed. The plugin's own copy of this file therefore works too, as long as it
 workbench root that has schemas/.
 
 Checks, in order:
-  1. Every findings/**.yaml against finding.schema.json (+ evidence rule, + evidence
-     `basis` — where the fact came from, distinct from the miner's `confidence`, +
-     a count of findings flagged `signals.instruction_shaped` — advisory, never fatal)
-  2. matrix/features.yaml against feature.schema.json
-  3. plan/slices.yaml against slice.schema.json (+ acyclic dependencies)
-  4. plan/progress.yaml against progress.schema.json (+ ids must exist upstream), and
-     plan/sequence.yaml against sequence.schema.json (+ it must be a PERMUTATION of the
-     slice ids and must satisfy every gate-2 `depends_on` edge)
-  5. contracts/**.yaml structural checks — YAML validity, duplicate keys, and every
-     $ref resolving. G5 generates code from these; nothing else in this pipeline
-     checked them, so a dangling $ref first surfaced as a codegen failure in a code
-     repo, one gate lock too late.
-  6. contracts/data-model/*.mermaid — every diagram declares entities; one must exist
-     once gate-4 is locked
-  7. adr/ against the architecture playbook — every ADR names a concern the vendored
-     playbook maps, and cites only sections that map points at
-  8. locks/gate-*.yaml against lock.schema.json
-  9. Locked-gate hash consistency: protected files must match recorded hashes
- 10. plan/autopilot.yaml against autopilot.schema.json, if present
+  1. plan/progress.yaml against progress.schema.json (+ every id must be one of rspec's features or
+     slices), and plan/sequence.yaml against sequence.schema.json (+ it must be a PERMUTATION of
+     rspec's slice ids and keep every slice dependency the stories declare)
+  2. preflight.json against preflight.schema.json, and plan/autopilot.yaml against
+     autopilot.schema.json, if present
+  3. sources.yaml `reference.posture`
+  4. the scaffold manifest the project's playbook names
+  5. locks/gate-*.yaml against lock.schema.json, and locked-gate hash consistency: protected
+     files must match recorded hashes
+
+rspec's spec in docs/ is rspec's to check (`rspec:check`); from 3.0.0 nothing here re-checks it.
 
 It is a script and not a checklist because every gate lock, the generated CI workflow and the
 autopilot loop branch on its exit code: a rule that lives in prose cannot fail a build.
@@ -141,10 +133,6 @@ def _uniq(seq):
     return list(dict.fromkeys(seq))
 
 
-def _round_half_up(x):
-    return math.floor(x + 0.5)
-
-
 def _list_dir(path):
     # sorted(): Node's readdir is alphabetical (libuv sorts), os.listdir is not.
     return sorted(os.listdir(path))
@@ -169,77 +157,6 @@ def yaml_files_under(d):
                         if f.endswith(".yaml") or f.endswith(".yml")) if os.path.isfile(p)]
 
 
-RULES_DIR = os.path.join("findings", "rules")
-
-
-def is_rule_file(f):
-    # Both separators: on Windows `join` produces backslashes while the prefix is built with
-    # a forward slash. The JS carried the same pair.
-    return f.startswith(RULES_DIR + "/") or f.startswith(RULES_DIR + "\\")
-
-
-def _domain_of(file):
-    return re.sub(r"\.ya?ml\Z", "", re.split(r"[/\\]", file)[-1])
-
-
-# --- RFC 6901 pointers over parsed contracts -------------------------------------------------------
-
-_UNDEFINED = object()
-
-
-def _js_number(seg):
-    """Number(seg) for an array index, or None for NaN."""
-    s = seg.strip()
-    if s == "":
-        return 0
-    if re.fullmatch(r"[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?", s):
-        return float(s)
-    if re.fullmatch(r"0[xX][0-9a-fA-F]+", s):
-        return int(s, 16)
-    if re.fullmatch(r"0[oO][0-7]+", s):
-        return int(s, 8)
-    if re.fullmatch(r"0[bB][01]+", s):
-        return int(s, 2)
-    return None
-
-
-def resolve_pointer(doc, pointer):
-    """RFC 6901, plus the two escapes everyone forgets. _UNDEFINED means nothing is there; an
-    explicit YAML null IS something, so a pointer ending on one resolves."""
-    if pointer == "" or pointer == "/":
-        return doc
-    node = doc
-    for raw in re.sub(r"\A/", "", pointer, count=1).split("/"):
-        seg = raw.replace("~1", "/").replace("~0", "~")
-        if node is None or not isinstance(node, (dict, list)):
-            return _UNDEFINED
-        if isinstance(node, list):
-            n = _js_number(seg)
-            if n is None or n != int(n) or not (0 <= n < len(node)):
-                return _UNDEFINED
-            node = node[int(n)]
-        else:
-            node = next((v for k, v in node.items() if _key_str(k) == seg), _UNDEFINED)
-        if node is _UNDEFINED:
-            return _UNDEFINED
-    return node
-
-
-def walk_refs(node, out, path=""):
-    if node is None or not isinstance(node, (dict, list)):
-        return out
-    if isinstance(node, list):
-        for i, v in enumerate(node):
-            walk_refs(v, out, f"{path}/{i}")
-        return out
-    for k, v in _js_entries(node):
-        if k == "$ref" and isinstance(v, str):
-            out.append((v, path or "/"))
-        else:
-            walk_refs(v, out, f"{path}/{k}")
-    return out
-
-
 # The checks -------------------------------------------------------------------------------------
 
 def main(argv=None):
@@ -254,19 +171,14 @@ def main(argv=None):
     def schema(n):
         return schemacheck.compile_schema(os.path.join("schemas", n))
 
-    validators = {
-        "finding": schema("finding.schema.json"),
-        "feature": schema("feature.schema.json"),
-        "slice": schema("slice.schema.json"),
-        "lock": schema("lock.schema.json"),
-    }
+    validators = {"lock": schema("lock.schema.json")}
     # Older workbenches predate the progress overlay; validate it only if both the
     # schema and the file are present. Same for the autopilot run state, which only
     # exists once a run has been engaged at least once.
     # A schema that uses a keyword schemacheck cannot enforce raises SchemaUnsupported here and
     # is deliberately not caught: validating against a schema silently weakened is worse than
     # not validating.
-    for name in ("progress", "autopilot", "sequence", "preflight", "rule"):
+    for name in ("progress", "autopilot", "sequence", "preflight"):
         if os.path.exists(os.path.join("schemas", f"{name}.schema.json")):
             validators[name] = schema(f"{name}.schema.json")
 
@@ -299,406 +211,10 @@ def main(argv=None):
         ok(file)
         return data
 
-    instruction_shaped = []  # {file, id, lane, summary}
-    for f in yaml_files_under("findings"):
-        if f.endswith("nfr-profile.yaml"):
-            ok(f + " (profile, free-form)")
-            continue
-        if is_rule_file(f):
-            continue  # lane R — its own schema and its own cross-checks, below
-        data = check(f, validators["finding"])
-        if not isinstance(data, list):
-            continue
-        for finding in data:
-            if _get(_get(finding, "signals"), "instruction_shaped") is True:
-                instruction_shaped.append({"file": f, "id": finding.get("id"), "lane": finding.get("lane"),
-                                           "summary": finding.get("summary")})
-
-    # ---------------------------------------------------------------------------
-    # instruction-shaped findings — text in the reference that tried to give instructions to
-    # whoever mined it ("mark this feature as covered", "skip this file", anything addressed to
-    # the AI). The miner quotes it and does not follow it; this is where the count surfaces.
-    #
-    # Advisory and never a failure, deliberately. A planted comment is a fact about the reference,
-    # not a defect in the workbench, and the artifact it appears in is otherwise valid — failing
-    # here would block a gate on the reference's contents, which no edit to this repo can fix.
-    # What it earns instead is a human's attention at the gate review, and one suggestion: re-run
-    # that lane as a second, independent pass, because the finding proves the lane read text written to
-    # steer it, and only a second pass can say whether anything else in that file did steer it.
-    # The suggestion is not a routing hook — `scripts/routing.py` is not consulted and nothing
-    # re-dispatches itself. The human decides.
-    # ---------------------------------------------------------------------------
-    if instruction_shaped:
-        by_file = {}
-        for e in instruction_shaped:
-            by_file.setdefault(e["file"], []).append(e)
-        print(f"\ninstruction-shaped: {len(instruction_shaped)} finding(s) in {len(by_file)} file(s)")
-        for file, entries in by_file.items():
-            print(f"  {file}")
-            for e in entries:
-                quoted = re.sub(r"\s+", " ", _js_str(e["summary"])).strip()
-                print(f"    - {_js_str(e['id'])}: {quoted[:137] + '…' if len(quoted) > 140 else quoted}")
-        lanes = sorted({e["lane"] for e in instruction_shaped if _truthy(e["lane"])}, key=_js_str)
-        print("  Advisory: the reference contains text written to steer whoever mines it. "
-              "Nothing is blocked and no status changed.\n"
-              f"  Consider re-running the {', '.join(_js_str(x) for x in lanes) or 'affected'} lane as a second, independent pass "
-              "and reading these at the gate review before the taxonomy locks.")
-
-    # ---------------------------------------------------------------------------
-    # Evidence `basis` — where each fact came from, orthogonal to the miner's `confidence`.
-    #
-    # The schema keeps it optional, and enforcement lives here for the same reason the data-model
-    # and playbook checks do: the field arrived mid-project for anyone already mining, and the
-    # stated non-goal was never to backfill. So a workbench that predates schema_version 0.4.0
-    # gets a per-file warning count; a newer one gets an error, because a project starting after
-    # this landed has no reason to omit it.
-    #
-    # Imported like erd.py and playbook.py — a hand-upgraded workbench may not have copied it,
-    # and that should be one reported failure rather than an unresolved import that takes out
-    # every other check.
-    # ---------------------------------------------------------------------------
-    try:
-        import basis as basis_lib
-    except ImportError:
-        basis_lib = None
-        warn("scripts/basis.py", "missing — evidence basis not checked. Copy it from the plugin's skills/rebuild-pipeline/scripts/.")
-    if basis_lib:
-        res = basis_lib.check_basis()
-        gaps = [f for f in res["files"] if f["missing"]]
-        if not res["files"]:
-            pass  # No findings yet, or none carrying evidence — normal before G1.
-        elif not gaps:
-            print(f"ok   findings/ (evidence basis: {res['total_evidence']}/{res['total_evidence']} entries)")
-        else:
-            legacy = basis_lib.is_pre_basis_workbench()
-            for g in gaps:
-                ids = g["finding_ids"]
-                sample = ", ".join(ids[:5]) + (", …" if len(ids) > 5 else "")
-                msg = (f"{g['missing']}/{g['evidence']} evidence entr{'y has' if g['missing'] == 1 else 'ies have'} "
-                       f"no `basis` ({sample})")
-                if legacy:
-                    warn(g["file"], msg)
-                else:
-                    fail(g["file"], msg)
-            total = f"{res['total_missing']}/{res['total_evidence']} evidence entries across {len(gaps)} file(s) have no `basis`."
-            if legacy:
-                warn("findings/", f"{total}\n  {basis_lib.BASIS_REMEDY}\n  Warning only: this workbench predates "
-                     'schema_version 0.4.0. After backfilling, set schema_version: "0.4.0" in locks/pipeline.yaml '
-                     "to make it enforced. Backfilling old findings is optional — the non-goal was explicit — but "
-                     "then leave the version where it is, or every re-validation will fail on history.")
-            else:
-                print(f"  {total}\n  {basis_lib.BASIS_REMEDY}", file=sys.stderr)
-
     # rspec's feature list and slices (05 P2), read the way every slice report reads them. Their shape,
     # dependency cycles included, is rspec's check_spec.py's to report, not this script's.
     import sequence as seq_lib
     features, slices = seq_lib.plan_features(), seq_lib.plan_slices()
-
-    # ---------------------------------------------------------------------------
-    # findings/rules/ — lane R's Rule Cards (E5).
-    #
-    # Schema-validated against rule.schema.json, then two cross-checks the schema cannot
-    # express, because both are about agreement BETWEEN artifacts:
-    #
-    #   - `features[]` against matrix/features.yaml. A card citing F-BILL-014 when the matrix
-    #     has no such id is a card no spec will ever find: G5 loads rules by the features in
-    #     its slice, so a dangling id makes the rule invisible exactly where it was supposed
-    #     to be used. Silent, and it survives a gate lock.
-    #   - `entities[]` against findings/ground-truth/reference-erd*.mermaid. Lane R runs after
-    #     lane D precisely so it can cite real entities; a name the ERD does not have means the
-    #     rule was inferred from a mental model of the reference rather than mined from it.
-    #
-    # Both are failures, not warnings. They are the checks that make lane R worth having — the
-    # alternative is a rules directory that validates perfectly and refers to nothing.
-    # ---------------------------------------------------------------------------
-    rule_files = [f for f in yaml_files_under("findings") if is_rule_file(f)]
-    if rule_files and "rule" not in validators:
-        fail(RULES_DIR, "findings/rules/ has files but schemas/rule.schema.json is missing — "
-             "Rule Cards are NOT being checked. Copy it from the plugin's skills/rebuild-pipeline/schemas/.")
-    elif rule_files:
-        all_rules = []  # (file, rule)
-        parsed_files = []
-        for f in rule_files:
-            data = check(f, validators["rule"])
-            if not isinstance(data, list):
-                continue  # its own schema failure is already reported
-            parsed_files.append(f)
-            for r in data:
-                all_rules.append((f, r))
-
-        # Duplicate ids across files. Per-file uniqueness is not enough: domains are separate
-        # files and an id is how a spec's acceptance criterion names a rule, so two cards
-        # answering to R-BILL-003 means an AC cites whichever one the reader happens to open.
-        seen = {}
-        for file, rule in all_rules:
-            rid = _get(rule, "id")
-            if not _truthy(rid):
-                continue
-            if rid in seen:
-                fail(file, f"duplicate rule id {rid} (also in {seen[rid]})")
-            else:
-                seen[rid] = file
-
-        feature_ids = {_get(f, "id") for f in features} if isinstance(features, list) else set()
-        if feature_ids:
-            by_file = {}
-            for file, rule in all_rules:
-                for fid in _as_list(_get(rule, "features")):
-                    if fid in feature_ids:
-                        continue
-                    by_file.setdefault(file, []).append(
-                        f"{_js_str(_get(rule, 'id'))} cites feature {_js_str(fid)}, which matrix/features.yaml does not have")
-            for file, problems in by_file.items():
-                fail(file, "\n  ".join(problems) + "\n  A rule citing a feature that does not exist is a rule "
-                     "G5 will never load — it resolves rules by the features in the slice.")
-        elif all_rules:
-            warn(RULES_DIR, "matrix/features.yaml is absent or invalid, so rule `features[]` ids were not "
-                 "cross-checked. Normal before G2; a problem once the matrix exists.")
-
-        # Entities against the reference ERD. Imported guarded, like every other sibling module.
-        try:
-            import erd as erd_lib
-        except ImportError:
-            erd_lib = None  # reported by the data-model pass below
-        gt_dir = os.path.join("findings", "ground-truth")
-        erd_files = ([os.path.join(gt_dir, f) for f in _list_dir(gt_dir)
-                      if re.match(r"reference-erd.*\.mermaid\Z", f)]
-                     if os.path.exists(gt_dir) else [])
-        if erd_lib and erd_files:
-            # Normalised comparison: the ERD writes WORK_PACKAGE and a card may say "work package"
-            # or WorkPackage. Neither spelling is wrong and failing on the difference would teach
-            # people to copy-paste rather than to cite, so the check is on identity, not on style.
-            def norm(e):
-                return re.sub(r"[^A-Z0-9]", "", _js_str(e).upper())
-
-            known = set()
-            for f in erd_files:
-                for e in erd_lib.read_erd(f)["entities"]:
-                    known.add(norm(e))
-            by_file = {}
-            for file, rule in all_rules:
-                for ent in _as_list(_get(rule, "entities")):
-                    if norm(ent) in known:
-                        continue
-                    by_file.setdefault(file, []).append(
-                        f'{_js_str(_get(rule, "id"))} names entity "{_js_str(ent)}", which no reference-erd*.mermaid declares')
-            for file, problems in by_file.items():
-                fail(file, "\n  ".join(problems) + f"\n  Checked against: {', '.join(erd_files)}. Lane R runs "
-                     "after lane D so it can cite real entities — an unknown name means the rule was inferred "
-                     "rather than mined. Fix the card, or mine the entity into the ERD if the reference has it.")
-        elif all_rules and not erd_files:
-            warn(RULES_DIR, "no findings/ground-truth/reference-erd*.mermaid, so rule `entities[]` were not "
-                 "cross-checked. Lane R is supposed to run after lane D has written one.")
-
-        # State machines, assembled from `transition` on state-transition cards. Each card is one
-        # edge in prose, so before this an entity's lifecycle was N unrelated cards and the Gate 1
-        # rubric's "no state-transition cards for an entity that clearly has a state machine" was
-        # found by a judge reading, if at all. One failure, everything else advisory:
-        #
-        #   - `transition.entity` missing from the card's own `entities[]` FAILS. Two fields on one
-        #     card disagreeing is a defect in the card, in the same register as an unknown entity.
-        #   - Unreachable states, dead ends and a missing creation edge are REPORTED. A reference can
-        #     genuinely carry an orphaned legacy state or a terminal state, and whether the rebuild
-        #     keeps it is the gate reviewer's call. Failing here would make such a reference unlockable.
-        #
-        # Only states some card names are visible: a state the schema has and no card mentions is
-        # invisible to this check too. Comparing against lane D's enum values needs a lane D field.
-        def norm_ent(e):
-            return re.sub(r"[^A-Z0-9]", "", _js_str(e).upper())
-
-        NONE = "(none)"
-        machines = {}
-        mismatched = {}
-        without_transition = 0
-        for file, rule in all_rules:
-            if _get(rule, "kind") != "state-transition":
-                continue
-            t = rule.get("transition")
-            if not _truthy(t) or not isinstance(t, dict) or not isinstance(t.get("from"), list):
-                without_transition += 1
-                continue
-            if not any(norm_ent(e) == norm_ent(t.get("entity")) for e in _as_list(rule.get("entities"))):
-                mismatched.setdefault(file, []).append(
-                    f'{_js_str(rule.get("id"))} has transition.entity "{_js_str(t.get("entity"))}", which is not in its entities[]')
-            key = f"{norm_ent(t.get('entity'))}.{_js_str(t.get('field'))}"
-            if key not in machines:
-                machines[key] = {"label": f"{_js_str(t.get('entity'))}.{_js_str(t.get('field'))}", "edges": [], "cards": []}
-            m = machines[key]
-            for frm in t["from"]:
-                m["edges"].append({"from": frm, "to": t.get("to")})
-            if rule.get("id") not in m["cards"]:
-                m["cards"].append(rule.get("id"))
-        for file, problems in mismatched.items():
-            fail(file, "\n  ".join(problems) + "\n  The state-machine check files the edge under transition.entity, "
-                 "and entities[] is what G5 loads the card by — they have to name the same thing.")
-        if machines:
-            print("\nstate machines (advisory — read beside Gate 1's D6):")
-            for m in machines.values():
-                into = _uniq(e["to"] for e in m["edges"])
-                out_of = _uniq(e["from"] for e in m["edges"] if e["from"] != NONE)
-                states = _uniq([*into, *out_of])
-                unreachable = [s for s in out_of if s not in into]
-                dead_ends = [s for s in into if s not in out_of]
-                created = any(e["from"] == NONE for e in m["edges"])
-                print(f"  {m['label']}: {len(states)} state(s), {len(m['edges'])} edge(s) from {len(m['cards'])} card(s)")
-                if unreachable:
-                    print(f"    unreachable — no card moves into: {', '.join(_js_str(s) for s in unreachable)}")
-                if dead_ends:
-                    print(f"    dead ends — no card moves out of: {', '.join(_js_str(s) for s in dead_ends)} (confirm they are terminal)")
-                if not created:
-                    print(f"    no creation edge — no card has from: [{NONE}], so nothing says which state a new record starts in")
-        if without_transition:
-            print(f"  {without_transition} state-transition card(s) carry no `transition` and are not part of "
-                  "the state-machine check. Expected for cards mined before it existed; new lane R runs fill it in.")
-
-        # Judge verification state. Advisory and always will be: `re-derived` is set by
-        # rubric-judge, which runs AFTER this validator passes, so a pre-judge run showing every
-        # card pending is the normal case and failing on it would make the gate unreachable.
-        # What it is for is the gate review — a human reading "12 of 14 re-derived" knows two
-        # citations were never opened by anything.
-        pending = [(f, r) for f, r in all_rules
-                   if (_get(r, "verification") if _truthy(_get(r, "verification")) else "pending") == "pending"]
-        total = len(all_rules)
-        if total:
-            skipped = len(rule_files) - len(parsed_files)
-            skipped_note = f", {skipped} file(s) skipped for schema failures above" if skipped else ""
-            print(f"ok   {RULES_DIR}/ ({total} rule card(s) in {len(parsed_files)} file(s){skipped_note}; "
-                  f"{total - len(pending)}/{total} re-derived by the judge)")
-
-            # Which side of the behavior each domain's cards are on. Error handlers and fallback
-            # defaults are the rules a rebuild drops with no test failing, and before `path_kind` a
-            # domain with none of them looked exactly like a domain fully mined. Advisory: a domain can
-            # genuinely have no error path, but the Gate 1 reviewer should see the zero, not infer it.
-            by_domain = {}
-            for file, rule in all_rules:
-                domain = _domain_of(file)
-                d = by_domain.setdefault(domain, {"normal": 0, "error": 0, "default": 0, "invariant": 0})
-                pk = _get(rule, "path_kind")
-                side = pk if pk in ("error", "default") else "normal"
-                d[side] += 1
-                if _get(rule, "kind") == "invariant":
-                    d["invariant"] += 1
-            for domain, d in by_domain.items():
-                inv = f"; {d['invariant']} invariant(s)" if d["invariant"] else ""
-                no_err = "" if d["error"] else " — no error-path cards; name it in the Gate 1 review if its routes document error responses"
-                print(f"  {domain}: {d['normal']} normal, {d['error']} error-path, {d['default']} default{inv}{no_err}")
-            if pending:
-                ids_shown = ", ".join(_js_str(r.get("id")) for _, r in pending[:12])
-                more = ", …" if len(pending) > 12 else ""
-                print(f"  {len(pending)} card(s) still `verification: pending` — no agent has opened "
-                      f"their citation:\n    {ids_shown}{more}\n  Advisory. rubric-judge sets this at gate time; read it "
-                      "beside the gate-1 review, not as a failure.")
-
-    # ---------------------------------------------------------------------------
-    # plan/specs/**/*.md — the `rule_id` join between G5's acceptance criteria and lane R.
-    #
-    # Two different things are reported here and only one of them is a failure:
-    #
-    #   - A criterion citing a `rule_id` that no Rule Card has is a FAILURE. It is a dangling
-    #     reference with the same consequence as a dangling $ref in a contract: it reads as
-    #     traceability and traces to nothing.
-    #   - Criteria with NO `rule_id`, in a spec whose domains have cards, are COUNTED and
-    #     reported as a percentage — never failed. Plenty of criteria legitimately implement no
-    #     rule (a response header, a pagination default), so a threshold here would be a number
-    #     invented by this script rather than measured. The spec's own target is >= 80% of AC in
-    #     rule-bearing slices carrying one; this prints the figure so a human can hold it to that
-    #     at the gate review.
-    #
-    # Specs live in the workbench, not the code repos, for the reason parity/flows/ does: they
-    # describe the product. That is also what makes this check possible at all.
-    # ---------------------------------------------------------------------------
-    spec_files = []
-    specs_dir = os.path.join("plan", "specs")
-    if os.path.exists(specs_dir):
-        spec_files = [p for p in (os.path.join(specs_dir, f) for f in _readdir_recursive(specs_dir)
-                                  if f.endswith(".md")) if os.path.isfile(p)]
-    if spec_files:
-        rule_ids = set()
-        domains_with_rules = set()
-        invariant_ids = []
-        for f in (x for x in yaml_files_under("findings") if is_rule_file(x)):
-            try:
-                data = yamlio.load(read_text(f))
-            except Exception:
-                continue
-            if not isinstance(data, list):
-                continue
-            # Domain is the filename (findings/rules/<domain>.yaml) — the same key a spec's
-            # `domains:` frontmatter uses, which is what makes "does this spec's domain have rules"
-            # answerable without a second index nobody would maintain.
-            domain = _domain_of(f)
-            for r in data:
-                if _truthy(_get(r, "id")):
-                    rule_ids.add(r["id"])
-                    domains_with_rules.add(domain)
-                    if r.get("kind") == "invariant" and r["id"] not in invariant_ids:
-                        invariant_ids.append(r["id"])
-        cited_ids = set()
-
-        ac_total = ac_with_rule = ac_in_rule_domains = ac_in_rule_domains_with_rule = 0
-        for f in spec_files:
-            text = read_text(f)
-            fm = re.match(r"---\n(.*?)\n---", text, re.S)
-            dm_ = re.search(r"^domains:\s*\[?(.*?)\]?\s*$", fm.group(1), re.M) if fm else None
-            domains_line = (dm_.group(1) if dm_ else "") or ""
-            domains = [d for d in (re.sub(r"^[\"']|[\"']\Z", "", x.strip()) for x in domains_line.split(",")) if d]
-            rule_bearing = any(d in domains_with_rules for d in domains)
-
-            # The AC section runs from its heading to the next heading of the same level or EOF. A
-            # numbered heading (`## 5. Acceptance criteria`) counts: specs number their sections, and
-            # matching only the bare title dropped every criterion of a numbered spec from the figures
-            # below with a warning that read as a missing section. Same pattern as lane_plan.py's
-            # acceptance_criteria — change both together.
-            sec = next((c for c in re.split(r"^##\s+", text, flags=re.M)[1:]
-                        if re.match(r"(?:[0-9]+[a-z]?\.\s*)?acceptance criteria\s*\Z", c.split("\n")[0].strip(), re.I)), None)
-            if sec is None:
-                warn(f, "no `## Acceptance criteria` section — spec-writer's output contract requires one, "
-                     "and without it this spec's criteria are not counted in the rule_id figures below.")
-                continue
-            # [1:] skips the heading line: `5. Acceptance criteria` matches the item pattern, so the Node
-            # original counted every numbered-heading spec as one criterion too many, with no rule_id.
-            items = [ln for ln in sec.split("\n")[1:] if re.match(r"\s*(?:[0-9]+\.|[-*])\s+\S", ln)]
-            problems = []
-            for item in items:
-                ac_total += 1
-                if rule_bearing:
-                    ac_in_rule_domains += 1
-                cited = re.findall(r"rule_id:\s*(R-[A-Z0-9]+-[0-9]{3})", item)
-                if not cited:
-                    continue
-                ac_with_rule += 1
-                if rule_bearing:
-                    ac_in_rule_domains_with_rule += 1
-                for rid in cited:
-                    cited_ids.add(rid)
-                    if rid not in rule_ids:
-                        problems.append(f"cites rule_id {rid}, which no Rule Card in findings/rules/ defines")
-            if problems:
-                fail(f, "\n  ".join(problems) + "\n  A criterion citing a card that does not exist reads as "
-                     "traceability and traces to nothing. Fix the id, or mine the rule (gate-1 reopen if it is locked).")
-            else:
-                ok(f)
-
-        if ac_in_rule_domains:
-            pct = _round_half_up((ac_in_rule_domains_with_rule / ac_in_rule_domains) * 100)
-            without = ac_in_rule_domains - ac_in_rule_domains_with_rule
-            print(f"\nrule_id coverage: {ac_in_rule_domains_with_rule}/{ac_in_rule_domains} acceptance criteria "
-                  f"({pct}%) in rule-bearing domains cite a rule_id; {without} do not.")
-            print("  Advisory — plenty of criteria implement no rule. The target for a slice touching a "
-                  "domain with cards is 80%; below that, read it as rules that reached G1 and then went unused.")
-        elif ac_total:
-            print(f"\nrule_id coverage: not applicable — {ac_total} acceptance criteria, none in a domain "
-                  "that has Rule Cards.")
-
-        # An invariant has no trigger, so no single module "owns" it: every module that writes its
-        # entities must test it (g5-build.md). One that no criterion cites anywhere is a property
-        # nothing in the build checks. Advisory, because before the first slice that writes the
-        # entity, being uncited is the expected state.
-        uncited_invariants = [i for i in invariant_ids if i not in cited_ids]
-        if uncited_invariants:
-            print(f"\ninvariants no acceptance criterion cites yet ({len(uncited_invariants)}): "
-                  f"{', '.join(uncited_invariants)}\n  Advisory — expected until a slice writes their entities; "
-                  "after that, every spec for a module that writes one should cite it.")
 
     # The mutable progress overlay. A typo'd id here would silently never match a
     # feature, so every key must resolve against the locked artifacts.
@@ -819,138 +335,6 @@ def main(argv=None):
         check("plan/autopilot.yaml", validators["autopilot"])
 
     # ---------------------------------------------------------------------------
-    # contracts/ — the artifacts G5 generates code from.
-    #
-    # Deliberately NOT a full OpenAPI/AsyncAPI spec validator: that needs a real
-    # dependency, and the plugin ships none. What it does check is the class of
-    # defect that actually costs a slice — a $ref pointing at nothing. That is
-    # invisible to a YAML parse, invisible to review, and shows up as a codegen
-    # error in a code repo after the gate is locked and the tag is pinned.
-    # ---------------------------------------------------------------------------
-    contract_docs = {}  # path -> parsed doc, so cross-file refs parse once
-
-    def load_contract(file):
-        if file in contract_docs:
-            return contract_docs[file]
-        doc = None
-        try:
-            doc = yamlio.load(read_text(file))
-        except Exception:
-            pass  # reported by its own pass
-        contract_docs[file] = doc
-        return doc
-
-    for file in yaml_files_under("contracts"):
-        # yamlio raises on a duplicate key, where a plain parse silently resolves last-wins.
-        # Two operations sharing a path key, or a schema defined twice, is exactly the merge
-        # accident this catches.
-        try:
-            doc = yamlio.load(read_text(file))
-        except Exception as e:
-            fail(file, str(e))
-            continue
-        if doc is None or not isinstance(doc, (dict, list)):
-            ok(file + " (empty)")
-            continue
-        contract_docs[file] = doc
-
-        problems = []
-        for ref, at in walk_refs(doc, []):
-            parts = ref.split("#")
-            target = parts[0]
-            pointer = parts[1] if len(parts) > 1 else ""
-            if ref.startswith("http://") or ref.startswith("https://"):
-                continue  # remote: not ours to resolve
-            if target == "":
-                if resolve_pointer(doc, pointer) is _UNDEFINED:
-                    problems.append(f"dangling $ref at {at}: {ref}")
-                continue
-            other = os.path.abspath(os.path.join(os.path.dirname(file), target))
-            if not os.path.exists(other):
-                problems.append(f"$ref at {at} points at a missing file: {ref}")
-                continue
-            other_doc = load_contract(other)
-            if other_doc is None:
-                problems.append(f"$ref at {at} targets an unparseable file: {ref}")
-                continue
-            if pointer and resolve_pointer(other_doc, pointer) is _UNDEFINED:
-                problems.append(f"dangling cross-file $ref at {at}: {ref}")
-
-        # Kind-specific checks, only where the document declares its kind. A contract
-        # file that is neither (the data-model prose files are .md, but be tolerant)
-        # still gets the YAML + $ref pass above, which is the valuable part.
-        openapi, asyncapi = _get(doc, "openapi"), _get(doc, "asyncapi")
-        if isinstance(openapi, str):
-            if not re.match(r"3\.", openapi):
-                problems.append(f"unexpected OpenAPI version: {openapi}")
-            declared = set(_js_keys(_get(_get(doc, "components"), "securitySchemes") or {}))
-            seen_op_ids = {}
-            for p, item in _js_entries(_get(doc, "paths") or {}):
-                if item is None or not isinstance(item, (dict, list)):
-                    continue
-                for m in ("get", "put", "post", "delete", "patch", "options", "head", "trace"):
-                    op = _get(item, m)
-                    if not _truthy(op) or not isinstance(op, (dict, list)):
-                        continue
-                    where = f"{m.upper()} {p}"
-                    op_id = _get(op, "operationId")
-                    if not _truthy(op_id):
-                        problems.append(f"{where}: missing operationId")
-                    elif op_id in seen_op_ids:
-                        problems.append(f'duplicate operationId "{op_id}" ({seen_op_ids[op_id]} and {where})')
-                    else:
-                        seen_op_ids[op_id] = where
-                    responses = _get(op, "responses")
-                    if not _truthy(responses) or not len(_js_keys(responses) if isinstance(responses, dict) else responses):
-                        problems.append(f"{where}: no responses declared")
-                    for req in [*_as_list(_get(op, "security")), *_as_list(_get(doc, "security"))]:
-                        for name in _js_keys(req if _truthy(req) else {}):
-                            if name not in declared:
-                                problems.append(f'{where}: security scheme "{name}" is not in components.securitySchemes')
-        elif isinstance(asyncapi, str):
-            if not _js_keys(_get(doc, "channels") or {}):
-                problems.append("asyncapi document declares no channels")
-
-        if problems:
-            fail(file, "\n  ".join(problems))
-        else:
-            ok(file)
-
-    # ---------------------------------------------------------------------------
-    # contracts/data-model/ — the artifact G4b drafts BEFORE the three contract layers.
-    #
-    # Existence is required only once gate-4 is locked: before that there is legitimately
-    # nothing here, and this script runs after every mining batch. The check that actually
-    # prevents a bad lock lives in gate.py, which refuses to lock gate-4 without a data
-    # model — by the time a locked gate-4 fails here, the tag is already cut.
-    #
-    # Entities, not just an `erDiagram` header: a stub satisfies the header forever.
-    # ---------------------------------------------------------------------------
-    # Imported here rather than at the top so a hand-upgraded workbench that copied this file
-    # without erd.py still runs every other check and reports the gap as one failure, instead
-    # of dying on an unresolved import before the first artifact is read.
-    try:
-        import erd
-    except ImportError:
-        erd = None
-        fail("scripts/erd.py", "missing — data model not checked. Copy it from the plugin's skills/rebuild-pipeline/scripts/.")
-    if erd:
-        # From 3.0.0 gate-4 locks rspec's schemas/, not this folder, so a missing data model is no
-        # longer an error once it locks; a file that is here is still checked.
-        dm = erd.check_data_model()
-        issues = list(dm["problems"])
-        if issues:
-            body = "\n  ".join(issues) + f"\n  {erd.DATA_MODEL_REMEDY}"
-            if erd.is_legacy_workbench():
-                warn(erd.DATA_MODEL_DIR, f"{body}\n  Warning only: this workbench predates schema_version 0.2.0. "
-                     'After adding the data model, set schema_version: "0.2.0" in locks/pipeline.yaml to make it enforced.')
-            else:
-                fail(erd.DATA_MODEL_DIR, body)
-        else:
-            for f in dm["files"]:
-                ok(f)
-
-    # ---------------------------------------------------------------------------
     # sources.yaml `reference.posture` (05 P3). The P3 guard reads it to decide whether a build lane
     # may read the reference checkout, and it treats an unknown value as the strictest posture; a typo
     # here would otherwise read as a decision nobody made. own-code with a third-party reference is
@@ -975,58 +359,25 @@ def main(argv=None):
             ok(f"sources.yaml (reference.posture: {posture or ('own-code' if kind == 'own-code' else 'observe')})")
 
     # ---------------------------------------------------------------------------
-    # adr/ against the architecture playbook.
-    #
-    # G4a is playbook-driven: `sources.yaml` names a playbook, G4a vendors it to
-    # `adr/playbook.md`, and its `concerns:` map is the list of ADRs the phase owes. Three
-    # things are checkable and none of them were before 0.11.0:
-    #   - the vendored copy exists and parses (without it, "cites §7" names nothing)
-    #   - every ADR declares which concern it decides, and it is a concern the map has
-    #   - every `§` an ADR cites is a section that map actually points at
-    # The last one is the check that makes a swapped playbook safe. It cannot catch a
-    # plausible-looking wrong section — §8 means storage in one playbook and auth in another —
-    # only one the map never names at all. That is why the vendored copy is hashed into Gate 3:
-    # the check narrows the window, the hash closes it.
-    #
-    # Imported like erd.py, for the same reason: a hand-upgraded workbench may not have copied
-    # it, and that should be one reported failure rather than an unresolved import that takes
-    # out every other check.
+    # adr/ — the vendored playbook and its scaffold manifest (no ADRs: those are rspec's
+    # docs/decisions/). scaffold-repo creates every code repo from that manifest, so a broken one
+    # fails here rather than at G5 when the first lane needs a repo. Its absence is normal until
+    # `playbook.py vendor` runs before rspec:tech; gate-3 is where it becomes fatal.
     # ---------------------------------------------------------------------------
-    try:
-        import playbook as pb
-    except ImportError:
-        pb = None
-        fail("scripts/playbook.py", "missing — architecture playbook not checked. Copy it from the plugin's skills/rebuild-pipeline/scripts/.")
-    if pb:
-        VENDORED_PLAYBOOK = pb.VENDORED_PLAYBOOK
-        res = pb.check_playbook()
-        scaffold = res.get("scaffold")
-        if res["disabled"]:
-            ok(f"{VENDORED_PLAYBOOK} (architecture.playbook: none — G4a runs blank-slate, no playbook to check)")
-            # The project's own manifest is checked once it exists; its absence is normal until G4a.
-            if scaffold and not scaffold["missing"] and scaffold["problems"]:
-                fail(scaffold["path"], "\n  ".join(scaffold["problems"]))
-            elif scaffold and not scaffold["missing"]:
-                ok(f"{scaffold['path']} (scaffold manifest)")
-        else:
-            # A missing vendored copy is not an error: from 3.0.0 the playbook reaches rspec:tech as a
-            # stack preference and gate-3 locks rspec's docs/decisions/, so nothing hashes adr/playbook.md.
-            issues = list(res["problems"])
-            meta = res.get("meta")
-            if issues:
-                body = "\n  ".join(issues) + f"\n  {pb.PLAYBOOK_REMEDY}"
-                if pb.is_pre_playbook_workbench():
-                    warn(VENDORED_PLAYBOOK, f"{body}\n  Warning only: this workbench predates schema_version 0.3.0. "
-                         'After backfilling, set schema_version: "0.3.0" in locks/pipeline.yaml to make it enforced.')
-                else:
-                    fail(VENDORED_PLAYBOOK, body)
-            elif res["missing_vendored"]:
-                by_default = ", the org default, since sources.yaml names none" if res["selected_by"] == "default" else ""
-                ok(f'{VENDORED_PLAYBOOK} (not vendored yet — G4a copies the "{res["selected"]}" playbook here{by_default})')
-            else:
-                ok(f"{VENDORED_PLAYBOOK} ({_js_str(_get(meta, 'playbook'))} via {res['selected_by']}, "
-                   f"{len(_get(meta, 'concerns') or {})} concerns, {len(res['adrs'])} ADR(s), "
-                   f"{len(res['undecided'])} concern(s) still undecided)")
+    import playbook as pb
+    res = pb.check_playbook()
+    scaffold = res.get("scaffold")
+    if res["problems"]:
+        fail(pb.VENDORED_PLAYBOOK if not res["disabled"] else pb.SCAFFOLD_LOCAL,
+             "\n  ".join(res["problems"]) + f"\n  {pb.PLAYBOOK_REMEDY}")
+    elif res["disabled"] and scaffold and scaffold["missing"]:
+        ok(f"{pb.SCAFFOLD_LOCAL} (architecture.playbook: none — not written yet)")
+    elif res["disabled"] and scaffold and scaffold["problems"]:
+        fail(scaffold["path"], "\n  ".join(scaffold["problems"]))
+    elif res["missing_vendored"]:
+        ok(f'{pb.VENDORED_PLAYBOOK} (not vendored yet — `python3 scripts/playbook.py vendor` copies "{res["selected"]}")')
+    elif scaffold:
+        ok(f"{scaffold['path']} (scaffold manifest)")
 
     for f in (x for x in yaml_files_under("locks") if re.search(r"gate-[0-9]\.yaml\Z", x)):
         lock = check(f, validators["lock"])

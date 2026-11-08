@@ -552,9 +552,9 @@ def cmd_sdlc_config(args) -> None:
                            "for one of them (PRD, constitution, commands, CI, plugin keys), take the answer here and go on. "
                            "Stop only for what they leave open, in one batch",
              "docs_dir": SDLC_DOCS,
-             "prd": f"a pointer to the workbench's product docs ({wb}/matrix/features.yaml and the gate-2 artifacts), "
+             "prd": f"a pointer to the workbench's product docs ({wb}/docs/features.md, {wb}/docs/build-plan.md and the stories in {wb}/docs/features/), "
                     "written from sdlc's PRD template with every section linking there; never a restatement",
-             "constitution": f"from the Gate 3 ADRs ({wb}/adr/): each ADR's decision is a principle; add nothing they do not say",
+             "constitution": f"from the Gate 3 ADRs ({wb}/docs/decisions/): each ADR's decision is a principle; add nothing they do not say",
              "design_system": "from the UI ADR and the playbook, when the repo has UI; else not applicable",
              "plugin_keys": "the team file (.claude/settings.json), so every session on this repo has sdlc",
              "ci": "sdlc's (builtin:ci) from these commands, nothing added: sdlc's verify already fails an AC with no test, "

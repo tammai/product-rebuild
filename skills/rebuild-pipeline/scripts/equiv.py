@@ -817,8 +817,8 @@ def main(argv=None):
         reqs = _request_files(feature_id)
         if not reqs:
             print(f"No *.request.yaml under {_join(EQUIV_DIR, feature_id)}/.\n\n"
-                  "A trace is recorded FROM a request you author, out of the feature's UX flows and its "
-                  "Rule Cards — this script drives the legacy system, it does not invent the traffic. One "
+                  "A trace is recorded FROM a request you author, out of the feature's criteria in "
+                  "docs/features/ — this script drives the legacy system, it does not invent the traffic. One "
                   "file per behavior worth proving:\n\n"
                   f"  {_join(EQUIV_DIR, feature_id, 'issue-invoice.request.yaml')}\n\n"
                   f"    feature: {feature_id}\n"
