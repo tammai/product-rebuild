@@ -224,7 +224,8 @@ history: `holdout.py split` refuses while git still holds any of them as an obje
 those commits out with the user (and from any remote), then run
 `git reflog expire --expire=now --all && git gc --prune=now` so no unreachable copy is left, before lanes hold
 the workbench. Run the pipeline as the same OS user throughout: the holdout's location is in that user's data
-folder.
+folder. Set `PRODUCT_REBUILD_DATA` in every session's environment, lane sessions included, or in none: a lane
+session without it reads the default folder's config, and its guard would not know a holdout kept elsewhere.
 
 ## Design rules the plugin enforces (so you don't have to)
 

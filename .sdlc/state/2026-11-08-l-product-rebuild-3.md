@@ -11,7 +11,7 @@ Base: 3274d37
 Owner: tammai.it@gmail.com
 Tool: claude-code
 Slice: B6   Slice base: 953e3cf   Slice gates: none
-Current: Stage 2 – Build
+Current: Stage 3 – Review
 
 ## Stages
 - [x] 1 Define   — the change file, the plan sections below
@@ -81,6 +81,7 @@ parts in fresh sessions: each backlog part is its own coordinator task
 - 2026-11-09 review round 2 (cap): code FAIL N1, N2; security FAIL S1, S2, S3, S4, S8 (same components as round 1). Stopped per the review rule; redesign proposal and N1/N2 decisions sent to the coordinator; the rest are tickets in the change file's ## Review
 - 2026-11-09 Stage 2: pass
 - 2026-11-09 Stage 3: fail
+- 2026-11-09 Stage 2: pass
 
 ## Deviations
 - 2026-11-08 surface What: script-internal functions allowed, bash_reaches, check, denied, denied_roots, guard, init_repo, is_lane, main, marked, posture_of, run, set_reference, tool_reaches, w (hooks/scripts/reference_guard.py and the evals) read as new exports. Why: they are functions inside a hook and eval scripts, imported by nothing. Effect: none; Public Surface unchanged.
@@ -133,6 +134,7 @@ parts in fresh sessions: each backlog part is its own coordinator task
 - 2026-11-09 R1: the holdout is a git repo in a per-user data folder (PRODUCT_REBUILD_DATA, else %LOCALAPPDATA% or XDG_DATA_HOME/product-rebuild/holdouts/<project>-<random hex>), named only in that folder's holdouts.json keyed by the workbench's real path; P4's sibling <project>-holdout repo is gone (coordinator decision R1). The guard denies the whole data folder and every configured holdout; the hidden manifest entries are kept in the holdout repo's hidden.json for reconcile.
 - 2026-11-09 R3: lanes no longer use run_phases.py at all (it refuses outside the workbench root and writes its run folder there); a lane's own multi-step run is one background command in its worktree. The orchestrator writes phases.txt, stamps, starts the joint run and the rerun, and opens helper lanes with lane_plan.py.
 - 2026-11-09 R4: the gate-4 lock runs reconcile and, when it changed the manifest, refuses once asking for a commit (the lock wants a clean tree) instead of committing for the user.
+- 2026-11-09 Redesign round d33127c was not built test-first: the R1-R4 code came before its eval checks, and the R2 reflog check was not watched failing on the old code. The fix round 492ad4c was test-first (each new check seen failing before the fix).
 
 ## Open questions
 -
