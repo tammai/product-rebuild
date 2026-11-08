@@ -149,6 +149,7 @@ Details the spec left open, fixed here so every consumer reads them the same way
 | Source tags by ID | A spec-backed ID (`F-….AC<n>`) takes the reverse-spec tags; a standalone ID (`AC-<nnn>`) takes the forward-spec tags. rspec accepts only spec-backed IDs. |
 | Example data | A quoted string, a digit, or a `` `state` `` code span in the `then` clause. With `--domain`, a code span must be a `` `state` `` written in `domain.md`. Severity by `--profile`: error in `rspec` and `sdlc-l`, warning in `sdlc-s` and `sdlc-m`. |
 | `text_sha256` | SHA-256 (UTF-8) of the criterion line after `**<ID>**`, stripped of surrounding whitespace, tags included. Ticking the checkbox does not change it. |
+| Lock paths | `spec` is relative to the repo root; each criterion's `file` is relative to `spec`. `lock --root <repo>` names the root (default: the current folder). |
 | `priority` | `MVP`, `Later`, `Drop`, or `null` (standalone sdlc). |
 | `manifest.json` | `{"contracts": "1.x.y", "tests": [<entry>…]}`. A runner's files live in its folder: `http/*.yaml`, `e2e/*.spec.ts`, `mobile/*.yaml`, `cli/*.yaml`. |
 | Account variables | `ACCEPT_ACCOUNT_<NAME>` holds one header line, `Name: value` (`Authorization: Bearer …` or `Cookie: sid=…`). |
@@ -156,7 +157,7 @@ Details the spec left open, fixed here so every consumer reads them the same way
 | Match rules | `uuid`, `int`, `iso8601`, `same-as:<capture>`, and `regex:<pattern>` (C5 uses it). `same-as` and `{capture}` in a path name only an earlier capture. |
 | Seeds | A seed file listed by an HTTP test uses the replay format without `criterion` (`steps:` only); `run-http` runs it first. |
 | Must never break | Each line carries an `MNB-<n>` ID and names `test: …` or `check: …`. |
-| Departure status | `proposed` or `accepted`. A proposed entry has no `decided_by`; it prints `blocked:` and exits 1. |
+| Departure status | `proposed` or `accepted`; omitted means `accepted` (C5's example has none). An accepted entry needs `decided_by`; a proposed entry has none, prints `blocked:` and exits 1. |
 | `verified_by` | `{agent, result}`; `result` is `reproduced`, `not-reproduced` or `not run: <reason>`. Only `reproduced` is routed. |
 | Exit codes | `0` no errors (warnings allowed) · `1` errors, `blocked`, or failed tests · `2` usage. |
 
