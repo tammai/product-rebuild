@@ -25,7 +25,10 @@ criterion with a pass and a failure at level 1), so flaky ones are never hidden 
 
 RECONCILE puts the hidden entries back after rspec:verify rebuilds the manifest without them (rspec has no
 notion of a hidden test, and no rspec change is wanted for one), from the copy the split kept in the
-holdout repo, and re-pins the record's manifest hash so gate-4 can relock.
+holdout repo, and re-pins the record's manifest hash so gate-4 can relock. Re-pinning is decided (coordinator,
+M-2): every manifest change after the split passes through reconcile, so gate-4's "manifest changed after the
+split" refusal fires only when reconcile refuses (a hidden criterion open again, a hidden file changed, the
+holdout not found). The seed and list hash stay as the split drew them.
 
 RUN reports per criterion, never with test content: a failure says what the build did (`HTTP status
 500`, `/key was "X"`), never what the test wanted, because a report a lane reads must not turn a hidden

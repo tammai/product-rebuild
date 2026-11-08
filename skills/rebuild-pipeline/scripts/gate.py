@@ -358,7 +358,8 @@ def _lock_gate4_checks(gid, argv):
     # The hidden tests are drawn before this lock, and the lock pins the draw (05 P4): the manifest it
     # hashes must be the one the split left, or the recorded list describes a different bundle. A re-verify
     # after an amend rebuilds the manifest without the hidden entries; reconcile restores them and re-pins
-    # the record, and the lock then wants both committed (it refuses a dirty tree).
+    # the record, and the lock then wants both committed (it refuses a dirty tree). So the hash check below
+    # refuses only a manifest reconcile did not re-pin, i.e. when reconcile itself refused.
     try:
         import holdout
         changed, err = holdout.reconcile()

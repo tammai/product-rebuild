@@ -11,7 +11,7 @@ Base: 3274d37
 Owner: tammai.it@gmail.com
 Tool: claude-code
 Slice: B6   Slice base: 953e3cf   Slice gates: none
-Current: Stage 3 – Review
+Current: Stage 2 – Build
 
 ## Stages
 - [x] 1 Define   — the change file, the plan sections below

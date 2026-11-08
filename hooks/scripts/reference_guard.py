@@ -14,7 +14,8 @@ its own session). Everything else, the orchestrator and rspec's agents included,
 `observe` the spec side is meant to read the reference.
 
 WHAT IS DENIED. The per-user data folder that holds the hidden tests and the local config naming them
-(hooklib.rebuild_data_dir), and every holdout folder that config names, under every posture and whether
+(hooklib.rebuild_data_dir), every holdout folder that config names, and the rc-era sibling
+`<parent>/<project>-holdout`, under every posture and whether
 or not they exist yet. The reference checkout unless `sources.yaml` `reference.posture` is own-code (empty
 means own-code for `reference.kind: own-code`, else observe; an unknown value counts as strict, the
 narrower reading): `reference.checkout`, plus the fallbacks scripts/preflight.py would find that are
@@ -29,7 +30,7 @@ IT IS A GUARD, NOT A SANDBOX. Read, Grep, Glob and the write tools are judged by
 search root or glob that holds a denied path counts. Bash is judged by the directory each simple command
 runs in (after `cd`), by every word that resolves to a path (a glob, or an operand of a recursive reader,
 that holds a denied path counts), by the write targets of writing commands, and by any denied path
-spelled in the raw text in any separator or drive spelling, plus each holdout folder's own name. PowerShell
+spelled in the raw text in any separator or drive spelling, plus each holdout folder's own name (the rc-era `<project>-holdout` included). PowerShell
 is judged by its words and raw text. Known limits, listed in the README and docs/MIGRATION-3.md: a path
 computed at run time (`$X`, `$(…)`, `%LOCALAPPDATA%`), a script that opens the path itself, a recursive
 reader or writer not listed below, a nested shell, a Windows short name (`PRODUCT~1`), or a tool other than
@@ -124,9 +125,20 @@ def holdout_roots():
     return [rebuild_data_dir()] + sorted(set(holdout_config().values()))
 
 
+def old_holdout(wb):
+    """`<parent>/<project>-holdout`, where a 3.0.0 release candidate split the hidden tests before they moved to
+    the data folder. Still denied, so a workbench split under an rc keeps its holdout out of the lanes' reach."""
+    try:
+        m = re.search(r"^project:[ \t]*(\S+)", read_text(os.path.join(wb, "locks", "pipeline.yaml")), re.M)
+    except OSError:
+        m = None
+    name = re.sub(r"-workbench\Z", "", m.group(1).strip("\"'") if m else os.path.basename(wb))
+    return os.path.join(os.path.dirname(wb), f"{name}-holdout")
+
+
 def denied_roots(wb):
     parent = os.path.dirname(wb)
-    roots = holdout_roots()
+    roots = holdout_roots() + [old_holdout(wb)]
     if posture_of(wb) != "own-code":
         own = {_key(r) for r in listed_repos([wb])}
         checkout = _sources_field(wb, "checkout")
@@ -310,7 +322,7 @@ def main():
     roots = list(dict.fromkeys(r for wb in wbs for r in denied_roots(wb)))
     if not roots:
         return 0
-    names = sorted({os.path.basename(h.rstrip(r"\/")) for h in holdout_config().values()})
+    names = sorted({os.path.basename(h.rstrip(r"\/")) for h in list(holdout_config().values()) + [old_holdout(wb) for wb in wbs]})
     wb_keys = [_key(wb) for wb in wbs]
     cwd = command_dir(data)
     command = get(call.input, "command")

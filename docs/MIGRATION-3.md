@@ -65,7 +65,10 @@ or interpreter that opens the file itself, a recursive reader or writer it does 
 (`bash -c`, `cmd /c`, `powershell -c` with the path built inside), or a Windows short name (`PRODUCT~1`). The
 list is not grown further. The hidden tests now live in a per-user data folder named only in that folder's
 `holdouts.json` (the redesign after 3.0's review round 2, a deviation from P4's sibling repo), so a lane is never
-handed their path, and the guard is the second line. A folder with `locks/` but no readable `rebuild_major`
+handed their path, and the guard is the second line; it still denies the old sibling `<project>-holdout`, for
+a workbench split under a release candidate. After an amend's re-verify, `holdout.py reconcile` restores the
+hidden entries and re-pins the split record's manifest hash, so Gate 4's "manifest changed after the split"
+refusal fires only when reconcile refuses. A folder with `locks/` but no readable `rebuild_major`
 marker counts as a workbench to the guard, so deleting the marker does not switch it off.
 
 ## Unchanged, with no eval in 2.x or 3.0

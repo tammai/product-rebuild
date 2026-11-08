@@ -35,8 +35,12 @@ capability went is in `docs/MIGRATION-3.md`.
   passes the playbook's stack line as rspec's `stack` preference.
 - **Hidden tests** (05 P4, D4): `holdout.py split`, run after `rspec:check` and before the gate-4 lock, hides
   ceil(25%) of each slice's level 2 tests (at least one per feature with three or more criteria), drawn from a
-  seed, in a git repo `<project>-holdout/` beside the workbench that no code repo may contain or reference.
-  Gate 4 refuses until the split matches the manifest and records seed, count and list hash. `holdout.py run
+  seed, in a git repo in the per-user data folder (`%LOCALAPPDATA%` or `$XDG_DATA_HOME`, `product-rebuild/holdouts/`,
+  or `$PRODUCT_REBUILD_DATA`), named only in that folder's `holdouts.json`, that no code repo may contain or
+  reference. The split refuses while git still holds a hidden test as an object, reachable or not.
+  Gate 4 refuses until the split matches the manifest and records seed, count and list hash. `holdout.py
+  reconcile` restores the hidden entries after an amend's re-verify (run by `lane_plan.py`, the boundary and the
+  gate-4 lock) and re-pins the record's manifest hash. `holdout.py run
   <Sn>` runs a slice's hidden tests (HTTP through `contracts.py run-http`, Playwright through the code repo's
   own `@playwright/test`, Maestro; cli not run) and reports per criterion with the observed behaviour only.
 - **The slice loop builds from rspec's criteria** (05 P5): `lane_plan.py step0 <Sn>` holds a slice whose
@@ -103,8 +107,13 @@ capability went is in `docs/MIGRATION-3.md`.
   warns on `own-code` for a third-party reference.
 - **Reference guard** (`hooks/scripts/reference_guard.py`): a build lane (the `lane-worker` agent, or a
   session rooted in a lane worktree) may not Read, Grep, Glob or Bash into the reference checkout unless the
-  posture is `own-code`, nor into the hidden tests (`<project>-holdout/` beside the workbench) under any
-  posture. A guard, not a sandbox: it judges the paths a call names. `eval/reference_guard.py` tests it.
+  posture is `own-code`, nor into the hidden tests (the per-user data folder, every holdout its config names,
+  and the rc-era `<project>-holdout/` beside the workbench) under any posture, nor write into the workbench. It
+  fails closed when a workbench's marker is gone. A guard, not a sandbox: it judges the paths a call names, and
+  README lists the bypasses it does not try to close. `eval/reference_guard.py` tests it.
+- **The joint run is the orchestrator's** (g5-build.md, lane-worker.md): it stamps, starts the joint run and the
+  rerun with `run_phases.py`, and opens helper lanes; lanes write only in their own worktree, and G6 reads the
+  joint run's JUnit from the workbench's `parity/`.
 - **Shared contracts v1 in `contracts/v1/`** (decision D1): the canonical copy that rspec, sdlc and bug-hunter
   vendor byte-identical. It holds `CONTRACTS.md` (criterion format, story sections, criteria lock, acceptance
   bundle, departures registry, finding format, run log) and the JSON schemas. It also holds `contracts.py`, a

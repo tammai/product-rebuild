@@ -215,7 +215,8 @@ sees paths written in the call. Known limits, which the guard does not try to cl
 time (`$X`, `$(…)`, `%LOCALAPPDATA%`), a script or interpreter that opens the file itself, a recursive reader or
 writer it does not list, a nested shell (`bash -c`, `cmd /c`, `powershell -c` with the path built inside), and a
 Windows short name (`PRODUCT~1`). The hidden tests are protected first by never handing a lane their path (they
-are outside the project and named only in your per-user config), and the guard is the second line. A folder
+are outside the project and named only in your per-user config), and the guard is the second line. It also
+still denies `<parent>/<project>-holdout`, where a 3.0.0 release candidate kept them. A folder
 with `locks/` but no readable `rebuild_major` marker counts as a workbench to this guard, so deleting the
 marker does not switch it off. The build under test also sees a hidden test's requests when G6 runs it. Use
 `strict` for a sensitive reference, and check the guard's denials in the end-to-end runs. A workbench that

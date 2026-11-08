@@ -179,6 +179,8 @@ if ONLY in (None, "holdout"):
     check("a lane's Bash grep over the holdout is denied",
           denied(guard("Bash", {"command": f"grep -r F-ISS {holdout}"})))
     check("the orchestrator may read the holdout", allowed(guard("Read", {"file_path": hidden_file}, who=ORCHESTRATOR)))
+    check("a lane's Read of the old sibling holdout (<parent>/<project>-holdout, an rc workbench split before R1) is denied",
+          denied(guard("Read", {"file_path": os.path.join(proj, "p-holdout", "http", "F-ISS-01.AC2.yaml")})))
     check("a lane's Read of the local config that names the holdout is denied",
           denied(guard("Read", {"file_path": os.path.join(DATA, "holdouts.json")})))
     marker = os.path.join(wb, "locks", "pipeline.yaml")
