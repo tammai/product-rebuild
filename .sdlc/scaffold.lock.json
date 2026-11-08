@@ -47,6 +47,15 @@
       ".sdlc/state/*.events.jsonl",
       ".sdlc/state/*.commands/",
       ".claude/*.local.md"
+    ],
+    ".claude/settings.json": [
+      "Bash(python3 -c \"import glob,subprocess,sys; sys.exit(max([subprocess.call([sys.executable,f]) for f in sorted(glob.glob('skills/rebuild-pipeline/eval/*.py'))] or [0]))\":*)"
+    ],
+    ".claude/settings.local.json#plugin": [
+      "extraKnownMarketplaces.sdlc",
+      "enabledPlugins.sdlc@sdlc",
+      "enabledPlugins.sdlc-extras@sdlc",
+      "enabledPlugins.sdlc-stepper@sdlc"
     ]
   },
   "migrations": {
@@ -70,7 +79,10 @@
       "prd",
       "design-system",
       "constitution",
-      "knowledge"
+      "knowledge",
+      "allowlist",
+      "enable-plugin",
+      "context-diet"
     ],
     "complete": false
   },
