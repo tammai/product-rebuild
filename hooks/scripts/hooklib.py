@@ -188,16 +188,17 @@ def session_root(payload):
 
 # The major release whose workbenches these guards judge. rebuild_init.py writes it into
 # locks/pipeline.yaml; change both together.
-REBUILD_MAJOR = 2
+REBUILD_MAJOR = 3
 
 
 def is_current_workbench(d):
-    """True for a workbench made by this major release: locks/pipeline.yaml says `rebuild_major: 2`.
+    """True for a workbench made by this major release: locks/pipeline.yaml says `rebuild_major: 3`.
 
-    The fence that keeps these guards off an older workbench. 2.0.0 is a clean break: a 1.x
-    workbench's lanes work under a PLAN.md, which the 2.x spec gate no longer reads, so judging one
-    would block every lane edit 1.x permits; a 0.x workbench has no marker at all. Either reads as
-    "not ours" and the caller fails open, the same rule every guard follows for a missing workbench."""
+    The fence that keeps these guards off an older workbench. 3.0.0 is a clean break, as 2.0.0 was:
+    a 2.x workbench mined the reference itself and has no rspec spec, no posture and no holdout, so
+    the 3.x guards would judge it by rules it was never built under; a 1.x one's lanes work under a
+    PLAN.md; a 0.x workbench has no marker at all. Each reads as "not ours" and the caller fails
+    open, the same rule every guard follows for a missing workbench."""
     try:
         with open(os.path.join(d, "locks", "pipeline.yaml"), encoding="utf-8") as f:
             m = re.search(r"^rebuild_major:\s*([0-9]+)", f.read().replace("\r\n", "\n"), re.M)

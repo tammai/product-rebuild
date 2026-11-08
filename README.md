@@ -319,10 +319,21 @@ agents/                         miner, adr-drafter, data-model-drafter, spec-wri
 hooks/                          PreToolUse guards: locked artifacts, recorded AC flows, the
                                 autopilot usage threshold and the build runbook; the code-repo
                                 guards (bash, spec gate, injection gate, commit gates), which
-                                judge only repos listed in a workbench's repos.yaml; a PostToolUse
-                                injection scan; and a SessionStart canary seed
+                                judge only repos listed in a workbench's repos.yaml; the reference
+                                guard (build lanes may not read the reference or the hidden tests);
+                                a PostToolUse injection scan; and a SessionStart canary seed
 docs/PLAYBOOK.md                the full methodology
 ```
+
+**The reference guard is a guard, not a sandbox.** `sources.yaml` `reference.posture` says who may
+read the reference: `strict` (the spec side only observes behaviour), `observe` (the default for a
+third-party reference: the spec side may also read the code) or `own-code` (the default for your own
+app: build lanes may read it too). A build lane never reads the reference under `strict` or
+`observe`, and never the hidden tests under any posture. `hooks/scripts/reference_guard.py` denies a
+lane's Read, Grep, Glob and Bash calls that name those paths. It sees paths written in the call; a
+path computed at run time, or a script that opens the file itself, gets past it. Use `strict` for a
+sensitive reference, and check the guard's denials in the end-to-end runs. Which posture a licence
+allows is your call; G0 shows the licence and asks.
 
 ## Design rules the plugin enforces (so you don't have to)
 

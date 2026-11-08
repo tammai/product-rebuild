@@ -72,11 +72,12 @@ creates it, beside the code repos). If no workbench exists, the project hasn't s
 run onboarding (Step 4a).
 
 **Then check which release made it.** The first line the call in Step 2 prints is `locks/pipeline.yaml`'s
-`rebuild_major` line: a workbench this release made says `rebuild_major: 2`. One that says `1` was made by
-1.x, and one that prints nothing was made by a 0.x release; **this plugin will not open either**: its
-scripts, its guards and its lane contract (1.x lanes work under `PLAN.md`, 2.x lanes are sdlc features)
-all differ, and there is no migration. Say so in one message, tell the user to finish that rebuild on the
-release that made it (1.x: `product-rebuild` 1.6.0; 0.x: `product-rebuild-skills`, the plugin this one replaced), and stop. Do not offer to convert it, copy
+`rebuild_major` line: a workbench this release made says `rebuild_major: 3`. One that says `2` or `1` was
+made by 2.x or 1.x, and one that prints nothing was made by a 0.x release; **this plugin will not open any
+of them**: its scripts, its guards and its pipeline (2.x mined the reference itself, with no rspec spec,
+posture or holdout; 1.x lanes work under `PLAN.md`) all differ, and there is no migration. Say so in one
+message, tell the user to finish that rebuild on the release that made it (2.x: `product-rebuild` 2.2.0;
+1.x: `product-rebuild` 1.6.0; 0.x: `product-rebuild-skills`, the plugin this one replaced), and stop. Do not offer to convert it, copy
 scripts into it, or run any gate against it. The guards and `upgrade.py` already refuse it; this is the
 one place a person is told why.
 

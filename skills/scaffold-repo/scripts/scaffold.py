@@ -153,12 +153,12 @@ def resolve_manifest(workbench: str):
     # scaffolded for. Its repos are sdlc repos with sdlc lanes; an older workbench's are not.
     try:
         with open(os.path.join(workbench, "locks", "pipeline.yaml"), encoding="utf-8") as f:
-            made_by_2x = re.search(r"^rebuild_major:\s*2\s*$", f.read(), re.M) is not None
+            made_by_3x = re.search(r"^rebuild_major:\s*3\s*$", f.read(), re.M) is not None
     except OSError:
-        made_by_2x = False
-    if not made_by_2x:
-        die(f"{workbench} was not made by a 2.x release (locks/pipeline.yaml does not say `rebuild_major: 2`). 2.x does not "
-            f"scaffold for an older workbench: finish it on the release that made it.")
+        made_by_3x = False
+    if not made_by_3x:
+        die(f"{workbench} was not made by a 3.x release (locks/pipeline.yaml does not say `rebuild_major: 3`). 3.x does not "
+            f"scaffold for an older workbench: finish it on the release that made it (2.x: product-rebuild 2.2.0).")
     vendored = os.path.join(workbench, playbook.VENDORED_SCAFFOLD)
     local = os.path.join(workbench, playbook.SCAFFOLD_LOCAL)
     path = vendored if os.path.exists(vendored) else local

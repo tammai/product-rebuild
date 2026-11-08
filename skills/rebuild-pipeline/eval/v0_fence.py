@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
-"""v0_fence.py (eval) — E23 and 2.0.0: does this release refuse to touch a workbench an older
-release made?
+"""v0_fence.py (eval) — E23, 2.0.0 and 3.0.0: does this release refuse to touch a workbench an
+older release made?
 
   python3 skills/rebuild-pipeline/eval/v0_fence.py
 
-WHY IT EXISTS. 2.0.0 is a breaking release with no migration: a 1.x workbench's lanes work under a
-PLAN.md, a 2.x lane is an sdlc feature, and 0.x was a different plugin altogether. What nothing stops
-is someone pointing 2.x at a rebuild still in flight. The workbench marker, `locks/pipeline.yaml`
-carrying `rebuild_major: 2`, is what tells them apart, and every place 2.x acts on a workbench has to
-honour it: the guards (which fire in every session the plugin is enabled in), `upgrade.py --auto`
-(which runs at every session start and would copy 2.x's scripts over the older ones), and
-scaffold-repo. This builds a 2.x workbench, a 1.x-shaped one and a 0.x-shaped one, and asserts the
-older two are left alone. (The file keeps its 1.0.0 name.)
+WHY IT EXISTS. 3.0.0 is a breaking release with no migration (spec 05, D7): a 2.x lane is an sdlc
+feature fed by this plugin's own mining, a 1.x lane worked under a PLAN.md, and 0.x was a different
+plugin altogether. What nothing stops is someone pointing 3.x at a rebuild still in flight. The
+workbench marker, `locks/pipeline.yaml` carrying `rebuild_major: 3`, is what tells them apart, and
+every place 3.x acts on a workbench has to honour it: the guards (which fire in every session the
+plugin is enabled in), `upgrade.py --auto` (which runs at every session start and would copy 3.x's
+scripts over the older ones), and scaffold-repo. This builds a 3.x workbench and 2.x-, 1.x- and
+0.x-shaped ones, asserts the older ones are left alone, and that a 2.x one is told to finish on
+2.2.0, the last 2.x release. (The file keeps its 1.0.0 name.)
 
-A 1.x-shaped workbench is the 2.x one marked `rebuild_major: 1`; a 0.x-shaped one has the marker line
-deleted, which is exactly what its absence means.
+An older-shaped workbench is the 3.x one marked with the older number; a 0.x-shaped one has the
+marker line deleted, which is exactly what its absence means.
 """
 from __future__ import annotations
 
@@ -65,22 +66,30 @@ proj = os.path.join(base, "proj")
 os.makedirs(proj)
 init = run([sys.executable, os.path.join(SCRIPTS, "rebuild_init.py"), "p", "--dir", proj])
 check("rebuild_init creates the workbench", init.returncode == 0, init.stderr)
-wb2 = os.path.join(proj, "p-workbench")
-pipeline = open(os.path.join(wb2, "locks", "pipeline.yaml")).read()
-check("a new workbench is marked rebuild_major: 2", re.search(r"^rebuild_major: 2$", pipeline, re.M) is not None, pipeline)
+wb3 = os.path.join(proj, "p-workbench")
+pipeline = open(os.path.join(wb3, "locks", "pipeline.yaml")).read()
+check("a new workbench is marked rebuild_major: 3", re.search(r"^rebuild_major: 3$", pipeline, re.M) is not None, pipeline)
 
-# The same workbench marked 1: what a 1.x workbench is, as far as 2.x can tell.
-wb1 = os.path.join(base, "one", "p-workbench")
-shutil.copytree(wb2, wb1)
-p1 = os.path.join(wb1, "locks", "pipeline.yaml")
-open(p1, "w").write(pipeline.replace("rebuild_major: 2\n", "rebuild_major: 1\n"))
-check("the 1.x-shaped copy says rebuild_major: 1", re.search(r"^rebuild_major: 1$", open(p1).read(), re.M) is not None)
+
+def marked(major: int, where: str) -> str:
+    """The 3.x workbench marked `major`: what an older workbench is, as far as 3.x can tell."""
+    wb = os.path.join(base, where, "p-workbench")
+    shutil.copytree(wb3, wb)
+    p = os.path.join(wb, "locks", "pipeline.yaml")
+    open(p, "w").write(pipeline.replace("rebuild_major: 3\n", f"rebuild_major: {major}\n"))
+    check(f"the {major}.x-shaped copy says rebuild_major: {major}",
+          re.search(rf"^rebuild_major: {major}$", open(p).read(), re.M) is not None)
+    return wb
+
+
+wb2 = marked(2, "two")
+wb1 = marked(1, "one")
 
 # The same workbench with the marker removed: what a 0.x workbench is.
 wb0 = os.path.join(base, "old", "p-workbench")
-shutil.copytree(wb2, wb0)
+shutil.copytree(wb3, wb0)
 p0 = os.path.join(wb0, "locks", "pipeline.yaml")
-open(p0, "w").write(re.sub(r"^# Which major release.*?^rebuild_major: 2\n", "", pipeline, flags=re.M | re.S))
+open(p0, "w").write(re.sub(r"^# Which major release.*?^rebuild_major: 3\n", "", pipeline, flags=re.M | re.S))
 check("the 0.x-shaped copy has no marker", "rebuild_major" not in open(p0).read())
 
 # --- guards -------------------------------------------------------------------------------------
@@ -111,9 +120,9 @@ def guard(script: str, payload: dict, root: str):
 
 
 big = "\n".join(f"line {i}" for i in range(40)) + "\n"
-for label, src in (("2.x", wb2), ("1.x-shaped", wb1), ("0.x-shaped", wb0)):
+for label, src in (("3.x", wb3), ("2.x-shaped", wb2), ("1.x-shaped", wb1), ("0.x-shaped", wb0)):
     d, wb = project_with(src, f"proj-{label[0]}")
-    blocks_expected = label == "2.x"
+    blocks_expected = label == "3.x"
     write = guard("spec_gate_guard.py", {"hook_event_name": "PreToolUse", "tool_name": "Write",
                                          "tool_input": {"file_path": os.path.join(d, "app", "a.go"), "content": big}}, d)
     check(f"spec gate on a {label} workbench's repo: {'blocks with no plan' if blocks_expected else 'does nothing'}",
@@ -153,17 +162,27 @@ before1 = tree_hash(wb1)
 r = run([sys.executable, os.path.join(SCRIPTS, "upgrade.py"), "--apply", "--plugin", ROOT], cwd=wb1)
 check("upgrade.py refuses a 1.x workbench too, naming 1.x", r.returncode == 1 and "1.x release" in r.stderr and "will not touch it" in r.stderr, r.stderr + r.stdout)
 check("…and nothing in the 1.x workbench changed", tree_hash(wb1) == before1)
-r = run([sys.executable, os.path.join(SCRIPTS, "upgrade.py"), "--plugin", ROOT], cwd=wb2)
-check("on a 2.x workbench upgrade.py runs normally", r.returncode == 0 and "will not touch it" not in r.stderr, r.stderr + r.stdout)
+open(os.path.join(wb2, ".rebuild-plugin"), "w").write(ROOT + "\n")
+before2 = tree_hash(wb2)
+r = run([sys.executable, os.path.join(SCRIPTS, "upgrade.py"), "--apply", "--plugin", ROOT], cwd=wb2)
+check("upgrade.py refuses a 2.x workbench and names 2.2.0, the last 2.x release",
+      r.returncode == 1 and "2.x release" in r.stderr and "2.2.0" in r.stderr and "will not touch it" in r.stderr, r.stderr + r.stdout)
+check("…and nothing in the 2.x workbench changed", tree_hash(wb2) == before2)
+r = run([sys.executable, os.path.join(SCRIPTS, "upgrade.py"), "--auto", "--plugin", ROOT], cwd=wb2)
+check("--auto on a 2.x workbench prints one TOOLING line naming 2.2.0 and exits 0",
+      r.returncode == 0 and r.stdout.startswith("TOOLING  skipped:") and "2.2.0" in r.stdout
+      and len(r.stdout.strip().splitlines()) == 1, r.stdout + r.stderr)
+r = run([sys.executable, os.path.join(SCRIPTS, "upgrade.py"), "--plugin", ROOT], cwd=wb3)
+check("on a 3.x workbench upgrade.py runs normally", r.returncode == 0 and "will not touch it" not in r.stderr, r.stderr + r.stdout)
 
 # --- scaffold -----------------------------------------------------------------------------------
 print("\n# scaffold-repo")
 repo = os.path.join(base, "newrepo")
 os.makedirs(repo)
 scaffold = os.path.join(ROOT, "skills", "scaffold-repo", "scripts", "scaffold.py")
-for label, src in (("0.x", wb0), ("1.x", wb1)):
+for label, src in (("0.x", wb0), ("1.x", wb1), ("2.x", wb2)):
     r = run([sys.executable, scaffold, "plan", "--workbench", src], cwd=repo)
-    check(f"scaffold.py will not scaffold for a {label} workbench", r.returncode == 1 and "not made by a 2.x release" in r.stderr, r.stderr)
+    check(f"scaffold.py will not scaffold for a {label} workbench", r.returncode == 1 and "not made by a 3.x release" in r.stderr, r.stderr)
 
 shutil.rmtree(base, ignore_errors=True)
 print(f"\n{failures} failure(s)." if failures else "\nall passed")

@@ -95,7 +95,7 @@ def workbench(name: str, m: dict) -> str:
     os.makedirs(os.path.join(wb, "adr"))
     os.makedirs(os.path.join(wb, "locks"))
     with open(os.path.join(wb, "locks", "pipeline.yaml"), "w") as f:
-        f.write("rebuild_major: 2\n")  # the 2.x marker scaffold.py checks for
+        f.write("rebuild_major: 3\n")  # the 3.x marker scaffold.py checks for
     with open(os.path.join(wb, "adr", "scaffold.json"), "w") as f:
         json.dump(m, f)
     return wb

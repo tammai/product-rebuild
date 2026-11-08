@@ -6,7 +6,9 @@
     "email": "tam.mai@bigin.vn"
   },
   "allowCrossMarketplaceDependenciesOn": [
-    "sdlc"
+    "sdlc",
+    "rspec",
+    "bug-hunter"
   ],
   "plugins": [
     {

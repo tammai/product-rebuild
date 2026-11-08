@@ -419,9 +419,9 @@ Serialization points, by design: the five gates, the data models landing before 
 
 `rebuild_init.py` vendors the schemas and scripts into each workbench **at scaffold time**, on purpose — a workbench is a self-contained, versioned copy, and a project mid-G4 is not improved by its tooling changing underneath it. The cost is that a workbench scaffolded before a release does not get that release's new files, and a reference doc telling you to run `python3 scripts/<thing>.py` then names a path that does not exist.
 
-**A workbench made by an older major release is not upgraded.** 2.x wraps sdlc and its lanes are sdlc features; 1.x lanes worked under `PLAN.md`, and 0.x was a different plugin. Their scripts, their guards and their lane contracts all differ, and there is no migration. `upgrade.py` refuses a workbench whose `locks/pipeline.yaml` does not say `rebuild_major: 2` and says to finish that rebuild on the release that made it.
+**A workbench made by an older major release is not upgraded.** 3.x orchestrates rspec, sdlc and bug-hunter; 2.x mined the reference itself, 1.x lanes worked under `PLAN.md`, and 0.x was a different plugin. Their scripts, their guards and their pipelines all differ, and there is no migration. `upgrade.py` refuses a workbench whose `locks/pipeline.yaml` does not say `rebuild_major: 3` and says to finish that rebuild on the release that made it (2.x: product-rebuild 2.2.0).
 
-Within 2.x there is a script for it. Dry run first. It is the default and it copies nothing:
+Within 3.x there is a script for it. Dry run first. It is the default and it copies nothing:
 
 ```sh
 python3 scripts/upgrade.py

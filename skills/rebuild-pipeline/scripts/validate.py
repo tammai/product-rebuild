@@ -984,6 +984,30 @@ def main(argv=None):
                 ok(f)
 
     # ---------------------------------------------------------------------------
+    # sources.yaml `reference.posture` (05 P3). The P3 guard reads it to decide whether a build lane
+    # may read the reference checkout, and it treats an unknown value as the strictest posture; a typo
+    # here would otherwise read as a decision nobody made. own-code with a third-party reference is
+    # legal for the user to choose (G0 asks), so it warns rather than fails. Line-parsed like
+    # playbook.py and hooks/scripts/reference_guard.py read the same block; change them together.
+    # ---------------------------------------------------------------------------
+    if os.path.exists("sources.yaml"):
+        ref_block = re.search(r"^reference:[ \t]*\n((?:(?:[ \t]+.*)?\n)*)", read_text("sources.yaml") + "\n", re.M)
+
+        def ref_field(key):
+            f = ref_block and re.search(rf"^[ \t]+{key}:[ \t]*(.*)$", ref_block.group(1), re.M)
+            return re.split(r"\s+#", f.group(1))[0].strip().strip("\"'") if f else ""
+
+        posture, kind = ref_field("posture"), ref_field("kind")
+        if posture not in ("", "strict", "observe", "own-code"):
+            fail("sources.yaml", f"reference.posture is {posture!r}: it must be strict, observe or own-code "
+                                 f"(or empty: own-code for kind own-code, else observe)")
+        elif posture == "own-code" and kind != "own-code":
+            warn("sources.yaml", f"reference.posture is own-code but reference.kind is {kind or 'empty'}: build lanes "
+                                 f"may read a reference you do not own. Confirm the licence allows it (G0).")
+        else:
+            ok(f"sources.yaml (reference.posture: {posture or ('own-code' if kind == 'own-code' else 'observe')})")
+
+    # ---------------------------------------------------------------------------
     # adr/ against the architecture playbook.
     #
     # G4a is playbook-driven: `sources.yaml` names a playbook, G4a vendors it to

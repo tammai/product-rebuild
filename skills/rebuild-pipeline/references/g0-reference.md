@@ -25,6 +25,17 @@ Goal: pick the reference and record the legal posture BEFORE any agent reads any
    - Permissive reference (MIT/Apache/BSD) → no restriction; vendoring allowed with attribution.
    Record the answer in `license-posture.md`. State clearly you are not a lawyer; if
    distribution plans are ambiguous, recommend professional advice before locking G0.
+
+   **Then the posture, `sources.yaml` `reference.posture`** (05 P3). Show the licence and ask;
+   the legal fit is the user's call, never yours:
+   - `strict`: the spec side only observes and records behaviour; nobody reads the code.
+   - `observe` (the default for a third-party reference): the spec side may also read the code
+     (rspec OSS mode); build lanes never do.
+   - `own-code` (the default for `kind: own-code`): build lanes may read the reference too.
+
+   Under every posture, build lanes never read the hidden tests. `hooks/scripts/reference_guard.py`
+   enforces both for lanes; it is a guard, not a sandbox. `validate.py` fails on any other value
+   and warns on `own-code` for a reference the user does not own.
 3. Optional secondary reference for UX comparison only.
 
    **Ask 3, 5 and 6 together, each with its usual answer**, and take any the kickoff already gives:

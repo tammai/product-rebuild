@@ -7,8 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+3.0.0 in progress (version `3.0.0-rc.1`, no tag): product-rebuild becomes an orchestrator over rspec, sdlc
+and bug-hunter (spec `docs/specs/rebuild-upgrade/05-product-rebuild.md`). Part 1 of 6 below.
+
+### Breaking
+
+- **A 2.x workbench is refused** (05 D7). New workbenches are marked `rebuild_major: 3`; the guards leave a
+  2.x workbench alone, and `upgrade.py`, scaffold-repo and the skill refuse it with a message to finish that
+  rebuild on product-rebuild 2.2.0. There is no migration.
+- **Dependencies** now include rspec (`>=0.11.0-rc.1 <1`) and bug-hunter (`>=0.4.0-rc.1 <1`) beside sdlc and
+  sdlc-extras (`>=3.5.0-rc.6 <4`). These are pre-release ranges; the 3.0.0 release pins the finals.
+  `marketplace.json` allows dependencies from the `sdlc`, `rspec` and `bug-hunter` marketplaces.
+
 ### Added
 
+- **`sources.yaml` `reference.posture`**: `strict`, `observe` (the default for a third-party reference) or
+  `own-code` (the default for `kind: own-code`). G0 asks for it; `validate.py` fails on any other value and
+  warns on `own-code` for a third-party reference.
+- **Reference guard** (`hooks/scripts/reference_guard.py`): a build lane (the `lane-worker` agent, or a
+  session rooted in a lane worktree) may not Read, Grep, Glob or Bash into the reference checkout unless the
+  posture is `own-code`, nor into the hidden tests (`<project>-holdout/` beside the workbench) under any
+  posture. A guard, not a sandbox: it judges the paths a call names. `eval/reference_guard.py` tests it.
 - **Shared contracts v1 in `contracts/v1/`** (decision D1): the canonical copy that rspec, sdlc and bug-hunter
   vendor byte-identical. It holds `CONTRACTS.md` (criterion format, story sections, criteria lock, acceptance
   bundle, departures registry, finding format, run log) and the JSON schemas. It also holds `contracts.py`, a

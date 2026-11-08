@@ -219,6 +219,12 @@ reference:
                       # against pinned_commit before G1 is allowed to dispatch miners
   license: ""         # e.g. GPL-3.0, MIT
   kind: ""            # third-party | own-code (an app you already own and are replacing)
+  # Who may read what (05 P3). strict: the spec side only observes behaviour; observe (the default
+  # for third-party): the spec side may also read the code; own-code (the default for kind own-code):
+  # build lanes may read it too. Build lanes never read the reference under strict or observe, and
+  # never the hidden tests: hooks/scripts/reference_guard.py denies both. Which posture a licence
+  # allows is the user's call at G0.
+  posture: ""         # strict | observe | own-code; empty: own-code for kind own-code, else observe
   upstream: ""        # active | frozen — frozen turns off G6's upstream re-mine
   # How the reference runs on this machine, in one place. Moving its port in the Kutt rebuild
   # meant editing three places that had to agree by hand, and two live miners' briefs.
@@ -403,11 +409,12 @@ project: @@NAME@@
 # (that version or newer) or a warning (older workbenches, which cannot be retro-enforced).
 # Bump it by hand after backfilling.
 schema_version: "0.4.0"
-# Which major release of this plugin made the workbench. The 2.x guards and scripts act ONLY on a
-# workbench that says 2 here, and refuse (or fail open) on any other, because a 0.x or 1.x
-# workbench was built under different scripts, different guards and a different lane contract
-# (1.x: PLAN.md; 2.x: an sdlc feature per lane), and there is no migration between them. Do not edit.
-rebuild_major: 2
+# Which major release of this plugin made the workbench. The 3.x guards and scripts act ONLY on a
+# workbench that says 3 here, and refuse (or fail open) on any other, because an older workbench
+# was built under different scripts, different guards and a different pipeline (1.x: PLAN.md;
+# 2.x: its own mining, no rspec spec, no posture or holdout), and there is no migration between
+# them. Do not edit.
+rebuild_major: 3
 created: @@NOW@@
 '''
 
