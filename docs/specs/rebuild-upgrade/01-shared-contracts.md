@@ -139,7 +139,7 @@ One JSON file per finding, written by bug-hunter (rebuild mode), sdlc qa-tester 
 | `route` | derived from `class`: build-defect, test-defect → `sdlc` · spec-gap → `rspec` · reference-defect → `human` · accepted-departure → `drop` · flaky, environment → `orchestrator` |
 | `verified_by` | the fresh-context agent that re-ran it, and the result |
 
-A finding without `verified_by: reproduced` is never routed.
+A finding without `verified_by: reproduced` is never routed, with one exception: a spec question (`source: sdlc-question`, `class: spec-gap`, written by sdlc S10) reports an ambiguity, not a behaviour, so it is routed to `rspec` without a verifier, with `verified_by: {agent: null, result: "not run: spec question"}`. `/rspec:amend` still needs human approval when the change touches an MVP criterion's `then`. (Added in contracts 1.1.0, gate G-F.)
 
 ## C7 Run log: `cost.jsonl`
 

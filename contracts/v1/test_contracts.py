@@ -1,4 +1,4 @@
-# contracts-version: 1.0.0
+# contracts-version: 1.1.0
 """test_contracts.py — unit tests for contracts.py, one class per contract (C1–C7) plus the YAML subset.
 
   python3 contracts/v1/test_contracts.py                 # all
@@ -491,6 +491,15 @@ def make_finding(**over):
     return f
 
 
+def make_question(**over):
+    f = {"id": "SQ-0001", "source": "sdlc-question", "class": "spec-gap", "severity": "medium",
+         "criterion": "F-ISS-01.AC2", "rule": None, "repro": None, "observed": None, "route": "rspec",
+         "question": "Does the key counter skip numbers of deleted issues?",
+         "verified_by": {"agent": None, "result": "not run: spec question"}}
+    f.update(over)
+    return f
+
+
 class TestC6Finding(unittest.TestCase):
     def test_valid_and_routed(self):
         self.assertEqual(C.check_finding(make_finding()), [])
@@ -514,6 +523,38 @@ class TestC6Finding(unittest.TestCase):
         f = make_finding(verified_by={"agent": "repro-verifier", "result": "not-reproduced"})
         self.assertEqual(C.check_finding(f), [])
         self.assertIsNone(C.finding_route(f))
+
+    def test_spec_question_routed_without_verifier(self):
+        q = make_question()
+        self.assertEqual(C.check_finding(q), [])
+        self.assertEqual(C.finding_route(q), "rspec")
+
+    def test_non_question_without_reproduced_not_routed(self):
+        # The C6 exception belongs to the exact spec-question shape; borrowing any part of it fails.
+        borrowed = make_question(source="bug-hunter")
+        self.assertTrue(has(errors(C.check_finding(borrowed)), "repro"))
+        self.assertTrue(has(errors(C.check_finding(borrowed)), "verified_by.agent"))
+        self.assertIsNone(C.finding_route(borrowed))
+        no_text = make_question()
+        del no_text["question"]
+        self.assertTrue(has(errors(C.check_finding(no_text)), "question"))
+        wrong_class = make_question(**{"class": "build-defect", "route": "sdlc"})
+        self.assertTrue(has(errors(C.check_finding(wrong_class)), "spec-gap"))
+        self.assertIsNone(C.finding_route(wrong_class))
+        verified = make_question(verified_by={"agent": "repro-verifier", "result": "not-reproduced"})
+        self.assertTrue(has(errors(C.check_finding(verified)), "not run: spec question"))
+        self.assertIsNone(C.finding_route(verified))
+        self.assertIsNone(C.finding_route(make_finding(verified_by={"agent": None,
+                                                                    "result": "not run: spec question"})))
+        self.assertTrue(has(errors(C.check_finding(make_finding(source="Bug Hunter"))), "source"))
+
+    def test_version_is_1_1_0(self):
+        self.assertEqual(C.VERSION, "1.1.0")
+        for name in sorted(os.listdir(HERE)):
+            path = os.path.join(HERE, name)
+            if os.path.isfile(path) and name != "MANIFEST" and C.header_for(name):
+                with open(path, encoding="utf-8") as f:
+                    self.assertIn("contracts-version: 1.1.0", f.read(300), name)
 
 
 COST = "\n".join([

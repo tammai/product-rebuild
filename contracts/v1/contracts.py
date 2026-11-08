@@ -1,4 +1,4 @@
-# contracts-version: 1.0.0
+# contracts-version: 1.1.0
 """contracts.py — validators for the shared contracts v1 (C1–C7 in CONTRACTS.md), stdlib only.
 
   python3 contracts.py id F-ISS-01.AC2 [--profile rspec|sdlc-s|sdlc-m|sdlc-l]
@@ -38,7 +38,7 @@ import urllib.request
 from xml.sax.saxutils import escape, quoteattr
 
 # Must equal the version in MANIFEST and in every header; vendor-check compares them.
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # ---------------------------------------------------------------- YAML subset
@@ -993,8 +993,19 @@ ROUTES = {"build-defect": "sdlc", "test-defect": "sdlc", "spec-gap": "rspec", "r
           "accepted-departure": "drop", "flaky": "orchestrator", "environment": "orchestrator"}
 
 
+# A spec question (sdlc S10) reports an ambiguity, not a behaviour: nothing to re-run, so C6 lets exactly this
+# shape through without a verifier. Every other finding still needs `reproduced`.
+QUESTION_SOURCE = "sdlc-question"
+QUESTION_VERIFIED_BY = {"agent": None, "result": "not run: spec question"}
+
+
+def _is_spec_question(f):
+    return (f.get("source") == QUESTION_SOURCE and f.get("class") == "spec-gap" and f.get("question")
+            and f.get("verified_by") == QUESTION_VERIFIED_BY)
+
+
 def check_finding(f):
-    """C6: fields, and `route` derived from `class`."""
+    """C6: fields, `route` derived from `class`, and the spec-question exception."""
     issues = schema_errors("finding.schema.json", f)
     if issues:
         return issues
@@ -1004,14 +1015,30 @@ def check_finding(f):
     want = ROUTES[f["class"]]
     if f["route"] != want:
         issues.append(("error", "%s: route must be %s for class %s (got %s)" % (fid, want, f["class"], f["route"])))
-    if f["repro"]["runner"] == "http":
+    if f["source"] == QUESTION_SOURCE:
+        if f["class"] != "spec-gap":
+            issues.append(("error", "%s: a %s finding must be class spec-gap" % (fid, QUESTION_SOURCE)))
+        if not f.get("question"):
+            issues.append(("error", "%s: a %s finding needs question" % (fid, QUESTION_SOURCE)))
+        if f["verified_by"] != QUESTION_VERIFIED_BY:
+            issues.append(("error", '%s: a %s finding has verified_by {agent: null, result: "not run: spec question"}'
+                           % (fid, QUESTION_SOURCE)))
+    else:
+        for key in ("repro", "observed"):
+            if f[key] is None:
+                issues.append(("error", "%s: %s is required (only a spec question may leave it null)" % (fid, key)))
+        if f["verified_by"]["agent"] is None:
+            issues.append(("error", "%s: verified_by.agent is required (only a spec question has none)" % fid))
+    if f["repro"] is not None and f["repro"]["runner"] == "http":
         issues += _check_steps(f["repro"].get("steps"), "%s repro" % fid)
     return issues
 
 
 def finding_route(f):
-    """Where a valid finding goes, or None: a finding not reproduced by a fresh verifier is never routed."""
-    if f.get("verified_by", {}).get("result") != "reproduced":
+    """Where a valid finding goes, or None: only a reproduced finding, or a spec question, is routed."""
+    if _is_spec_question(f):
+        return ROUTES["spec-gap"]
+    if f.get("verified_by", {}).get("result") != "reproduced" or not f["verified_by"].get("agent"):
         return None
     return ROUTES[f["class"]]
 

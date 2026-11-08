@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and invalid fixtures, and `MANIFEST`.
   - `contracts.py vendor-check` is the drift test every consumer runs; `eval/contracts_v1.py` runs it here.
   - `.gitattributes` keeps `contracts/v1/**` byte-exact on Windows checkouts. Each consumer needs the same line.
+- **Contracts 1.1.0: spec questions** (gate G-F). A `finding-v1` with `source: sdlc-question` and
+  `class: spec-gap` (sdlc S10) routes to `rspec` without a verifier. It carries a new `question` field,
+  `verified_by: {agent: null, result: "not run: spec question"}`, and may leave `repro` and `observed` null.
+  Every other finding still needs `verified_by.result: reproduced`, and a 1.0.0 finding stays valid. `source`
+  is now a kebab-case name (`^[a-z][a-z0-9-]*$`).
 
 ## [2.2.0] - 2026-11-06
 

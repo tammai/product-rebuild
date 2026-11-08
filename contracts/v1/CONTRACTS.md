@@ -1,4 +1,4 @@
-<!-- contracts-version: 1.0.0 -->
+<!-- contracts-version: 1.1.0 -->
 # Shared contracts v1
 
 The normative part of the shared-contracts spec, used by rspec, sdlc, bug-hunter and product-rebuild. `contracts.py` in this folder checks every rule. Sections C1–C7 are copied from the spec unchanged. "Settled in v1" fixes the details the spec left open.
@@ -131,7 +131,7 @@ One JSON file per finding, written by bug-hunter (rebuild mode), sdlc qa-tester 
 | `route` | derived from `class`: build-defect, test-defect → `sdlc` · spec-gap → `rspec` · reference-defect → `human` · accepted-departure → `drop` · flaky, environment → `orchestrator` |
 | `verified_by` | the fresh-context agent that re-ran it, and the result |
 
-A finding without `verified_by: reproduced` is never routed.
+A finding without `verified_by: reproduced` is never routed, with one exception: a spec question (`source: sdlc-question`, `class: spec-gap`, written by sdlc S10) reports an ambiguity, not a behaviour, so it is routed to `rspec` without a verifier, with `verified_by: {agent: null, result: "not run: spec question"}`. `/rspec:amend` still needs human approval when the change touches an MVP criterion's `then`. (Added in contracts 1.1.0, gate G-F.)
 
 ## C7 Run log: `cost.jsonl`
 
@@ -158,7 +158,9 @@ Details the spec left open, fixed here so every consumer reads them the same way
 | Seeds | A seed file listed by an HTTP test uses the replay format without `criterion` (`steps:` only); `run-http` runs it first. |
 | Must never break | Each line carries an `MNB-<n>` ID and names `test: …` or `check: …`. |
 | Departure status | `proposed` or `accepted`; omitted means `accepted` (C5's example has none). An accepted entry needs `decided_by`; a proposed entry has none, prints `blocked:` and exits 1. |
-| `verified_by` | `{agent, result}`; `result` is `reproduced`, `not-reproduced` or `not run: <reason>`. Only `reproduced` is routed. |
+| `verified_by` | `{agent, result}`; `result` is `reproduced`, `not-reproduced` or `not run: <reason>`. Only `reproduced` is routed, apart from a spec question. |
+| `source` | Lower-case kebab name of the writer, `^[a-z][a-z0-9-]*$` (`bug-hunter`, `sdlc-question`). |
+| Spec question (1.1.0) | `source: sdlc-question` must be `class: spec-gap`, carry `question` (the ambiguity, as text) and have `verified_by` exactly `{agent: null, result: "not run: spec question"}`; its `repro` and `observed` may be `null`. It routes to `rspec`. On any other finding, a null `repro`, `observed` or `verified_by.agent` is an error. |
 | Exit codes | `0` no errors (warnings allowed) · `1` errors, `blocked`, or failed tests · `2` usage. |
 
 ## YAML subset
