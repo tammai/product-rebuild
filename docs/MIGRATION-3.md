@@ -57,6 +57,17 @@ at the cited commit. A row that is not fully placed says so in Status.
 | 38 | Workbench tooling upgrades, and refusing a workbench another major made | this repo | `eval/v0_fence.py` | kept |
 | 39 | Code repos created from the playbook's scaffold manifest | this repo, `scaffold-repo` | `eval/scaffold_repo.py` | kept |
 
+## Known limits of the reference guard
+
+The guard that keeps lanes out of the reference and the hidden tests is a guard, not a sandbox (P3). It judges
+the paths a call spells. It does not see a path computed at run time (`$X`, `$(…)`, `%LOCALAPPDATA%`), a script
+or interpreter that opens the file itself, a recursive reader or writer it does not list, a nested shell
+(`bash -c`, `cmd /c`, `powershell -c` with the path built inside), or a Windows short name (`PRODUCT~1`). The
+list is not grown further. The hidden tests now live in a per-user data folder named only in that folder's
+`holdouts.json` (the redesign after 3.0's review round 2, a deviation from P4's sibling repo), so a lane is never
+handed their path, and the guard is the second line. A folder with `locks/` but no readable `rebuild_major`
+marker counts as a workbench to the guard, so deleting the marker does not switch it off.
+
 ## Unchanged, with no eval in 2.x or 3.0
 
 The autopilot usage threshold (a hook pauses a run at 80% of the 5-hour window) and the context limit (stop at

@@ -44,6 +44,8 @@ def check(name, ok, detail=""):
 
 
 base = tempfile.mkdtemp(prefix="g6-eval-")
+# The holdout and its local config go to a per-user data folder; an eval must never write the real one.
+os.environ["PRODUCT_REBUILD_DATA"] = os.path.join(base, "user-data")
 STUB = os.path.join(base, "sdlc-stub")
 ENV = {"GIT_AUTHOR_NAME": "Eval", "GIT_AUTHOR_EMAIL": "eval@x", "GIT_COMMITTER_NAME": "Eval",
        "GIT_COMMITTER_EMAIL": "eval@x", "SDLC_PLUGIN_ROOT": STUB, "RSPEC_PLUGIN_ROOT": os.path.join(base, "no-rspec")}
@@ -281,13 +283,17 @@ if ONLY in (None, "boundary"):
     w(wb, "docs/acceptance/manifest.json", json.dumps(m, indent=2))
     w(wb, "docs/acceptance/e2e/F-ISS-03.AC1.spec.ts", "// e2e\n")
     rc, out = boundary()
-    check("an open Playwright test with no lane JUnit is not run, and the boundary does not pass",
-          rc == 2 and "F-ISS-03.AC1: not run: no lane JUnit" in out, out)
+    check("an open Playwright test with no joint-run JUnit is not run, and the boundary does not pass",
+          rc == 2 and "F-ISS-03.AC1: not run: no joint-run JUnit" in out, out)
     import time
     w(proj, f"app/parity/{time.strftime('%Y-%m-%d')}-ac.xml",
       '<testsuite><testcase classname="e2e" name="F-ISS-03.AC1 shows the total"/></testsuite>\n')
     rc, out = boundary()
-    check("…read from the lanes' JUnit in the code repo, a passing case for it lets the boundary pass", rc == 0 and "PASS" in out, out)
+    check("a JUnit left in a code repo is not read: the joint run's file is the workbench's", rc == 2, out)
+    w(wb, f"parity/{time.strftime('%Y-%m-%d')}-ac.xml",
+      '<testsuite><testcase classname="e2e" name="F-ISS-03.AC1 shows the total"/></testsuite>\n')
+    rc, out = boundary()
+    check("…read from the joint run's JUnit in the workbench's parity/, a passing case for it lets the boundary pass", rc == 0 and "PASS" in out, out)
     good = read(wb, "plan", "slice-reviews", "S1.md")
     first = re.findall(r"(?m)^- (F-[A-Z0-9-]+): agree$", good)[0]
     w(wb, "plan/slice-reviews/S1.md", good.replace(f"- {first}: agree", f"- {first}: differs: total is off (class: build-defect, severity: high)"))

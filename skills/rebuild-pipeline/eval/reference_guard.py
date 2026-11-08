@@ -58,6 +58,8 @@ def init_repo(d):
 
 
 base = tempfile.mkdtemp(prefix="reference-guard-eval-")
+# The holdout and its local config go to a per-user data folder; an eval must never write the real one.
+os.environ["PRODUCT_REBUILD_DATA"] = os.path.join(base, "user-data")
 proj = os.path.join(base, "proj")
 os.makedirs(proj)
 init = run([sys.executable, os.path.join(SCRIPTS, "rebuild_init.py"), "p", "--dir", proj])
@@ -66,13 +68,18 @@ wb = os.path.join(proj, "p-workbench")
 ref = os.path.join(proj, "ref-src")
 init_repo(ref)
 w(ref, "src/app.js", "module.exports = 1\n")
-holdout = os.path.join(proj, "p-holdout")
+# Where holdout.py split puts it: a folder in the per-user data dir with a random suffix, named only in that
+# dir's holdouts.json (redesign R1), so it is nowhere under the project parent.
+DATA = os.environ["PRODUCT_REBUILD_DATA"]
+HNAME = "p-5e1f0c2a9b7d"
+holdout = os.path.join(DATA, "holdouts", HNAME)
 w(holdout, "http/F-ISS-01.AC2.yaml", "criterion: F-ISS-01.AC2\n")
 app = os.path.join(proj, "app")
 init_repo(app)
 lane = os.path.join(proj, "app-lane")
 run(["git", "worktree", "add", "-q", "-b", "slice/S1-api", lane], cwd=app)
 w(wb, "repos.yaml", "repos:\n  - name: app\n    path: ../app\n")
+w(DATA, "holdouts.json", json.dumps({os.path.normcase(os.path.realpath(wb)): holdout}))
 SOURCES = os.path.join(wb, "sources.yaml")
 template = open(SOURCES, encoding="utf-8").read()
 
@@ -160,7 +167,7 @@ if ONLY in (None, "holdout"):
         r = guard("Read", {"file_path": hidden_file})
         check(f"{posture}: a lane's Read of the holdout is denied", denied(r))
         check(f"{posture}: …and the reason names no path", denied(r) and holdout not in r["reason"]
-              and "p-holdout" not in r["reason"], r["reason"])
+              and HNAME not in r["reason"] and DATA not in r["reason"], r["reason"])
     set_reference("own-code", "own-code")
     check("own-code: a lane may read the reference checkout", allowed(guard("Read", {"file_path": ref_file})))
     set_reference("own-code", "")
@@ -172,6 +179,17 @@ if ONLY in (None, "holdout"):
     check("a lane's Bash grep over the holdout is denied",
           denied(guard("Bash", {"command": f"grep -r F-ISS {holdout}"})))
     check("the orchestrator may read the holdout", allowed(guard("Read", {"file_path": hidden_file}, who=ORCHESTRATOR)))
+    check("a lane's Read of the local config that names the holdout is denied",
+          denied(guard("Read", {"file_path": os.path.join(DATA, "holdouts.json")})))
+    marker = os.path.join(wb, "locks", "pipeline.yaml")
+    os.replace(marker, marker + ".away")
+    try:
+        check("with the workbench marker deleted, the guard fails closed: the holdout is still denied",
+              denied(guard("Read", {"file_path": hidden_file})))
+        check("...and a lane's write into the workbench is still denied",
+              denied(guard("Write", {"file_path": marker, "content": "rebuild_major: 2\n"})))
+    finally:
+        os.replace(marker + ".away", marker)
 
     print("\n# shapes round 1 got through: recursion, globs, spellings (AC-003, AC-004)")
     set_reference("third-party", "observe")
@@ -180,11 +198,11 @@ if ONLY in (None, "holdout"):
                 f"cd {lane} && cat ../ref*/src/app.js"):
         check(f"a lane's Bash `{cmd.split('&& ')[1]}` is denied", denied(guard("Bash", {"command": cmd})))
     check("a lane's Glob with a mid-name glob over the holdout is denied",
-          denied(guard("Glob", {"pattern": "../p-h*/**/*.yaml", "path": lane})))
-    doubled = proj.replace(os.sep, "/") + "//app/../p-holdout/http/F-ISS-01.AC1.yaml"
-    escaped = proj.replace("\\", "\\\\") + "\\\\p-holdout\\\\x"
-    for label, text in (("a `..` and doubled separator", doubled), ("escaped backslashes", escaped),
-                        ("a relative spelling", "../p-holdout/x")):
+          denied(guard("Glob", {"pattern": fwd(DATA) + "/hold*/**/*.yaml", "path": lane})))
+    doubled = fwd(DATA) + "//holdouts/./" + HNAME + "/http/F-ISS-01.AC1.yaml"
+    escaped = DATA.replace("\\", "\\\\") + "\\\\holdouts\\\\" + HNAME + "\\\\x"
+    for label, text in (("a `./` and doubled separator", doubled), ("escaped backslashes", escaped),
+                        ("a relative spelling", f"../{HNAME}/x")):
         check(f"a lane's python -c naming the holdout with {label} is denied",
               denied(guard("Bash", {"command": f"python3 -c \"print(open('{text}').read())\""})))
     check("a lane's grep -r inside its own worktree is allowed",

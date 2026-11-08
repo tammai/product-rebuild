@@ -36,6 +36,8 @@ def check(name, ok, detail=""):
 
 
 base = tempfile.mkdtemp(prefix="gates-rspec-eval-")
+# The holdout and its local config go to a per-user data folder; an eval must never write the real one.
+os.environ["PRODUCT_REBUILD_DATA"] = os.path.join(base, "user-data")
 ENV = {"GIT_AUTHOR_NAME": "Eval", "GIT_AUTHOR_EMAIL": "eval@x", "GIT_COMMITTER_NAME": "Eval",
        "GIT_COMMITTER_EMAIL": "eval@x", "RSPEC_PLUGIN_ROOT": os.path.join(base, "no-rspec-here")}
 

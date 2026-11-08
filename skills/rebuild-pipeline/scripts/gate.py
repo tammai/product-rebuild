@@ -356,7 +356,21 @@ def _lock_gate4_checks(gid, argv):
     # what it would take to record more, so the share is shown, never refused. Returns
     # (exit code or None, extra lock lines).
     # The hidden tests are drawn before this lock, and the lock pins the draw (05 P4): the manifest it
-    # hashes must be the one the split left, or the recorded list describes a different bundle.
+    # hashes must be the one the split left, or the recorded list describes a different bundle. A re-verify
+    # after an amend rebuilds the manifest without the hidden entries; reconcile restores them and re-pins
+    # the record, and the lock then wants both committed (it refuses a dirty tree).
+    try:
+        import holdout
+        changed, err = holdout.reconcile()
+    except ImportError:
+        changed, err = False, "scripts/holdout.py is missing from the workbench"
+    if err:
+        print(f"Cannot lock {gid}: {err}", file=sys.stderr)
+        return 1, ""
+    if changed:
+        print(f"Cannot lock {gid} yet: holdout.py reconcile restored the hidden entries a re-verify dropped. Commit "
+              f"{SPEC}/acceptance/manifest.json and plan/holdout.json, then lock {gid} again.", file=sys.stderr)
+        return 1, ""
     try:
         split = json.loads(read_text(_join("plan", "holdout.json")))
     except (OSError, ValueError):

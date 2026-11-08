@@ -105,10 +105,14 @@ failure this section stops. It is fixed (`g5-build.md`, "Test cadence within a s
   tests for the packages you touched; the ONE E2E for the criterion you are working on, if it is a UI-level
   one (`--grep` / `-run`). Not the E2E set, not the full backend suite. `verify.py` runs the repo's
   `commands.test`, which in a rebuild repo is the fast suite, so it is within this cadence.
-- **The joint run, only if your brief names you for it:** `python3 scripts/lanes_check.py stamp` from the
-  workbench root, then ONE run of the cumulative suite (all unit and integration/API suites, then the E2E
-  set), JUnit to `parity/<local-date>-ac.xml`. No extra "clean" full runs.
-- **After the joint run, for failures you own:** `python3 scripts/lanes_check.py stamp --rerun`, then ONLY
+- **The joint run is the orchestrator's, not yours.** You write only inside your own worktree (the reference
+  guard denies any write into the workbench), and the joint run writes the workbench: the orchestrator runs
+  `python3 scripts/lanes_check.py stamp` from the workbench root, then ONE run of the cumulative suite (all
+  unit and integration/API suites, then the E2E set), JUnit to the workbench's `parity/<local-date>-ac.xml`.
+  Your part: have your work merged and committed when it starts, and if your brief asks, name the commands
+  your repo's suites need. No extra "clean" full runs.
+- **After the joint run, for failures you own:** fix them in your worktree, commit, and report. The
+  orchestrator then runs `python3 scripts/lanes_check.py stamp --rerun`, then ONLY
   the failed specs, JUnit to `parity/<local-date>-ac-rerun.xml`. Not another full run.
 - `<local-date>` is today on this machine's own calendar, not UTC. Redeploy only when an E2E test needs the
   new build, and say so before and after. Commit before stamping: a dirty tree makes every pass on rerun
@@ -121,13 +125,10 @@ failure this section stops. It is fixed (`g5-build.md`, "Test cadence within a s
   run ended: it expires after at most 30 minutes.
 - Never `nohup`, `&`, `setsid`, `disown` or `start`. Only `run_in_background: true` is tracked; a process
   started any other way ends without waking you.
-- A run with more than one phase (reset, stamp, backend suite, redeploy, frontend suite) is ONE background
-  process: write the phases to `parity/runs/<local-date>-<label>/phases.txt`, then start
-  `python3 scripts/run_phases.py parity/runs/<local-date>-<label>` from the workbench root with
-  `run_in_background: true`. It runs the phases in order, writes `<phase>.log`, `<phase>.done` and
-  `status.json`, and stops at the first failure, so you have one wake-up instead of one per phase.
-  Settings the tests need go on `NAME=value` lines in `phases.txt`, never in an `export` inside one phase:
-  each phase is its own shell.
+- A run of your own with more than one step is ONE background command in your worktree (the steps joined
+  with `&&`, output to one log file there), so you have one wake-up instead of one per step. The multi-phase
+  runner, `python3 scripts/run_phases.py parity/runs/<local-date>-<label>`, writes its phases, logs and
+  status into the workbench, so only the orchestrator starts it (the joint run and its rerun).
 - Whenever you wake, for any reason, first check whether your own run's process is alive. If it ended, read
   the result and act on it before anything else. Know your run by its own background task or its log
   file, never by a process name: `pgrep -f scripts/verify.py` matches every session's `verify.py` on the
@@ -157,10 +158,12 @@ You may run helper agents only as the `lane-worker` agent (the reference guard j
 so a helper of another type would read what a lane may not) and only in their own worktrees, with disjoint file ownership, unique test database and
 role prefixes, and test pools capped and closed in cleanup: one harness once leaked 34 connections and
 exhausted Postgres for every lane. Only you merge to main. A helper's worktree needs its own approved sdlc
-record, because the spec gate reads one per worktree and branch. Before dispatching a helper, run from the
-workbench root `python3 scripts/lane_plan.py <Sn> <lane>-h<N> --worktree <helper worktree> --branch <helper
-branch> --features <the features it builds>`. Never copy your own record into a helper's worktree: a copy carries
-the wrong branch in its approval and no entry in the workbench's lane records.
+record, because the spec gate reads one per worktree and branch. That record is written by `lane_plan.py`,
+which writes the workbench's lane records, so you do not run it: ask the orchestrator to open the helper lane
+(`python3 scripts/lane_plan.py <Sn> <lane>-h<N> --worktree <helper worktree> --branch <helper branch> --features
+<the features it builds>` from the workbench root), and dispatch the helper once it says the record is there.
+Never copy your own record into a helper's worktree: a copy carries the wrong branch in its approval and no
+entry in the workbench's lane records.
 
 ## Output
 

@@ -210,6 +210,48 @@ def is_current_workbench(d):
 _is_workbench = is_current_workbench
 
 
+def marker_unreadable(d):
+    """True for a folder with `locks/` whose locks/pipeline.yaml is missing, unreadable or names no
+    `rebuild_major`. The reference guard counts such a folder as a current workbench (fails closed):
+    deleting the marker once switched every 3.x guard off for the lanes. Only that guard does; the
+    others keep is_current_workbench, so a 0.x workbench (no marker line) is still left alone by them."""
+    if not os.path.isdir(os.path.join(d, "locks")):
+        return False
+    try:
+        with open(os.path.join(d, "locks", "pipeline.yaml"), encoding="utf-8") as f:
+            return re.search(r"^rebuild_major:\s*[0-9]+", f.read().replace("\r\n", "\n"), re.M) is None
+    except (OSError, UnicodeDecodeError):
+        return True
+
+
+# The hidden tests live in a per-user data folder, named only in that folder's holdouts.json (spec 05 P4,
+# redesign R1): never in the workbench, a brief or the project parent, so no lane is ever handed a path to
+# them. PRODUCT_REBUILD_DATA overrides the folder (the evals use it). holdout.py carries a copy of these two
+# functions because it runs alone in a workbench; change both together.
+HOLDOUT_CONFIG = "holdouts.json"
+
+
+def rebuild_data_dir():
+    env = os.environ.get("PRODUCT_REBUILD_DATA")
+    if env:
+        return os.path.abspath(os.path.expanduser(env))
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
+    return os.path.join(base, "product-rebuild")
+
+
+def holdout_config():
+    """{workbench key: holdout folder} from the local config; {} when it is missing or unreadable."""
+    try:
+        with open(os.path.join(rebuild_data_dir(), HOLDOUT_CONFIG), encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(v, str) and v} if isinstance(data, dict) else {}
+
+
 def _child_dirs(d):
     try:
         # A symlink to a directory is not a directory entry here, as with Dirent.isDirectory().
@@ -219,20 +261,21 @@ def _child_dirs(d):
         return []  # unreadable root: no workbench found, so the caller fails open
 
 
-def workbenches_near(root):
+def workbenches_near(root, accept=None):
+    accept = accept or _is_workbench
     found = {}
 
     def scan(d):
-        if _is_workbench(d):
+        if accept(d):
             found[d] = True
         for c in _child_dirs(d):
-            if _is_workbench(c):
+            if accept(c):
                 found[c] = True
 
     scan(root)
     if os.path.exists(os.path.join(root, ".git")):
         for c in _child_dirs(os.path.dirname(root)):
-            if _is_workbench(c):
+            if accept(c):
                 found[c] = True
     return list(found)
 

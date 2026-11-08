@@ -2,6 +2,7 @@
 """holdout.py — hidden tests (spec 05 P4, decision D4). Run from the workbench root.
 
   python3 scripts/holdout.py split [--seed <n>]                 # after rspec:check, before gate.py lock gate-4
+  python3 scripts/holdout.py reconcile                          # after any rspec:verify (lane_plan, boundary, gate run it)
   python3 scripts/holdout.py run <Sn> [--repo <code repo>] [--contracts <contracts.py>]
                                                                  # at G6, with ACCEPT_BASE_URL set to the slice build
 
@@ -11,13 +12,20 @@ the recorded tests the lanes never see measures the second thing. D4: 25% of eac
 tests (recorded against the reference, contracts C3), at least one per feature with three or more
 criteria, chosen from a seed recorded at the Gate 4 lock so anyone can re-derive the list.
 
-SPLIT moves the chosen files out of `docs/acceptance/` into a sibling git repo, `<project>-holdout/`,
-which is never a submodule of any code repo (the split refuses when a repo listed in repos.yaml
+SPLIT moves the chosen files out of `docs/acceptance/` into a git repo in a per-user data folder
+(`%LOCALAPPDATA%/product-rebuild/holdouts/<project>-<random>`, or under $XDG_DATA_HOME, or
+$PRODUCT_REBUILD_DATA), named only in that folder's `holdouts.json`: never in the workbench, a lane brief
+or the project parent, so no lane is handed its path (redesign R1; P4's sibling repo was one `cd ..` from
+every lane). It is never a submodule of any code repo (the split refuses when a repo listed in repos.yaml
 contains or references it), marks them `visibility: hidden` in the workbench manifest (contracts C4
 leaves this to product-rebuild), and writes `plan/holdout.json`. It runs before the gate-4 lock, not
 after: the lock hashes the manifest and records the seed and list hash, and gate.py refuses gate-4
 until that record matches the manifest. Level 2 already excludes flaky tests (rspec's verify keeps a
 criterion with a pass and a failure at level 1), so flaky ones are never hidden (06, Risks).
+
+RECONCILE puts the hidden entries back after rspec:verify rebuilds the manifest without them (rspec has no
+notion of a hidden test, and no rspec change is wanted for one), from the copy the split kept in the
+holdout repo, and re-pins the record's manifest hash so gate-4 can relock.
 
 RUN reports per criterion, never with test content: a failure says what the build did (`HTTP status
 500`, `/key was "X"`), never what the test wanted, because a report a lane reads must not turn a hidden
@@ -45,6 +53,7 @@ SPEC = "docs"
 BUNDLE = os.path.join(SPEC, "acceptance")
 MANIFEST = os.path.join(BUNDLE, "manifest.json")
 RECORD = os.path.join("plan", "holdout.json")
+HIDDEN = "hidden.json"  # in the holdout folder: the hidden manifest entries the split moved
 SHARE = 0.25          # D4
 MIN_CRITERIA = 3      # D4: a feature with at least this many criteria gets at least one hidden test
 SLICE_RE = re.compile(r"^##\s*Slice\s+(\d+)\s*:?\s*(.*)$", re.M)  # rspec_lib.SLICE_RE; change both together
@@ -86,15 +95,56 @@ def load_json(p):
         return json.load(fh)
 
 
+# The per-user data folder and its local config, copied from hooks/scripts/hooklib.py (rebuild_data_dir,
+# holdout_config) because this script runs alone in a workbench; change both together. The hidden tests live
+# there, never in the project parent, so no lane is handed their path (spec 05 P4, redesign R1).
+HOLDOUT_CONFIG = "holdouts.json"
+
+
+def rebuild_data_dir():
+    env = os.environ.get("PRODUCT_REBUILD_DATA")
+    if env:
+        return os.path.abspath(os.path.expanduser(env))
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
+    return os.path.join(base, "product-rebuild")
+
+
+def holdout_config():
+    try:
+        data = load_json(os.path.join(rebuild_data_dir(), HOLDOUT_CONFIG))
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(v, str) and v} if isinstance(data, dict) else {}
+
+
+def _workbench_key():
+    return os.path.normcase(os.path.realpath(os.getcwd()))
+
+
 def holdout_dir():
-    """<workbench>/../<project>-holdout, the path the reference guard also denies to lanes."""
+    """This workbench's holdout folder from the local config, or None before the split has made one."""
+    return holdout_config().get(_workbench_key())
+
+
+def new_holdout_dir():
+    """A fresh holdout folder under the data folder, recorded in the local config. The random suffix keeps its
+    name unguessable, so a lane cannot spell it without having been told it."""
+    import secrets
     project = None
     p = os.path.join("locks", "pipeline.yaml")
     if os.path.exists(p):
         m = re.search(r"^project:[ \t]*(\S+)", read_text(p), re.M)
         project = m.group(1).strip("\"'") if m else None
-    project = project or re.sub(r"-workbench\Z", "", os.path.basename(os.getcwd()))
-    return os.path.join(os.path.dirname(os.getcwd()), f"{project}-holdout")
+    project = re.sub(r"[^A-Za-z0-9._-]", "-", project or re.sub(r"-workbench\Z", "", os.path.basename(os.getcwd())))
+    data = rebuild_data_dir()
+    hold = os.path.join(data, "holdouts", f"{project}-{secrets.token_hex(6)}")
+    cfg = holdout_config()
+    cfg[_workbench_key()] = hold
+    write_atomic(os.path.join(data, HOLDOUT_CONFIG), json.dumps(cfg, indent=2, sort_keys=True) + "\n")
+    return hold
 
 
 def listed_repos():
@@ -109,6 +159,8 @@ def listed_repos():
 
 def exposure(hold):
     """Listed code repos that contain the holdout or reference it in .gitmodules (P4: never a submodule)."""
+    if not hold:
+        return []  # no split yet: nothing hidden to expose
     bad = []
     real = os.path.normcase(os.path.realpath(hold))
     name = os.path.basename(hold)
@@ -194,11 +246,21 @@ def write_atomic(p, text):
     os.replace(tmp, p)
 
 
-def in_history(paths):
-    """{path: [short commit ids]} for each workbench path some commit on any ref has held. Empty outside git."""
+def in_history(files, logs=()):
+    """{path: [evidence]} for what the workbench's git already holds. A file in `files` counts when git has its
+    content as an object, under any path, reachable or not: round 2 of the 3.0 review passed a path check
+    with the reflog or a loose object a rewrite left behind. Both blob ids are tried, with and without the
+    clean filters, since core.autocrlf makes them differ. A path in `logs` (rspec's verify log, which only
+    grows, so its content never matches) counts when any commit on a ref or in the reflog held it. Empty
+    outside git."""
     out = {}
-    for rel in paths:
-        r = git(".", "log", "--all", "--format=%h", "--", rel.replace(os.sep, "/"))
+    for rel in files:
+        ids = {git(".", "hash-object", *flag, rel).stdout.strip() for flag in ((), ("--no-filters",))}
+        held = sorted(i[:12] for i in ids if i and git(".", "cat-file", "-e", i).returncode == 0)
+        if held:
+            out[rel] = [f"object {i}" for i in held]
+    for rel in logs:
+        r = git(".", "log", "--all", "--reflog", "--format=%h", "--", rel.replace(os.sep, "/"))
         ids = r.stdout.split() if r.returncode == 0 else []
         if ids:
             out[rel] = ids
@@ -225,6 +287,10 @@ def cmd_split(args):
     if not slice_map:
         return die(f"{SPEC}/build-plan.md has no `## Slice N:` section.")
     hold = holdout_dir()
+    if hold and os.path.exists(os.path.join(hold, HIDDEN)):
+        return die("the local config names a holdout folder that already holds a split for this workbench, but "
+                   f"{RECORD} is missing. Restore {RECORD} from git, or ask the user before re-drawing.")
+    hold = hold or new_holdout_dir()
     bad = exposure(hold)
     if bad:
         return die(f"the holdout repo {hold} would be reachable from a code repo: {'; '.join(bad)}. "
@@ -249,12 +315,13 @@ def cmd_split(args):
             return die(f"the manifest path {t.get('path')!r} (a test for {t.get('criterion')}) leaves {BUNDLE}.")
         if not os.path.exists(src):
             return die(f"{src} (the test for {t['criterion']}) is missing.")
-    seen = in_history([os.path.join(BUNDLE, t["path"]) for t in moves] + ([RUNS] if moves else []))
+    seen = in_history([os.path.join(BUNDLE, t["path"]) for t in moves], [RUNS] if moves else [])
     if seen:
         return die("these tests the split would hide are already in the workbench's git history, which every lane "
                    "holds as a submodule: " + "; ".join(f"{p} in {', '.join(ids)}" for p, ids in sorted(seen.items()))
                    + ". The bundle's first commit must come after the split. Rewrite those commits out of the "
-                   "history with the user (and from any remote), or re-record the bundle, then split again.")
+                   "history with the user (and from any remote), end with `git reflog expire --expire=now --all && "
+                   "git gc --prune=now` so no unreachable copy is left, or re-record the bundle; then split again.")
     os.makedirs(hold, exist_ok=True)
     if not os.path.exists(os.path.join(hold, ".git")):
         r = git(hold, "init", "-q")
@@ -279,6 +346,9 @@ def cmd_split(args):
             (hidden_runs if cid in set(hidden) or (line.strip() and cid is None) else kept_runs).append(line)
         if hidden_runs:
             write_atomic(os.path.join(hold, "verify", "runs.jsonl"), "\n".join(hidden_runs) + "\n")
+    # The hidden entries as the split left them, for reconcile: rspec:verify rebuilds the workbench manifest
+    # from its own records and drops them (it no longer has their files or runs).
+    write_atomic(os.path.join(hold, HIDDEN), json.dumps({"tests": moves}, indent=2, ensure_ascii=False) + "\n")
     for step in (("add", "-A"), ("commit", "-q", "--allow-empty", "-m", f"holdout: {len(hidden)} hidden tests, seed {seed}")):
         r = git(hold, *step)
         if r.returncode:
@@ -301,6 +371,53 @@ def cmd_split(args):
     print(f"{len(hidden)} hidden criteria ({len(moves)} tests) moved to the holdout repo (committed there, never "
           f"pushed by this script); seed {seed}. docs/acceptance/ is no longer ignored: commit the workbench now "
           f"(its first commit of the open bundle), then lock gate-2.")
+    return 0
+
+
+def reconcile():
+    """(changed, error). Puts the split's hidden entries back into the workbench manifest after rspec:verify
+    rebuilt it without them (every rspec:amend ends with one), and re-pins plan/holdout.json's manifest hash so
+    gate-4 can relock. Without this the hidden suite reported every hidden criterion `not run` after an amend.
+    Refuses, changing nothing, when a hidden criterion is open again in the workbench (a re-verify re-recorded
+    its test) or a hidden file in the holdout folder changed since the split: either needs the user."""
+    if not os.path.exists(RECORD):
+        return False, None
+    hold = holdout_dir()
+    if not hold or not os.path.exists(os.path.join(hold, HIDDEN)):
+        return False, (f"{RECORD} exists but the local config ({os.path.join(rebuild_data_dir(), HOLDOUT_CONFIG)}) "
+                       f"names no holdout folder with {HIDDEN} for this workbench.")
+    try:
+        rec = load_json(RECORD)
+        entries = load_json(os.path.join(hold, HIDDEN)).get("tests") or []
+        manifest = load_json(MANIFEST)
+    except (OSError, ValueError, AttributeError) as e:
+        return False, f"{RECORD}, {MANIFEST} or the holdout's {HIDDEN} cannot be read: {e}"
+    hidden = set(rec.get("hidden") or [])
+    tests = manifest.get("tests") or []
+    reopened = sorted({t.get("criterion") for t in tests if t.get("criterion") in hidden and t.get("visibility") != "hidden"}
+                      | {e.get("criterion") for e in entries if os.path.exists(bundle_path(BUNDLE, e.get("path")) or "")})
+    if reopened:
+        return False, (f"hidden criteria are open again in {BUNDLE}: {', '.join(reopened)} (a re-verify re-recorded "
+                       f"their tests). Lanes may now see them; ask the user whether to re-draw.")
+    for e in entries:
+        src = bundle_path(hold, e.get("path"))
+        if not src or not os.path.exists(src) or sha256_file(src) != e.get("sha256"):
+            return False, f"the hidden test for {e.get('criterion')} is missing or changed in the holdout folder since the split."
+    have = {(t.get("criterion"), t.get("path")) for t in tests}
+    missing = [e for e in entries if (e.get("criterion"), e.get("path")) not in have]
+    if not missing and rec.get("manifest_sha256") == sha256_file(MANIFEST):
+        return False, None
+    if missing:
+        write_atomic(MANIFEST, json.dumps({**manifest, "tests": tests + missing}, indent=2, ensure_ascii=False) + "\n")
+    write_atomic(RECORD, json.dumps({**rec, "manifest_sha256": sha256_file(MANIFEST)}, indent=2) + "\n")
+    return True, None
+
+
+def cmd_reconcile():
+    changed, err = reconcile()
+    if err:
+        return die(err)
+    print(f"holdout: {'hidden entries restored and ' + RECORD + ' re-pinned; commit both' if changed else 'nothing to reconcile'}.")
     return 0
 
 
@@ -446,6 +563,9 @@ def cmd_run(args):
     for t in tests:
         by_crit.setdefault(t.get("criterion"), []).append(t)
     hold = holdout_dir()
+    if not hold:
+        return die(f"the local config ({os.path.join(rebuild_data_dir(), HOLDOUT_CONFIG)}) names no holdout folder "
+                   f"for this workbench; the hidden tests cannot be found. Run it as the user who split them.")
     results = []
     try:
         import departures  # vendored sibling; a workbench without it explains nothing rather than failing the run
@@ -492,7 +612,9 @@ def main(argv=None):
         return cmd_split(args[1:])
     if args and args[0] == "run":
         return cmd_run(args[1:])
-    return die("usage: holdout.py split [--seed <n>] | run <Sn> [--repo <code repo>] [--contracts <contracts.py>]")
+    if args and args[0] == "reconcile":
+        return cmd_reconcile()
+    return die("usage: holdout.py split [--seed <n>] | reconcile | run <Sn> [--repo <code repo>] [--contracts <contracts.py>]")
 
 
 if __name__ == "__main__":

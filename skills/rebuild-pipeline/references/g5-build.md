@@ -170,8 +170,10 @@ step 1 registers it. Read that file now if no code repo exists yet.
    review fires whenever `## Public Surface` is not `- none`, and a module almost always exports
    something (the 2026-11-03 end-to-end lane, one function and one exception, fired it). On an M lane
    that review is the built-in `code-review` skill; on L, or for security or UI, an opus agent.
-5. **The joint run — once, at the end of the build.** One lane, named when the slice starts,
-   runs the cumulative suite: every unit and integration/API suite in every repo, then the
+5. **The joint run — once, at the end of the build, started by you.** It writes the workbench
+   (the stamp, `parity/`, the run folder), and lanes may not write the workbench (the reference
+   guard denies it), so the orchestrator starts it; it is one background process, so no test
+   output enters your context. It runs the cumulative suite: every unit and integration/API suite in every repo, then the
    E2E set against the deployment — the latest checkpoint's smoke journey plus each slice's
    one UI-level E2E (at most one per slice, so the set grows by one a slice at most). An
    earlier checkpoint's smoke journey retires when a later one supersedes it; the
@@ -184,9 +186,13 @@ step 1 registers it. Read that file now if no code repo exists yet.
    JUnit goes straight to `parity/<local-date>-ac.xml`, where `<local-date>` is today on the
    machine's own calendar — the date `parity.py` and `slice_review.py` look it up by.
 
-   - **Brief the joint-run lane to drive the run with `scripts/run_phases.py`**: the clean
-     reset, the stamp, each suite, each redeploy, as phases of ONE `run_in_background` process
-     (`lane-worker`'s agent file, "Long runs", has the layout). One joint-run lane stalled three
+   - **Drive the run with `scripts/run_phases.py`**: write the clean reset, the stamp, each
+     suite and each redeploy as phases in `parity/runs/<local-date>-joint/phases.txt` (settings
+     the tests need on `NAME=value` lines, never an `export` inside one phase: each phase is its
+     own shell), then start `python3 scripts/run_phases.py parity/runs/<local-date>-joint` from
+     the workbench root with `run_in_background: true`. It writes `<phase>.log`, `<phase>.done`
+     and `status.json` and stops at the first failure. Read only `status.json` and the JUnit;
+     a failure to investigate goes to the lane that owns it. One joint-run lane stalled three
      times in a slice, 13 to 18 minutes each, because it ran each suite under `nohup` and
      watched a done-marker with a Monitor. The harness does not track a `nohup` process, so its
      exit woke nobody, and the Monitor expired before the 45-minute suites finished. A Monitor
@@ -196,10 +202,12 @@ step 1 registers it. Read that file now if no code repo exists yet.
      because the integration database settings never reached the test processes. The lane
      reports skips by reason, and `parity.py` and `slice_review.py` mark a run outside these
      bounds NOT GREEN. A criterion skipped for an unset variable did not pass; fix the
-     environment and run again rather than rerunning the skipped specs one by one.
-6. **Rerun only the failures.** The lane that owns each failure re-runs exactly the failed
-   specs — not another full run — after `python3 scripts/lanes_check.py stamp --rerun`, with JUnit
-   to `parity/<local-date>-ac-rerun.xml`. Both reports count the pair the same way and label
+     environment and run again rather than rerunning the skipped specs one by one. Skips are
+     reported by reason.
+6. **Rerun only the failures.** The lane that owns each failure fixes it in its worktree and
+   reports; you then run `python3 scripts/lanes_check.py stamp --rerun` and exactly the failed
+   specs — not another full run — as one `run_phases.py` process, with JUnit to
+   `parity/<local-date>-ac-rerun.xml`. Both reports count the pair the same way and label
    every pass on rerun as flaky, code-changed or unverified (`g6-parity.md` says what each one
    means). A criterion still not green is PENDING with a reason; a slice does not close on an
    unexplained PENDING.
@@ -245,9 +253,9 @@ setting:
 | When | Who | Run | Don't run |
 |---|---|---|---|
 | During the build | the lane | lint, type-check, unit and fixture tests for touched files; integration tests for touched packages; the ONE E2E for the criterion being worked on, if it is a UI-level one (`--grep` / `-run`) | the E2E set; the full backend suite |
-| End of build, once per slice | the lane named for it (step 5) | ONE joint full run, JUnit to `parity/<local-date>-ac.xml` | extra "clean" full runs |
-| After the joint run | the lane that owns the failure (step 6) | ONLY the failed specs, JUnit to `parity/<local-date>-ac-rerun.xml` | another full run |
-| Any time | the orchestrator | nothing — it reads the JUnit files and the lanes' reports. A failure to investigate goes to a lane or a fork, never into the main context | any test command |
+| End of build, once per slice | the orchestrator starts it as one background `run_phases.py` process (step 5) | ONE joint full run, JUnit to `parity/<local-date>-ac.xml` | extra "clean" full runs |
+| After the joint run | the lane that owns the failure fixes it; the orchestrator starts the rerun (step 6) | ONLY the failed specs, JUnit to `parity/<local-date>-ac-rerun.xml` | another full run |
+| Any time | the orchestrator | nothing in its own context beyond starting those two background runs — it reads `status.json`, the JUnit files and the lanes' reports. A failure to investigate goes to a lane or a fork, never into the main context | any test command in the foreground |
 
 - **Redeploys are batched.** A lane redeploys only when an E2E test needs the new build, and
   says so before and after.

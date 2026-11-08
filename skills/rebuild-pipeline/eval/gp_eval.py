@@ -36,6 +36,8 @@ def check(name, ok, detail=""):
 
 
 base = tempfile.mkdtemp(prefix="gp-eval-")
+# The holdout and its local config go to a per-user data folder; an eval must never touch the real one.
+os.environ["PRODUCT_REBUILD_DATA"] = os.path.join(base, "user-data")
 ENV = {"GIT_AUTHOR_NAME": "Eval", "GIT_AUTHOR_EMAIL": "eval@x", "GIT_COMMITTER_NAME": "Eval",
        "GIT_COMMITTER_EMAIL": "eval@x", "RSPEC_PLUGIN_ROOT": os.path.join(base, "no-rspec")}
 
@@ -87,6 +89,12 @@ def project(name):
     w(wb, "docs/production-readiness.md", "# Production readiness\n\n## Security\n- [x] Secrets scanned in CI (ci.yml)\n")
     w(wb, "plan/holdout.json", json.dumps({"seed": 1, "count": 1, "list_sha256": "0" * 64, "hidden": ["F-ISS-01.AC2"],
                                            "slices": {"S1": ["F-ISS-01.AC2"]}}))
+    # What split leaves outside the workbench: the local config naming the holdout, and its hidden entries.
+    hold = os.path.join(os.environ["PRODUCT_REBUILD_DATA"], "holdouts", name)
+    w(hold, "hidden.json", json.dumps({"tests": []}))
+    cfg_path = os.path.join(os.environ["PRODUCT_REBUILD_DATA"], "holdouts.json")
+    cfg = json.load(open(cfg_path, encoding="utf-8")) if os.path.exists(cfg_path) else {}
+    w(os.environ["PRODUCT_REBUILD_DATA"], "holdouts.json", json.dumps({**cfg, os.path.normcase(os.path.realpath(wb)): hold}))
     w(wb, "parity/holdout/S1.json", json.dumps({"slice": "S1", "results": [
         {"criterion": "F-ISS-01.AC2", "runner": "http", "result": "pass", "observed": ""}]}))
     for rel in ("docs/features.md", "docs/domain.md"):

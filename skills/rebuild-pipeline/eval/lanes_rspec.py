@@ -39,6 +39,8 @@ def check(name, ok, detail=""):
 
 
 base = tempfile.mkdtemp(prefix="lanes-rspec-eval-")
+# The holdout and its local config go to a per-user data folder; an eval must never write the real one.
+os.environ["PRODUCT_REBUILD_DATA"] = os.path.join(base, "user-data")
 STUB = os.path.join(base, "sdlc-stub")
 ENV = {"GIT_AUTHOR_NAME": "Eval", "GIT_AUTHOR_EMAIL": "eval@x", "GIT_COMMITTER_NAME": "Eval",
        "GIT_COMMITTER_EMAIL": "eval@x", "SDLC_PLUGIN_ROOT": STUB, "RSPEC_PLUGIN_ROOT": os.path.join(base, "no-rspec")}
@@ -178,8 +180,10 @@ if ONLY in (None, "lane", "questions"):
     check("a lane beyond the slice's lane cap (rebuild.yaml budgets.parallel_lanes) is refused",
           r.returncode == 1 and "parallel_lanes" in r.stderr, r.stdout + r.stderr)
 
+    data = os.environ["PRODUCT_REBUILD_DATA"]
+    w(data, "holdouts.json", json.dumps({os.path.normcase(os.path.realpath(wb)): os.path.join(data, "holdouts", "p-preset")}))
     w(app, ".gitmodules", '[submodule "workbench"]\n\tpath = workbench\n\turl = ../p-workbench\n'
-                          '[submodule "t"]\n\tpath = t\n\turl = ../p-holdout\n')
+                          '[submodule "t"]\n\tpath = t\n\turl = ../p-preset\n')
     w(wb, "rebuild.yaml", "budgets:\n  parallel_lanes: 3\n")
     r = lane_plan("S1", "web", "--worktree", "../app-web", "--features", "F-ISS-02", "--approved-by", "Eval")
     check("a lane is refused while a listed code repo references the holdout repo",

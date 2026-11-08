@@ -697,6 +697,12 @@ def _refresh(args):
     lrec = ((read_lane_plans(slice_id) or {}).get("lanes") or {}).get(lane or "")
     if not lrec or not lrec.get("criteria_ids"):
         return _die("lane-plan", f"no rspec lane {slice_id} {lane} in plan/lane-plans/{slice_id}.yaml.")
+    # A refresh follows an amend, whose re-verify drops the hidden entries and may have re-recorded a hidden
+    # test as open; reconcile first, so such a test is refused here instead of copied into the lane.
+    import holdout
+    _changed, err = holdout.reconcile()
+    if err:
+        return _die("lane-plan", err)
     copied = copy_to_lane(lrec["worktree"], set(lrec["criteria_ids"]), lrec["workbench_path"])
     if isinstance(copied, str):
         return _die("lane-plan", copied)

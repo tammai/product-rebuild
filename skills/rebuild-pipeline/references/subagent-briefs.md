@@ -36,10 +36,11 @@ the rerun of failures), the **long-run rules** (`run_in_background`, `run_phases
 "Test cadence within a slice". `eval/lane_plan.py worker` checks the agent file still carries each rule. The brief
 says only what is true of this dispatch:
 
-- **Joint run:** whether this lane is the one named for the joint run (and so stamps and runs the cumulative
-  suite), or not.
+- **Joint run:** none. The orchestrator stamps and starts the joint run and its rerun from the workbench root
+  (lanes may not write the workbench); a brief at most names the suite commands the lane should report.
 - **Migrations:** this lane's migration number (or range) for the slice, `<N>`, if its criteria change the schema.
-- **Helpers:** whether this lane may run helper agents.
+- **Helpers:** whether this lane may run helper agents. The orchestrator opens each helper's lane with
+  `lane_plan.py` when the lane asks, because that writes the workbench's lane records.
 - **The record:** you work in `<worktree>` on branch `slice/<Sn>-<lane>`. Your lane is the sdlc feature
   `<feature>`: change file `<worktree>/<change>`, state file `<worktree>/<state>`. sdlc is installed at `<sdlc>`
   (`lane_plan.py` printed all four). Its ACs cite rspec's criteria, whose text is in the lock copy

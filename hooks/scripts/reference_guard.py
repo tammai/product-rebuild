@@ -13,22 +13,28 @@ session whose root lies in a worktree of a repo listed in the workbench's repos.
 its own session). Everything else, the orchestrator and rspec's agents included, is not judged: under
 `observe` the spec side is meant to read the reference.
 
-WHAT IS DENIED. The holdout, `<workbench>/../<project>-holdout`, under every posture and whether or not
-it exists yet. The reference checkout unless `sources.yaml` `reference.posture` is own-code (empty
+WHAT IS DENIED. The per-user data folder that holds the hidden tests and the local config naming them
+(hooklib.rebuild_data_dir), and every holdout folder that config names, under every posture and whether
+or not they exist yet. The reference checkout unless `sources.yaml` `reference.posture` is own-code (empty
 means own-code for `reference.kind: own-code`, else observe; an unknown value counts as strict, the
 narrower reading): `reference.checkout`, plus the fallbacks scripts/preflight.py would find that are
 git repos. A fallback that is, or holds, a repo listed in repos.yaml is never denied, because
 `../<reference.name>` can be the rebuild's own repo when the two share a name. And any lane write into
 the workbench: the guard reads its posture, project and lane list from workbench files (sources.yaml,
-locks/pipeline.yaml, repos.yaml), and round 1 of the 3.0 review switched it off by editing them.
+locks/pipeline.yaml, repos.yaml), and round 1 of the 3.0 review switched it off by editing them. A folder
+with `locks/` but no readable `rebuild_major` marker counts as a workbench here (fails closed), because
+deleting the marker once switched every 3.x guard off.
 
 IT IS A GUARD, NOT A SANDBOX. Read, Grep, Glob and the write tools are judged by their path fields; a
 search root or glob that holds a denied path counts. Bash is judged by the directory each simple command
 runs in (after `cd`), by every word that resolves to a path (a glob, or an operand of a recursive reader,
 that holds a denied path counts), by the write targets of writing commands, and by any denied path
-spelled in the raw text in any separator or drive spelling, plus the holdout's own name. PowerShell is
-judged by its words and raw text. A path computed at run time (`$X`, `$(…)`), a script that opens the
-path itself, or a tool other than these is not seen. The README says so; the E2E runs check the denials.
+spelled in the raw text in any separator or drive spelling, plus each holdout folder's own name. PowerShell
+is judged by its words and raw text. Known limits, listed in the README and docs/MIGRATION-3.md: a path
+computed at run time (`$X`, `$(…)`, `%LOCALAPPDATA%`), a script that opens the path itself, a recursive
+reader or writer not listed below, a nested shell, a Windows short name (`PRODUCT~1`), or a tool other than
+these is not seen. The list is not grown further: the hidden tests are kept out of reach by never giving a
+lane their path, and this guard is the second line (P3: a guard, not a sandbox).
 
 The deny message names no path: a lane reads it, and P4 says nothing a lane sees names the holdout.
 Fails open outside a 3.x workbench; a crash inside a pipeline session blocks (guard_io).
@@ -44,6 +50,7 @@ from guard_io import (
 )
 from hooklib import (
     get, read_text, session_root, workbenches_near, listed_repos, pipeline_repo_of, is_current_workbench, _native,
+    marker_unreadable, rebuild_data_dir, holdout_config,
 )
 
 GUARD = "reference_guard"
@@ -109,18 +116,15 @@ def posture_of(wb):
     return posture if posture in POSTURES else "strict"
 
 
-def _project(wb):
-    try:
-        m = re.search(r"^project:[ \t]*(\S+)", read_text(os.path.join(wb, "locks", "pipeline.yaml")), re.M)
-    except OSError:
-        m = None
-    name = m.group(1).strip("\"'") if m else os.path.basename(wb)
-    return re.sub(r"-workbench\Z", "", name)
+def holdout_roots():
+    """The data folder and every holdout folder the local config names, for any workbench: the config is
+    per user, and a lane of one rebuild has no more business in another's hidden tests."""
+    return [rebuild_data_dir()] + sorted(set(holdout_config().values()))
 
 
 def denied_roots(wb):
     parent = os.path.dirname(wb)
-    roots = [os.path.join(parent, f"{_project(wb)}-holdout")]
+    roots = holdout_roots()
     if posture_of(wb) != "own-code":
         own = {_key(r) for r in listed_repos([wb])}
         checkout = _sources_field(wb, "checkout")
@@ -192,8 +196,8 @@ def _root_pattern(root):
 
 def raw_reaches(command, roots, holdout_names):
     """The raw text, for a spelling the tokenizer leaves unresolved (inside a quoted script, an
-    interpreter's -c, a heredoc). The holdout's own name, `<project>-holdout`, is denied at a path boundary
-    in any form, `..` and relative spellings included: it is unique by construction and a lane is never
+    interpreter's -c, a heredoc). A holdout folder's own name (`<project>-<random hex>`) is denied at a path
+    boundary in any form, relative spellings included: it is unique by construction and a lane is never
     told it (P4), so no lane command has a reason to spell it."""
     flags = re.I if CASE_INSENSITIVE_FS else 0
     if any(re.search(_root_pattern(r), command, flags) for r in roots):
@@ -294,11 +298,11 @@ def main():
     call = tool_call(data)
     if call.name not in TOOLS or not is_lane(data):
         return 0
-    wbs = [wb for wb in workbenches_near(session_root(data)) if is_current_workbench(wb)]
-    roots = [r for wb in wbs for r in denied_roots(wb)]
+    wbs = workbenches_near(session_root(data), lambda d: is_current_workbench(d) or marker_unreadable(d))
+    roots = list(dict.fromkeys(r for wb in wbs for r in denied_roots(wb)))
     if not roots:
         return 0
-    names = [f"{_project(wb)}-holdout" for wb in wbs]
+    names = sorted({os.path.basename(h.rstrip(r"\/")) for h in holdout_config().values()})
     wb_keys = [_key(wb) for wb in wbs]
     cwd = command_dir(data)
     command = get(call.input, "command")

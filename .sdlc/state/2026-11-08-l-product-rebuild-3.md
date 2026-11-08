@@ -11,7 +11,7 @@ Base: 3274d37
 Owner: tammai.it@gmail.com
 Tool: claude-code
 Slice: B6   Slice base: 953e3cf   Slice gates: none
-Current: Stage 3 – Review
+Current: Stage 2 – Build
 
 ## Stages
 - [x] 1 Define   — the change file, the plan sections below
@@ -127,6 +127,9 @@ parts in fresh sessions: each backlog part is its own coordinator task
 - 2026-11-09 2026-11-09 reference_guard.py What: per-program recursive flags (ls -R, not -r; cp -a), in-place edits in any spelling (-pi, -Ei, --in-place), git --git-dir= and --work-tree= forms. Why: same-class gaps found in a self-check before round 2. Effect: AC-004 eval gains six checks, red on b1bdc8a.
 - 2026-11-09 2026-11-09 surface What: script-internal names bundle_path, fwd, in_history, powershell_reaches, raw_reaches, unignore_bundle, write_atomic, write_reaches, sample_entries, sync_sample, departure_for, explains, NotRun (holdout.py, lane_plan.py, reference_guard.py, route.py, departures.py, boundary.py and the evals) read as new exports. Why: functions inside a hook and vendored scripts imported only by their siblings, and an eval helper. Effect: none; Public Surface lists the new boundary --repo flag, the gate-2 refusal and the matcher.
 - 2026-11-09 2026-11-09 skills/rebuild-pipeline/schemas/lock.schema.json What: declares the holdout and level2_waiver blocks gate.py writes into the gate-4 lock. Why: H1, validate.py failed every workbench past Gate 4 (additionalProperties false). Effect: gates_rspec.py level2 runs validate.py after the lock; an rc.1 workbench gets the schema through upgrade.py when its copy is unmodified.
+- 2026-11-09 R1: the holdout is a git repo in a per-user data folder (PRODUCT_REBUILD_DATA, else %LOCALAPPDATA% or XDG_DATA_HOME/product-rebuild/holdouts/<project>-<random hex>), named only in that folder's holdouts.json keyed by the workbench's real path; P4's sibling <project>-holdout repo is gone (coordinator decision R1). The guard denies the whole data folder and every configured holdout; the hidden manifest entries are kept in the holdout repo's hidden.json for reconcile.
+- 2026-11-09 R3: lanes no longer use run_phases.py at all (it refuses outside the workbench root and writes its run folder there); a lane's own multi-step run is one background command in its worktree. The orchestrator writes phases.txt, stamps, starts the joint run and the rerun, and opens helper lanes with lane_plan.py.
+- 2026-11-09 R4: the gate-4 lock runs reconcile and, when it changed the manifest, refuses once asking for a commit (the lock wants a clean tree) instead of committing for the user.
 
 ## Open questions
 -

@@ -192,36 +192,37 @@ def _code_repos(args):
     return [os.path.abspath(p) for p in given] or holdout.listed_repos()
 
 
-def _junit_states(repos):
-    """{criterion: (state, where)} from the lanes' newest AC JUnit in each code repo, the failures' re-run file
-    laid over it (P6 step 1: the open suite of a non-http runner is already run by the lanes, so G6 reads their
-    JUnit instead of running a harness it does not own). A case counts for a criterion whose ID its name
-    holds; the re-run decides a case it repeats, and a failure the re-run passes is flaky."""
+def _junit_states():
+    """{criterion: (state, where)} from the joint run's newest AC JUnit in the workbench's parity/, the failures'
+    re-run file laid over it (P6 step 1: the open suite of a non-http runner is already run at the joint run,
+    so G6 reads its JUnit instead of running a harness it does not own). The orchestrator starts that run from
+    the workbench root (lanes may not write the workbench), and parity.py and slice_review.py read the same
+    files, so all three agree on one run. A case counts for a criterion whose ID its name holds; the re-run
+    decides a case it repeats, and a failure the re-run passes is flaky."""
     import acsuite
     out = {}
-    for repo in repos:
-        files = acsuite.ac_junit_files(repo)
-        if not files:
-            continue
-        newest = files[0]
-        joint = acsuite.read_ac_suite(newest["path"]) or {}
-        rerun = acsuite.read_ac_suite(acsuite.ac_rerun_path(newest["date"], repo)) or {}
-        again = {c["name"]: c["state"] for c in rerun.get("cases") or []}
-        for c in joint.get("cases") or []:
-            for cid in re.findall(r"F-[A-Z][A-Z0-9]*-\d+\.AC\d+", c["name"]):
-                state = c["state"]
-                if state == "failed" and again.get(c["name"]) == "passed":
-                    state = "flaky"
-                elif state == "failed" and c["name"] not in again:
-                    state = "failed, not re-run"
-                if out.get(cid, ("passed",))[0] == "passed":
-                    out[cid] = (state, newest["path"])
+    files = acsuite.ac_junit_files(".")
+    if not files:
+        return out
+    newest = files[0]
+    joint = acsuite.read_ac_suite(newest["path"]) or {}
+    rerun = acsuite.read_ac_suite(acsuite.ac_rerun_path(newest["date"], ".")) or {}
+    again = {c["name"]: c["state"] for c in rerun.get("cases") or []}
+    for c in joint.get("cases") or []:
+        for cid in re.findall(r"F-[A-Z][A-Z0-9]*-\d+\.AC\d+", c["name"]):
+            state = c["state"]
+            if state == "failed" and again.get(c["name"]) == "passed":
+                state = "flaky"
+            elif state == "failed" and c["name"] not in again:
+                state = "failed, not re-run"
+            if out.get(cid, ("passed",))[0] == "passed":
+                out[cid] = (state, newest["path"])
     return out
 
 
-def _open_suite(sid, contracts, cpy, repos, closed):
+def _open_suite(sid, contracts, cpy, closed):
     """(green, lines): the slice's open recorded tests. HTTP ones run here, each failure re-run once; the other
-    runners' results come from the lanes' JUnit."""
+    runners' results come from the joint run's JUnit in the workbench."""
     import holdout
     import route
     missing = [p for p in (os.path.join("docs", "criteria.lock.json"), holdout.MANIFEST) if not os.path.exists(p)]
@@ -234,7 +235,7 @@ def _open_suite(sid, contracts, cpy, repos, closed):
     if not tests:
         return True, ["  no open recorded tests in this slice"]
     green, lines = True, []
-    junit = _junit_states(repos) if any(t.get("runner") != "http" for t in tests) else {}
+    junit = _junit_states() if any(t.get("runner") != "http" for t in tests) else {}
     folder = os.path.join("parity", "findings", sid)
     for t in tests:
         cid, runner = t["criterion"], t.get("runner")
@@ -252,14 +253,14 @@ def _open_suite(sid, contracts, cpy, repos, closed):
                 continue
             green = False
             if state is None:
-                lines.append(f"  {cid}: not run: no lane JUnit in {', '.join(repos) or 'any listed repo'} holds a "
-                             f"{runner} case naming it (lane-worker writes parity/<date>-ac.xml)")
+                lines.append(f"  {cid}: not run: no joint-run JUnit in the workbench's parity/ holds a {runner} case "
+                             f"naming it (the orchestrator's joint run writes parity/<date>-ac.xml)")
             elif state == "failed":
                 fid, new = _write_finding(folder, "g6-open", cid, f"its {runner} test failed twice in the lanes' runs "
                                           f"({where})", path, contracts, closed, runner)
                 lines.append(f"  {cid}: fails in the lanes' run and its re-run -> {'new' if new else 'open'} finding {fid}")
             else:
-                lines.append(f"  {cid}: {state} in {where}: re-run the failed specs (lanes_check.py stamp --rerun)")
+                lines.append(f"  {cid}: {state} in {where}: re-run the failed specs (the orchestrator: lanes_check.py stamp --rerun)")
             continue
         if not os.environ.get("ACCEPT_BASE_URL"):
             green = False
@@ -396,6 +397,13 @@ def _boundary(sid, args=()):
         print(f"Boundary {sid}: REFUSED. The holdout repo is reachable from a code repo: {'; '.join(bad)}. "
               f"Remove it from that repo before G6 runs.")
         return 2
+    changed, err = holdout.reconcile()
+    if err:
+        print(f"Boundary {sid}: REFUSED. {err}")
+        return 2
+    if changed:
+        print(f"Boundary {sid}: the hidden entries a re-verify dropped are back in {holdout.MANIFEST}; commit it and "
+              f"{holdout.RECORD}.")
     try:
         closed = set(route.load_state(sid)["closed"])
     except (OSError, ValueError) as e:
@@ -434,7 +442,7 @@ def _boundary(sid, args=()):
         return False
 
     print("\n== 1. open suite (each failure re-run once)")
-    open_green, lines = _open_suite(sid, contracts, cpy, repos, closed)
+    open_green, lines = _open_suite(sid, contracts, cpy, closed)
     print("\n".join(lines) or "  all green")
     if stop("the open suite"):
         return 2

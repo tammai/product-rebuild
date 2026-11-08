@@ -41,6 +41,8 @@ def read(p):
 
 
 base = tempfile.mkdtemp(prefix="lane-plan-eval-")
+# The holdout and its local config go to a per-user data folder; an eval must never write the real one.
+os.environ["PRODUCT_REBUILD_DATA"] = os.path.join(base, "user-data")
 
 if ONLY in (None, "worker"):
     print("\n# lane-worker.md carries the standing rules the lane brief used to paste each time")

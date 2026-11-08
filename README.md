@@ -93,8 +93,10 @@ The skill runs rspec's stages in the workbench and never does their work: `rspec
 `features` (you approve the list → **Gate 1**), `stories`, `tech` (the playbook is vendored to `adr/` first
 and its stack is rspec's preference; you decide each ADR → **Gate 3**), `audit` and `verify` (tests recorded
 against the running reference), `handoff` (vertical slices of at most ~10 criteria), `check`. Then
-`holdout.py split` hides 25% of each slice's recorded tests in a repo beside the workbench that no lane can
-read, before the bundle is first committed (so no hidden test is ever in the workbench's history), then
+`holdout.py split` hides 25% of each slice's recorded tests in a repo in your per-user data folder
+(`%LOCALAPPDATA%\product-rebuild\holdouts\` on Windows, `$XDG_DATA_HOME/product-rebuild/holdouts/` or
+`~/.local/share/product-rebuild/holdouts/` elsewhere, or under `$PRODUCT_REBUILD_DATA`), named only in that
+folder's `holdouts.json`, so no workbench file or lane brief ever names it, before the bundle is first committed (so no hidden test is ever in the workbench's history), then
 **Gate 2** locks the slices and **Gate 4** locks the contracts, the criteria lock and the test bundle (refusing, under
 `observe` and `own-code`, while fewer than 90% of MVP criteria have a recorded test, unless you sign a reason).
 
@@ -172,7 +174,7 @@ skills/rebuild-pipeline/        THE skill you interact with
   scripts/gate.py               gate status / lock / reopen (hashes + tags), on rspec's artifacts
   scripts/validate.py           the workbench's own files, and lock integrity (also in CI)
   scripts/playbook.py           vendors the playbook and its scaffold manifest to adr/; their checks
-  scripts/holdout.py            the hidden tests: split at Gate 4, run at G6
+  scripts/holdout.py            the hidden tests: split at Gate 4, reconcile after a re-verify, run at G6
   scripts/lane_plan.py          step 0, a lane's sdlc record from rspec's criteria, spec questions, archive
   scripts/boundary.py           G6 cheapest first, the human sample, the re-mine reminder
   scripts/route.py              routes each finding by class into fix rounds
@@ -209,11 +211,20 @@ docs/MIGRATION-3.md             where each 2.x capability went
 `observe`, and never the hidden tests under any posture, and writes only inside its own worktree.
 `hooks/scripts/reference_guard.py` denies a lane's Read, Grep, Glob, Bash and PowerShell calls that reach those
 paths (a recursive search or glob from a directory above them included) and its writes into the workbench. It
-sees paths written in the call; a path computed at run time, or a script that opens the file itself, gets past
-it. The build under test also sees a hidden test's requests when G6 runs it. Use `strict` for a sensitive
-reference, and check the guard's denials in the end-to-end runs. A workbench that committed its bundle before
-the split (any 3.0.0-rc.1 workbench past Gate 2) has the hidden tests in its history: `holdout.py split` now
-refuses there, and that history must be rewritten before lanes hold the workbench.
+sees paths written in the call. Known limits, which the guard does not try to close: a path computed at run
+time (`$X`, `$(…)`, `%LOCALAPPDATA%`), a script or interpreter that opens the file itself, a recursive reader or
+writer it does not list, a nested shell (`bash -c`, `cmd /c`, `powershell -c` with the path built inside), and a
+Windows short name (`PRODUCT~1`). The hidden tests are protected first by never handing a lane their path (they
+are outside the project and named only in your per-user config), and the guard is the second line. A folder
+with `locks/` but no readable `rebuild_major` marker counts as a workbench to this guard, so deleting the
+marker does not switch it off. The build under test also sees a hidden test's requests when G6 runs it. Use
+`strict` for a sensitive reference, and check the guard's denials in the end-to-end runs. A workbench that
+committed its bundle before the split (any 3.0.0-rc.1 workbench past Gate 2) has the hidden tests in its
+history: `holdout.py split` refuses while git still holds any of them as an object, reachable or not. Rewrite
+those commits out with the user (and from any remote), then run
+`git reflog expire --expire=now --all && git gc --prune=now` so no unreachable copy is left, before lanes hold
+the workbench. Run the pipeline as the same OS user throughout: the holdout's location is in that user's data
+folder.
 
 ## Design rules the plugin enforces (so you don't have to)
 

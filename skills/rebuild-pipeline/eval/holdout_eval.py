@@ -43,6 +43,8 @@ def check(name, ok, detail=""):
 
 
 base = tempfile.mkdtemp(prefix="holdout-eval-")
+# The holdout and its local config go to a per-user data folder; an eval must never write the real one.
+os.environ["PRODUCT_REBUILD_DATA"] = os.path.join(base, "user-data")
 ENV = {"GIT_AUTHOR_NAME": "Eval", "GIT_AUTHOR_EMAIL": "eval@x", "GIT_COMMITTER_NAME": "Eval",
        "GIT_COMMITTER_EMAIL": "eval@x", "RSPEC_PLUGIN_ROOT": os.path.join(base, "no-rspec")}
 
@@ -126,10 +128,22 @@ def record(wb):
         return json.load(f)
 
 
+def config():
+    try:
+        with open(os.path.join(os.environ["PRODUCT_REBUILD_DATA"], "holdouts.json"), encoding="utf-8") as f:
+            return json.load(f)
+    except OSError:
+        return {}
+
+
+def hold_of(wb):
+    """The holdout folder the local config names for `wb` (holdout.py keys it by the real, case-folded path)."""
+    return config().get(os.path.normcase(os.path.realpath(wb)), "")
+
+
 proj, wb = make_project("main")
 pristine = os.path.join(base, "pristine")
 shutil.copytree(proj, pristine)
-hold = os.path.join(proj, "p-holdout")
 
 if ONLY in (None, "split", "run"):
     print("\n# split (AC-007)")
@@ -147,6 +161,10 @@ if ONLY in (None, "split", "run"):
           r.returncode == 1 and "--seed" in r.stderr and "Traceback" not in r.stderr, r.stderr)
     r = holdout(wb, "split", "--seed", "7")
     check("holdout.py split runs", r.returncode == 0, r.stdout + r.stderr)
+    hold = hold_of(wb)
+    check("the holdout is a folder in the per-user data dir, named only in its local config, not in the project",
+          hold.startswith(os.environ["PRODUCT_REBUILD_DATA"]) and os.path.isdir(hold)
+          and not [n for n in os.listdir(proj) if "holdout" in n], hold)
     commit(wb)
     r = run([sys.executable, os.path.join("scripts", "gate.py"), "lock", "gate-2", "--by", "Eval"], wb)
     check("gate-2 locks after the split", r.returncode == 0, r.stdout + r.stderr)
@@ -179,10 +197,15 @@ if ONLY in (None, "split", "run"):
     lwb = os.path.join(leaked, "p-workbench")
     run(["git", "add", "-f", "docs/acceptance"], lwb)
     run(["git", "commit", "-qm", "bundle too early"], lwb)
+    run(["git", "reset", "-q", "HEAD~1"], lwb)  # the commit is off every branch, still in the reflog
     r = holdout(lwb, "split", "--seed", "7")
-    sha = run(["git", "rev-parse", "--short", "HEAD"], lwb).stdout.strip()
-    check("split refuses, naming the commit, when a test it would hide is already in the workbench's history",
-          r.returncode == 1 and sha in r.stderr and not os.path.exists(os.path.join(leaked, "p-holdout")), r.stdout + r.stderr)
+    check("split refuses when a test it would hide is still a git object (a rewrite left it in the reflog)",
+          r.returncode == 1 and "object" in r.stderr and "reflog expire" in r.stderr
+          and not os.path.exists(os.path.join(hold_of(lwb), "hidden.json")), r.stdout + r.stderr)
+    run(["git", "reflog", "expire", "--expire=now", "--all"], lwb)
+    run(["git", "gc", "-q", "--prune=now"], lwb)
+    r = holdout(lwb, "split", "--seed", "7")
+    check("...and runs once the refusal's reflog expire and gc have dropped it", r.returncode == 0, r.stdout + r.stderr)
     multi = os.path.join(base, "multi")
     shutil.copytree(pristine, multi)
     mwb = os.path.join(multi, "p-workbench")
@@ -200,7 +223,7 @@ if ONLY in (None, "split", "run"):
     both = [t for t in m["tests"] if t["criterion"] in mh and t["criterion"].startswith("F-ISS-01.")]
     check("a hidden criterion with two tests (http and e2e) has both hidden and moved, none left open",
           r.returncode == 0 and len(both) == 2 and all(t["visibility"] == "hidden" for t in both)
-          and all(os.path.exists(os.path.join(multi, "p-holdout", t["path"])) for t in both), r.stdout + r.stderr)
+          and all(os.path.exists(os.path.join(hold_of(mwb), t["path"])) for t in both), r.stdout + r.stderr)
     trav = os.path.join(base, "trav")
     shutil.copytree(pristine, trav)
     twb = os.path.join(trav, "p-workbench")
@@ -217,11 +240,29 @@ if ONLY in (None, "split", "run"):
           r.stdout + r.stderr)
     bad = os.path.join(base, "bad")
     shutil.copytree(pristine, bad)
-    w(os.path.join(bad, "app"), ".gitmodules", '[submodule "tests"]\n\tpath = tests\n\turl = ../p-holdout\n')
+    preset = os.path.join(os.environ["PRODUCT_REBUILD_DATA"], "holdouts", "p-preset")
+    w(os.environ["PRODUCT_REBUILD_DATA"], "holdouts.json",
+      json.dumps({**config(), os.path.normcase(os.path.realpath(os.path.join(bad, "p-workbench"))): preset}))
+    w(os.path.join(bad, "app"), ".gitmodules", '[submodule "tests"]\n\tpath = tests\n\turl = ../p-preset\n')
     commit(os.path.join(bad, "app"))
     r = holdout(os.path.join(bad, "p-workbench"), "split", "--seed", "7")
     check("split refuses when a listed code repo references the holdout repo",
-          r.returncode == 1 and "app" in r.stderr and not os.path.exists(os.path.join(bad, "p-holdout")), r.stdout + r.stderr)
+          r.returncode == 1 and "app" in r.stderr and not os.path.exists(preset), r.stdout + r.stderr)
+    # rspec:verify after an amend rebuilds the manifest from its own records, which no longer hold the hidden ones.
+    mpath = os.path.join(wb, "docs", "acceptance", "manifest.json")
+    m = json.load(open(mpath, encoding="utf-8"))
+    w(wb, "docs/acceptance/manifest.json", json.dumps({**m, "tests": [t for t in m["tests"] if t["visibility"] == "open"]}, indent=2))
+    commit(wb)
+    r = run([sys.executable, os.path.join("scripts", "gate.py"), "lock", "gate-4", "--by", "Eval"], wb)
+    restored = {t["criterion"] for t in json.load(open(mpath, encoding="utf-8"))["tests"] if t["visibility"] == "hidden"}
+    check("after a re-verify drops the hidden entries, the gate-4 lock reconciles them back and asks for a commit",
+          r.returncode == 1 and "reconcile" in r.stderr and restored == set(hidden), r.stdout + r.stderr)
+    awb = os.path.join(again, "p-workbench")
+    gone = record(awb)["hidden"][0]
+    w(awb, f"docs/acceptance/http/{gone}.yaml", "criterion: re-recorded\n")
+    r = holdout(awb, "reconcile")
+    check("reconcile refuses when a re-verify re-recorded a hidden criterion's test as open",
+          r.returncode == 1 and gone in r.stderr and "open again" in r.stderr, r.stdout + r.stderr)
     commit(wb)
     r = run([sys.executable, os.path.join("scripts", "gate.py"), "lock", "gate-4", "--by", "Eval"], wb)
     lock4 = open(os.path.join(wb, "locks", "gate-4.yaml"), encoding="utf-8").read()
@@ -272,7 +313,7 @@ if ONLY in (None, "run"):
           r.returncode == 1 and res["results"][0]["result"] == "not run" and "ACCEPT_BASE_URL" in res["results"][0]["observed"],
           r.stdout + r.stderr)
     s2 = [c for c in record(wb)["hidden"] if c.startswith("F-PRJ")][0]
-    with open(os.path.join(hold, "http", f"{s2}.yaml"), "a", encoding="utf-8") as f:
+    with open(os.path.join(hold_of(wb), "http", f"{s2}.yaml"), "a", encoding="utf-8") as f:
         f.write("# edited in the holdout repo\n")
     r = holdout(wb, "run", "S2", env={"ACCEPT_BASE_URL": url})
     res = json.load(open(os.path.join(wb, "parity", "holdout", "S2.json"), encoding="utf-8"))
