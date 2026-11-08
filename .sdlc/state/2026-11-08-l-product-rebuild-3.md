@@ -10,7 +10,7 @@ Started: 2026-11-08
 Base: 3274d37
 Owner: tammai.it@gmail.com
 Tool: claude-code
-Slice: B5   Slice base: c813fbc   Slice gates: none
+Slice: B7   Slice base: 5a446cd   Slice gates: none
 Current: Stage 2 – Build
 
 ## Stages
@@ -26,6 +26,7 @@ parts in fresh sessions: each backlog part is its own coordinator task
 - workbench marker: hooks/scripts/hooklib.py REBUILD_MAJOR + is_current_workbench; rebuild_init.py PIPELINE_YAML; upgrade.py major fence; scaffold-repo/scripts/scaffold.py checks it too
 - lanes are lane-worker subagents of a session started in the project's parent dir (g5-build.md Guardrails), so lane detection uses the payload agent_type
 - reference checkout fallbacks: preflight.py checkout_candidates
+- slices and features (B7): sequence.py plan_slices/plan_features read rspec's docs/build-plan.md and docs/features.md; parity, slice_review, gate status and validate go through them; matrix/ and plan/slices.yaml are read by nothing but B6's deletion candidates (validate's lane-R section, gate_facts.py)
 
 ## Tasks
 1. **B1 Dependencies and version** — AC-001
@@ -58,6 +59,8 @@ parts in fresh sessions: each backlog part is its own coordinator task
 - 2026-11-09 B3 ACs refined from the coordinator's pr-3 answers: AC-007 and AC-008 made concrete; AC-015 (holdout run), AC-016 (lane bundle and lock copy, cap), AC-017 (step 0), AC-018 (spec questions, refresh) added
 - 2026-11-09 B4 ACs refined from the coordinator's pr-4 answers: AC-009 made concrete; AC-019 (G6 sequence), AC-020 (human sample), AC-021 (departures registry), AC-022 (fix lanes) added. Open with the user: whether gate-1 keeps hashing departures.yaml (spec change to P2's Gate 1 row)
 - 2026-11-09 B5 ACs refined from the coordinator's pr-5 answers: AC-010 made concrete; AC-023 (NFR evidence), AC-024 (budgets), AC-025 (cost logs), AC-026 (autopilot parking), AC-027 (rspec template PR, manual) added
+- 2026-11-09 B6 split (coordinator pr-6 Q1 a): B7 ports parity.py, slice_review.py, sequence.py and gate.py's slice states to rspec's build-plan.md and features.md, and G6 step 4 says not run when they cannot run; B6 (table, deletions, docs) now depends on B7, so the coverage row has a working owner before any 2.x part is deleted (05 P1)
+- 2026-11-09 B6 ACs refined from the coordinator's pr-6 answers: AC-011 made concrete; AC-028 (reports from rspec artifacts), AC-029 (slice order from story dependencies), AC-030 (step 4 not run) added for B7
 
 ## Deviations
 - 2026-11-08 surface What: script-internal functions allowed, bash_reaches, check, denied, denied_roots, guard, init_repo, is_lane, main, marked, posture_of, run, set_reference, tool_reaches, w (hooks/scripts/reference_guard.py and the evals) read as new exports. Why: they are functions inside a hook and eval scripts, imported by nothing. Effect: none; Public Surface unchanged.
@@ -81,6 +84,9 @@ parts in fresh sessions: each backlog part is its own coordinator task
 - 2026-11-09 surface What: script-internal names add, cmd_blocked, cmd_check, cmd_nfr, cmd_park, cmd_unpark, evidence_rows, fill_evidence, gate5, log_path, nfr_rows, parked_blocks, problems, round_cap (gp.py, cost.py, autopilot.py, route.py and the eval) read as new exports. Why: functions inside vendored scripts and an eval, imported only by their siblings (gate.py imports gp.problems). Effect: none; plan-B5.md lists the commands and the rebuild.yaml keys.
 - 2026-11-09 evals What: gates_rspec.py, g6_eval.py and holdout_eval.py write goal: production into their hand-made docs/rspec.json. Why: B5 makes gate-1 refuse a rebuild whose rspec goal is not production (05 P8), and those evals lock gate-1. Effect: same checks.
 - 2026-11-09 verify (B5) What: the project test command exits 1. Why: only the five evals in .sdlc/baseline.md fail, each with exactly its baselined line; gp_eval.py and every other eval pass, as do every AC and the drift check. Effect: B5 committed with plain git; Review and Ship run at Feature close.
+- 2026-11-09 skills/rebuild-pipeline/scripts/sequence.py, skills/rebuild-pipeline/eval/dates_and_reruns.py, skills/rebuild-pipeline/eval/run_supervision.py, skills/rebuild-pipeline/eval/windows_and_upgrade.py What: B7 (split from B6) reads rspec's slices and features through sequence.py, and these evals' fixtures moved from matrix/features.yaml and plan/slices.yaml to docs/features.md and docs/build-plan.md. Why: the state file's task outline predates the coordinator's pr-6 Q1 answer; plan-B7.md names the files. Effect: same checks on the 3.x inputs; windows_and_upgrade's gate-guard check now edits docs/features.md, and its baselined failure is unchanged.
+- 2026-11-09 surface What: plan_features, plan_slices (sequence.py) and set_locked (eval/coverage_rspec.py) read as new exports. Why: functions inside a vendored script, imported only by its siblings (parity, slice_review, gate, validate), and an eval helper. Effect: none; Public Surface unchanged.
+- 2026-11-09 verify (B7) What: the project test command exits 1. Why: only the five evals in .sdlc/baseline.md fail, each with exactly its baselined line (lane_guards, lane_plan cadence text, run_supervision's two, windows_and_upgrade's gate-guard check, rules_recall usage); coverage_rspec.py, gate_status.py, dates_and_reruns.py and every other eval pass, as do every AC and the drift check. Effect: B7 committed with plain git; Review and Ship run at Feature close.
 
 ## Open questions
 -

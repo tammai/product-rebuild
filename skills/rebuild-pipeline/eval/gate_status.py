@@ -11,12 +11,12 @@ phase there routes a session to the wrong work. The Kutt rebuild (2026-11-03) me
   - a fresh workbench with findings/ empty was told "G2 feature matrix", skipping G1 mining;
   - eleven ADRs reached the Gate 3 lock still saying `status: proposed`.
 Each builds a throwaway workbench with rebuild_init.py and checks the answer. From 3.0.0 rspec owns the
-stages before gate-1 (no mining phase to name) and the ADRs live in rspec's docs/decisions/; the gate
-order and lock checks themselves are in gates_rspec.py.
+stages before gate-1 (no mining phase to name), the slices are rspec's docs/build-plan.md (the next unfinished
+one is in coverage_rspec.py) and the ADRs live in rspec's docs/decisions/; the gate order and lock checks
+themselves are in gates_rspec.py.
 """
 from __future__ import annotations
 
-import json
 import os
 import re
 import subprocess
@@ -71,20 +71,14 @@ def set_locked(*gates: str) -> None:
 # --- Before gate-1: rspec's first stages (3.0.0, 05 P2; G1 mining is gone) -----------------------
 check("a new workbench is in rspec's first stages, toward gate-1", phase().startswith("rspec init"), phase())
 
-# --- G5 with each slice-plan shape ------------------------------------------------------------
+# --- After gate-4: the build, until every slice of rspec's plan is done ------------------------
 set_locked("gate-1", "gate-3", "gate-2", "gate-4")
-plan = [{"id": "S1", "name": "a", "features": ["F-A-001"], "depends_on": [], "learning_goals": [],
-         "done_means": "a person can do it"},
-        {"id": "S2", "name": "b", "features": ["F-A-002"], "depends_on": ["S1"], "learning_goals": [],
-         "done_means": "a person can do it"}]
-write("plan/slices.yaml", "# Slice plan (G3).\n" + json.dumps(plan, indent=2) + "\n")
-check("a JSON slice plan is read: G5 build, next S1", phase().startswith("G5 build — next unfinished slice S1"), phase())
-write("plan/slices.yaml", "slices:\n  - id: S1\n    status: done\n  - id: S2\n")
-check("an indented YAML slice plan is read too", phase().startswith("G5 build — next unfinished slice S2"), phase())
-write("plan/slices.yaml", "- id: S1\n  status: done\n- id: S2\n  status: done\n")
-check("every slice done is GP production readiness", phase().startswith("GP production readiness"), phase())
-write("plan/slices.yaml", "nonsense: true\n")
-check("a slice plan with no readable slice says so, not GP", phase().startswith("G5 build (plan/slices.yaml has no slice"), phase())
+write("docs/build-plan.md", "# Build plan\n\n## Slice 1: a\n\n| 1 | F-AB-01 a |\n\n## Slice 2: b\n\n| 1 | F-AB-02 b |\n")
+write("plan/progress.yaml", "slices:\n  S1: done\n\n  S2: deployed\n")
+check("every slice done or deployed is GP production readiness", phase().startswith("GP production readiness (2/2"), phase())
+write("docs/build-plan.md", "# Build plan\n\nnothing cut yet\n")
+check("a build plan with no readable slice says so, not GP",
+      phase().startswith("G5 build (docs/build-plan.md has no `## Slice`"), phase())
 
 # --- Gate 3 refuses ADRs still proposed (rspec's docs/decisions/ from 3.0.0) ----------------------
 sys.path.insert(0, os.path.join(wb, "scripts"))

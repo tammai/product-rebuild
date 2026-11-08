@@ -81,8 +81,9 @@ if not os.path.exists(os.path.join(wb, ".git")):
     sh(wb, "git", "init", "-q")  # rebuild_init normally has
 sh(wb, "git", "config", "user.name", "Eval Approver")
 sh(wb, "git", "config", "user.email", "eval@x")
-w(wb, "matrix/features.yaml", "- id: F-A-001\n  name: Alpha\n  domain: billing\n  confidence: high\n")
-w(wb, "plan/slices.yaml", "- id: S1\n  name: One\n  features: [F-A-001]\n")
+w(wb, "docs/features.md", "| ID | Module | Feature | Behaviour | Priority | Reason | Research ID |\n|---|---|---|---|---|---|---|\n"
+                          "| F-A-001 | A | Alpha | a | MVP | J1 | R-1 |\n")
+w(wb, "docs/build-plan.md", "# Build plan\n\n## Slice 1: One\n\n| 1 | F-A-001 Alpha |\n")
 w(wb, "plan/progress.yaml", "slices: { S1: deployed }\nfeatures: { F-A-001: covered }\n")
 SPEC_V1 = ("---\ndomains: [billing]\n---\n# Billing\n\nWhat it does.\n\n## Acceptance criteria\n\n"
            "1. A negative amount is rejected with 422. rule_id: R-BILL-001\n2. Totals round half-even to 2 dp.\n")

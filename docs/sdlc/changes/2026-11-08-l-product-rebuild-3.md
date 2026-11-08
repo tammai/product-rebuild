@@ -45,6 +45,13 @@ Spec: [docs/specs/rebuild-upgrade/05-product-rebuild.md](../../specs/rebuild-upg
 - `cost.py add` writes C7 lines per slice; P10 parking as proposed.
 - The gate-1 / departures.yaml question is still with the user; `departures.gate1_allows_append` stays the single switch.
 
+**Coordinator answers for part 6 (task pr-6, 2026-11-09, "go"):**
+- Q1 (a): G6 step 4 (`parity.py`, `slice_review.py`), `sequence.py` and `gate.py`'s slice states still read the 2.x `matrix/features.yaml` and `plan/slices.yaml`, which a 3.x workbench never has. They are ported to rspec's `docs/build-plan.md` and `docs/features.md` (`plan/progress.yaml` and `plan/sequence.yaml` stay the ungated overlays), and step 4 says `not run: <reason>` when it cannot run. The part splits: B7 is the port, B6 the table, deletions and docs; B7 runs first so the coverage row has a working owner before any deletion (P1).
+- Q2: the `rules-recall` fixture and a recall-test proposal go to `docs/rspec-pr/rules-recall/` for the rspec worker; the MIGRATION row blocks 3.0.0 until it is merged; lane R and CLAUDE.md's evals rule are deleted here, and the CHANGELOG says so.
+- Q3: changelog lane A and the 30-day re-mine stay in this repo (boundary.py names the rspec action); untrusted-source hardening and the build runbook stay in this repo's hooks, cited by named groups of `lane_guards.py`; playbook ADR defaults: rspec's stack-preference test plus `scaffold_repo.py`; client-only target shape: "rspec modernize, partial" (the coordinator puts blocks-or-known-gap to the user at release); the rubric judge: rspec's audit.
+- Q4: `migration_3.py` checks the table and runs this repo's rows; `--external` runs the cited rspec, sdlc and bug-hunter tests from a `git archive` copy at the cited commit (nothing written into those repos), a missing root is `not run`, exit 1.
+- Q5: the deletion list as proposed (the five mining agents and their references, rubrics, scripts, schemas, evals and fixtures; `lane_plan.py --specs`; validate.py's 2.x checks; the 2.x scaffold dirs). Kept: lane-worker, playbooks and `playbook.py`, preflight, equiv, flows, autopilot, pause_check, upgrade, lanes_check, run_phases, scaffold-repo, every hook.
+
 ## Decisions
 
 | Decision | Ruled out | Why |
@@ -91,7 +98,10 @@ Later parts (refined when each part starts):
 - **AC-025** 05 P9 (B5): `cost.py add` appends a contracts C7 line to `logs/<Sn>/cost.jsonl`, and `boundary.py` prints the slice's cost by stage beside its quality figures (`not run: no cost log` without one).
 - **AC-026** 05 P10 (B5): `autopilot.py park` records a decision autopilot may not take, and `autopilot.py blocked <target>` says whether a gate, boundary or slice's lanes depend on a parked one: a parked human sample of S1 blocks S1's boundary and Gate 5, not S2's lanes.
 - **AC-027** 05 P8 (B5): GP's own checklist items are merged into rspec's production-readiness template as a PR proposal in `docs/rspec-pr/` (the rspec repo is not edited here). `[manual: a document for the rspec worker, checked in review]`
-- **AC-011** 05 P1 (B6): `docs/MIGRATION-3.md` maps every 2.x capability to its 3.0 owner with a passing test or fixture, before any deletion.
+- **AC-011** 05 P1 (B6): `docs/MIGRATION-3.md` maps every 2.x capability to its 3.0 owner (rspec, sdlc, bug-hunter or this repo, or a row marked partial or blocking) with a test. `migration_3.py` fails a row with no owner or no test, runs each test this repo owns (an eval group, which must pass), and checks that each external row cites `<repo>@<sha> <path>::<test>`; `migration_3.py --external` runs those external tests from a `git archive` copy at the cited commit and reports a plugin root it cannot find as `not run`, exit 1.
+- **AC-028** 05 P6 step 4 (B7): Given a workbench with rspec's `docs/features.md` and `docs/build-plan.md` and a `plan/progress.yaml`, when `parity.py` runs, then coverage counts `features.md`'s features (a Drop feature as descoped) and lists `build-plan.md`'s slices; `slice_review.py <Sn>` reviews that build-plan slice (its features and its `Done when`); `gate.py status` names the next unfinished build-plan slice after gate-4.
+- **AC-029** 05 P6 step 4 (B7): Given stories whose `depends_on` put a feature of S3 after one of S2, when `sequence.py reorder S3 --before S2 --reason …` runs, then it refuses, naming the dependency; a move that keeps every dependency is logged.
+- **AC-030** 05 P6 step 4, design rule 6 (B7): Given a workbench without `docs/features.md` or `docs/build-plan.md`, when `parity.py` or `slice_review.py` runs, then it exits 1 naming the missing file, and `boundary.py` prints step 4 as `not run: <reason>`.
 
 ## Acceptance tests
 
@@ -123,7 +133,10 @@ Later parts (refined when each part starts):
 | AC-025 | skills/rebuild-pipeline/eval/gp_eval.py › cost | `python3 skills/rebuild-pipeline/eval/gp_eval.py cost` |
 | AC-026 | skills/rebuild-pipeline/eval/gp_eval.py › park | `python3 skills/rebuild-pipeline/eval/gp_eval.py park` |
 | AC-027 | manual | the merged template and PR description in docs/rspec-pr/, checked in review |
-| AC-011 | skills/rebuild-pipeline/eval/migration_3.py (B6) | `python3 skills/rebuild-pipeline/eval/migration_3.py` |
+| AC-011 | skills/rebuild-pipeline/eval/migration_3.py | `python3 skills/rebuild-pipeline/eval/migration_3.py` |
+| AC-028 | skills/rebuild-pipeline/eval/coverage_rspec.py › reports | `python3 skills/rebuild-pipeline/eval/coverage_rspec.py reports` |
+| AC-029 | skills/rebuild-pipeline/eval/coverage_rspec.py › order | `python3 skills/rebuild-pipeline/eval/coverage_rspec.py order` |
+| AC-030 | skills/rebuild-pipeline/eval/coverage_rspec.py › notrun | `python3 skills/rebuild-pipeline/eval/coverage_rspec.py notrun` |
 
 ## Must never break
 

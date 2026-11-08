@@ -347,7 +347,13 @@ def _boundary(sid):
     for label, script, args in (("4. coverage: parity", "parity.py", []), ("4. regression: slice review", "slice_review.py", [sid])):
         r = _run(script, *args)
         print(f"\n== {label}")
-        print("  " + ((r.stdout + r.stderr).strip()[-1500:] or "(no output)").replace("\n", "\n  "))
+        out = (r.stdout + r.stderr).strip()
+        if r.returncode:
+            # Design rule 6: a report that could not run is never relayed as if it were step 4's result.
+            last = out.splitlines()[-1] if out else f"exit {r.returncode}, no output"
+            print(f"  not run: {last if not last.startswith('not run: ') else last[len('not run: '):]}")
+            continue
+        print("  " + (out[-1500:] or "(no output)").replace("\n", "\n  "))
     print(f"\n== {_remine_status()[0]} (information; not a boundary condition)")
     print("\n== 5. bug-hunter")
     if st.get("hunted"):

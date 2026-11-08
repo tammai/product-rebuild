@@ -389,33 +389,10 @@ def main(argv=None):
             else:
                 print(f"  {total}\n  {basis_lib.BASIS_REMEDY}", file=sys.stderr)
 
-    features = slices = None
-    if os.path.exists("matrix/features.yaml"):
-        features = check("matrix/features.yaml", validators["feature"])
-    if os.path.exists("plan/slices.yaml"):
-        slices = check("plan/slices.yaml", validators["slice"])
-        if isinstance(slices, list):
-            ids = {_get(s, "id") for s in slices}
-            visiting, done = set(), set()
-
-            def visit(sid, path):
-                if sid in done:
-                    return
-                if sid in visiting:
-                    fail("plan/slices.yaml", f"dependency cycle: {' -> '.join(_js_str(x) for x in [*path, sid])}")
-                    return
-                visiting.add(sid)
-                s = next((x for x in slices if _get(x, "id") == sid), None)
-                for d in _as_list(_get(s, "depends_on")):
-                    if d not in ids:
-                        fail("plan/slices.yaml", f"{_js_str(sid)} depends on unknown slice {_js_str(d)}")
-                    else:
-                        visit(d, [*path, sid])
-                visiting.discard(sid)
-                done.add(sid)
-
-            for s in slices:
-                visit(_get(s, "id"), [])
+    # rspec's feature list and slices (05 P2), read the way every slice report reads them. Their shape,
+    # dependency cycles included, is rspec's check_spec.py's to report, not this script's.
+    import sequence as seq_lib
+    features, slices = seq_lib.plan_features(), seq_lib.plan_slices()
 
     # ---------------------------------------------------------------------------
     # findings/rules/ — lane R's Rule Cards (E5).
@@ -770,16 +747,16 @@ def main(argv=None):
     # rather than a formal reopen (see scripts/sequence.py). Two checks earn their keep, and
     # neither is expressible in the schema:
     #
-    #   - PERMUTATION. An id in the order that no longer exists in plan/slices.yaml, or a slice
+    #   - PERMUTATION. An id in the order that no longer exists in docs/build-plan.md, or a slice
     #     added by a gate-2 reopen that never reached the order, is silently a slice that never
     #     runs. parity.py sorts unknown ids last rather than dropping them precisely so this
     #     check is the thing that reports it, not a slice quietly missing from a report.
-    #   - DEPENDENCIES. `depends_on` is gate-2 locked, so an order that violates it is a
-    #     contradiction between two artifacts rather than a preference. sequence.py refuses to
+    #   - DEPENDENCIES. Slice dependencies come from rspec's stories, so an order that violates one
+    #     is a contradiction between two artifacts rather than a preference. sequence.py refuses to
     #     write one; this catches a hand-edited file, which is why the file says not to hand-edit it.
     #
     # Absent is normal and always will be: every workbench scaffolded before 0.15.0 has none, and
-    # order falls back to plan/slices.yaml's array exactly as it did before.
+    # order falls back to docs/build-plan.md's slice order.
     # ---------------------------------------------------------------------------
     if "sequence" in validators and os.path.exists("plan/sequence.yaml"):
         seq = check("plan/sequence.yaml", validators["sequence"])
@@ -793,32 +770,24 @@ def main(argv=None):
             unknown = [sid for sid in order if sid not in plan_ids]
             absent = [sid for sid in plan_ids if sid not in order]
             if unknown:
-                problems.append(f"order names slice(s) not in plan/slices.yaml: {', '.join(_js_str(x) for x in unknown)}")
+                problems.append(f"order names slice(s) not in docs/build-plan.md: {', '.join(_js_str(x) for x in unknown)}")
             if absent:
-                problems.append(f"slice(s) in plan/slices.yaml missing from the order: {', '.join(_js_str(x) for x in absent)} — "
+                problems.append(f"slice(s) in docs/build-plan.md missing from the order: {', '.join(_js_str(x) for x in absent)} — "
                                 "they would never be scheduled")
             baseline = seq.get("baseline")
             baseline_unknown = [sid for sid in (_as_list(baseline) if _truthy(baseline) else []) if sid not in plan_ids]
             if baseline_unknown:
-                problems.append(f"baseline names slice(s) not in plan/slices.yaml: {', '.join(_js_str(x) for x in baseline_unknown)}")
+                problems.append(f"baseline names slice(s) not in docs/build-plan.md: {', '.join(_js_str(x) for x in baseline_unknown)}")
             if problems:
                 problems.append("Reconcile with: python3 scripts/sequence.py sync  (bookkeeping after a gate-2 reopen; "
                                 "the decision was the reopen, so it needs no reason)")
             else:
-                # Imported guarded, like erd.py and playbook.py, so one missing script is a reported gap
-                # rather than an unresolved import that takes out every other check.
-                try:
-                    import sequence as seq_lib
-                except ImportError:
-                    seq_lib = None
-                    warn("scripts/sequence.py", "missing — slice order not checked against depends_on. Copy it from the plugin's skills/rebuild-pipeline/scripts/.")
-                if seq_lib:
-                    by_id = {s["id"]: s for s in slices if _truthy(_get(s, "id"))}
-                    v = seq_lib.dependency_violation(order, by_id)
-                    if v:
-                        problems.append(f"order puts {_js_str(v['slice'])} before {_js_str(v['dep'])}, which it depends on. "
-                                        "`depends_on` is gate-2 locked, so this is a contradiction between two artifacts, "
-                                        "not a preference — fix the order (python3 scripts/sequence.py reorder) or reopen gate-2.")
+                by_id = {s["id"]: s for s in slices}
+                v = seq_lib.dependency_violation(order, by_id)
+                if v:
+                    problems.append(f"order puts {_js_str(v['slice'])} before {_js_str(v['dep'])}, which it depends on "
+                                    "through rspec's stories, so this is a contradiction between two artifacts, "
+                                    "not a preference — fix the order (python3 scripts/sequence.py reorder).")
             if problems:
                 fail("plan/sequence.yaml", "\n  ".join(problems))
 

@@ -88,50 +88,11 @@ def slice_states():
     over its memory of the conversation, so a wrong answer here is a wrong answer at the one step
     designed to catch stale assumptions.
 
-    Standard library only by the same rule as the lock files: a fixed YAML subset, parsed here.
-    plan/progress.yaml's `slices:` map wins over plan/slices.yaml's own `status:`, matching
-    parity.py's overlay precedence."""
-    def read(p):
-        return read_text(p) if os.path.exists(p) else ""
-
-    overlay = {}
-    progress = read("plan/progress.yaml")
-    # Indented lines OR blank ones: a hand-written progress file groups its entries with blank
-    # lines and comments, and a pattern that stops at the first blank line silently reads only the
-    # first group — which is a wrong phase rather than an error. The block still ends at the next
-    # top-level key, because that line is neither indented nor empty.
-    slices_block = re.search(r"^slices:\n((?:(?:[ \t]+.*)?\n)*)", progress, re.M)
-    if slices_block:
-        for m in re.finditer(r"^\s+(S[0-9]+):\s*([a-z-]+)", slices_block.group(1), re.M):
-            overlay[m.group(1)] = m.group(2)
-    plan = read("plan/slices.yaml")
-    out = []
-    # JSON is YAML too, and a G3 drafter may write the file as a JSON array (the Kutt rebuild did, on
-    # 2026-11-03). The block parser below finds no `- id:` line in it, so this read nothing and the
-    # status above said "GP production readiness" with no code written. Try JSON first.
-    try:
-        data = json.loads("\n".join(l for l in plan.split("\n") if not l.lstrip().startswith("#")))
-    except ValueError:
-        data = None
-    if isinstance(data, dict):
-        data = data.get("slices")
-    if isinstance(data, list):
-        for e in data:
-            sid = e.get("id") if isinstance(e, dict) else None
-            if isinstance(sid, str) and re.fullmatch(r"S[0-9]+", sid):
-                out.append({"id": sid, "status": overlay.get(sid) or e.get("status") or "pending"})
-        return out
-    # One entry per `- id: SN` (at the margin, or indented under a `slices:` key), carrying the
-    # nearest following `status:` before the next entry.
-    entries = re.split(r"^[ \t]*- id: ", plan, flags=re.M)[1:]
-    for e in entries:
-        idm = re.match(r"(S[0-9]+)", e)
-        if not idm:
-            continue
-        sid = idm.group(1)
-        own = re.search(r"^\s+status:\s*([a-z-]+)", e, re.M)
-        out.append({"id": sid, "status": overlay.get(sid) or (own.group(1) if own else None) or "pending"})
-    return out
+    rspec's slices (docs/build-plan.md) in execution order, each with its plan/progress.yaml status,
+    read through the vendored sibling sequence.py so this and the slice reports cannot disagree."""
+    import sequence
+    states = sequence.slice_statuses()
+    return [{"id": sid, "status": states[sid]} for sid in sequence.read_sequence()["order"] if sid in states]
 
 
 def rspec_root():
@@ -184,7 +145,8 @@ def phase_before_gate5():
     slices = slice_states()
     if not slices:
         # A slice plan that exists but reads as no slices is a parse failure, not a finished build.
-        return "G5 build (plan/slices.yaml has no slice this script can read)" if os.path.exists("plan/slices.yaml") else None
+        plan = f"{SPEC}/build-plan.md"
+        return f"G5 build ({plan} has no `## Slice` this script can read)" if os.path.exists(plan) else None
     done = [s for s in slices if s["status"] in ("done", "deployed")]
     nxt = next((s for s in slices if s["status"] not in ("done", "deployed")), None)
     count = f"{len(done)}/{len(slices)} slices"

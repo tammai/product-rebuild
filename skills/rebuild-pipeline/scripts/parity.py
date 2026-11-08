@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""parity.py — G6 parity report. Run from the workbench root.
-Diffs matrix feature statuses and writes parity/<date>.md, and — when the AC suite left a
-JUnit file at parity/<date>-ac.xml — the AC pass rate that suite actually produced.
+"""parity.py — G6 coverage report (05 P6 step 4). Run from the workbench root.
+Counts rspec's features (docs/features.md) by this rebuild's progress, lists rspec's slices
+(docs/build-plan.md), and writes parity/<date>.md, with — when the AC suite left a JUnit file at
+parity/<date>-ac.xml — the AC pass rate that suite actually produced.
 
-Progress lives in plan/progress.yaml, NOT in the gate-locked artifacts. Both
-matrix/features.yaml (gate-1) and plan/slices.yaml (gate-2) carry a `status:`
-field, but their locks hash the whole file — so recording slice completion there
-meant a formal gate reopen for bookkeeping, and rewrote the hash that dependent
-submodule pins consume, once per slice. Gates protect decisions; progress is not
-a decision. This script overlays progress.yaml onto the locked files: an entry
-there wins, anything absent falls back to the locked `status:`.
+Progress lives in plan/progress.yaml, NOT in the gate-locked artifacts. features.md (gate-1) and
+build-plan.md (gate-2) are hashed whole, so recording progress there would mean a formal gate
+reopen for bookkeeping, and a moved hash for every submodule pin, once per slice. Gates protect
+decisions; progress is not a decision. A feature with no progress entry is `planned`, a Drop is
+`descoped` (its departure is the recorded ruling), a slice with none is `pending`.
 
 It is a script rather than a line in a doc because the report is regenerated every slice
 boundary and must be computed from the files, not remembered (see the AC section below).
@@ -31,6 +30,7 @@ import re
 import sys
 from datetime import datetime
 
+import sequence
 import yamlio
 
 # CRLF to LF on every text read. With git's core.autocrlf=true (the Windows default) the working
@@ -109,10 +109,6 @@ def js_str(x):
     return "[object Object]"
 
 
-def js_join(seq, sep):
-    return sep.join("" if e is None or e is UNDEF else js_str(e) for e in seq)
-
-
 def truthy(x):
     if x is UNDEF or x is None or x is False or x == "":
         return False
@@ -172,12 +168,6 @@ def _key(x):
         return ("id", id(x))
 
 
-def _array(x, what):
-    if not isinstance(x, list):
-        raise TypeError(f"{what}.map is not a function")
-    return x
-
-
 def _nonnull(v, fallback):
     return fallback if v is None else v
 
@@ -192,8 +182,10 @@ def main(argv=None):
     def warn(msg):
         print(msg, file=sys.stderr)
 
-    if not os.path.exists("matrix/features.yaml"):
-        warn("No matrix/features.yaml here — run from the workbench root.")
+    # Design rule 6: a report that cannot read rspec's list says so and fails, rather than
+    # writing a 0% coverage report boundary.py would relay as step 4's result.
+    if not os.path.exists(sequence.FEATURES):
+        warn(f"not run: no {sequence.FEATURES} here (rspec:features writes it; run from the workbench root).")
         return 1
     parse = yamlio.load
 
@@ -218,32 +210,22 @@ def main(argv=None):
         base["status"] = orv(_lookup(prog, _get(item, "id")), _get(item, "status"), fallback)
         return base
 
-    features = [with_status(f, feature_progress, "planned")
-                for f in _array(orv(read_yaml("matrix/features.yaml", []), []), "features")]
-    slices = [with_status(s, slice_progress, "pending")
-              for s in _array(orv(read_yaml("plan/slices.yaml", []), []), "slices")]
+    features = [with_status(f, feature_progress, "descoped" if f["priority"] == "Drop" else "planned")
+                for f in sequence.plan_features()]
+    slices = [with_status(s, slice_progress, "pending") for s in sequence.plan_slices()]
 
-    # Slice ORDER lives in plan/sequence.yaml, not in this array. plan/slices.yaml is hashed whole
-    # by gate-2, so its array order could only be revised by a formal reopen — which is why the
-    # sequence became an overlay (see sequence.py's header). Reading it here keeps the "Slice
-    # progress" section in the order actually being executed rather than the order Gate 2 first
-    # wrote. Imported guarded, like erd.py and playbook.py: a workbench that predates the overlay
-    # has no such file and no such script, and must keep reporting exactly as it did.
-    try:
-        import sequence as sequence_lib
-    except ImportError:  # pre-0.15.0 workbench
-        sequence_lib = None
-    if sequence_lib:
-        seq = sequence_lib.read_sequence()
-        if seq["present"]:
-            rank = {}
-            for i, sid in enumerate(seq["order"]):
-                rank[_key(sid)] = i
-            # Anything absent from the overlay sorts last rather than vanishing: a non-permutation is
-            # validate.py's failure to report, and silently dropping a slice from the report is the
-            # one behaviour that would hide it. (Stable, like Array.prototype.sort; the JS
-            # comparator's Infinity - Infinity is NaN, which sorts as "equal".)
-            slices = sorted(slices, key=lambda s: rank.get(_key(_get(s, "id")), float("inf")))
+    # Slice ORDER lives in plan/sequence.yaml, not in build-plan.md, which gate-2 hashes whole (see
+    # sequence.py's header). Reading it keeps "Slice progress" in the order actually being executed.
+    seq = sequence.read_sequence()
+    if seq["present"]:
+        rank = {}
+        for i, sid in enumerate(seq["order"]):
+            rank[_key(sid)] = i
+        # Anything absent from the overlay sorts last rather than vanishing: silently dropping a
+        # slice from the report is the one behaviour that would hide a non-permutation. (Stable,
+        # like Array.prototype.sort; the JS comparator's Infinity - Infinity is NaN, which sorts as
+        # "equal".)
+        slices = sorted(slices, key=lambda s: rank.get(_key(_get(s, "id")), float("inf")))
 
     def by(st):
         return [f for f in features if f["status"] == st]
@@ -268,31 +250,7 @@ def main(argv=None):
                 done_slice_features.setdefault(_key(e), e)
     suspicious = [f for f in features if _key(_get(f, "id")) in done_slice_features and f["status"] == "planned"]
     if not os.path.exists("plan/progress.yaml"):
-        warn("note: no plan/progress.yaml — reporting locked statuses only, so a built slice will read as planned.")
-
-    # THE OVERLAY'S SHARP EDGE: a shipped slice whose features carry no progress entry.
-    #
-    # `slices:` and `features:` are populated independently, and filling in only the first is the
-    # natural thing to do — it is what a slice close needs. But then every feature in that slice falls
-    # through to matrix/features.yaml's `status:`, which is GATE-1 MINING OUTPUT: how well the
-    # REFERENCE product covered each feature, not how far this rebuild has got. Those two vocabularies
-    # share the words `covered`, `partial` and `missing`, so nothing looks wrong.
-    #
-    # Observed: a ten-slice project reported 23% coverage, with features it had built and verified
-    # listed as `missing` because the reference lacked them. The number was wrong in BOTH directions
-    # at once — mined `covered` for unbuilt features inflated it, mined `missing` for built ones
-    # deflated it — which is why it cannot be spotted by sanity-checking the total.
-    unrecorded = [i for i in done_slice_features.values() if not truthy(_lookup(feature_progress, i))]
-    overlay_warning = ""
-    if unrecorded:
-        sample = js_join(unrecorded[:5], ", ") + (", …" if len(unrecorded) > 5 else "")
-        overlay_warning = (f"\n> **{len(unrecorded)} feature(s) in a shipped slice have no `plan/progress.yaml` entry**, so the "
-                           "figures below fall back to `matrix/features.yaml` — which records how well the REFERENCE "
-                           "covered each feature (gate-1 mining), not this rebuild's progress. Record them under "
-                           f"`features:` before reading these numbers as coverage: {sample}\n")
-        warn(f"warning: {len(unrecorded)} feature(s) in a shipped slice have no progress entry "
-             f"({sample}).\n  Their status falls back to matrix/features.yaml, which is MINING output — how "
-             "well the reference covered each feature, not how far this rebuild has got. The report says so too.")
+        warn("note: no plan/progress.yaml — every feature reads as planned and every slice as pending.")
 
     # The LOCAL date, like every dated file in parity/ — see local_date() in acsuite.py. acsuite is
     # imported guarded further down, so the same lines are inlined here rather than borrowed:
@@ -613,7 +571,7 @@ def main(argv=None):
                 "\n"
                 f"Coverage: {len(buckets['covered'])}/{in_scope} covered ({pct}%), {len(buckets['partial'])} partial, "
                 f"{len(buckets['missing'])} missing, {len(buckets['planned'])} planned{descoped_note}.\n"
-                f"{overlay_warning}{ac_section}{rules_section}{equiv_section}{basis_section}\n"
+                f"{ac_section}{rules_section}{equiv_section}{basis_section}\n"
                 "## Missing (in a done slice but not covered — investigate)\n"
                 f"{list_md(suspicious)}\n"
                 "\n"
