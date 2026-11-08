@@ -75,7 +75,7 @@ acceptance/
   http/<criterion>.yaml        # HTTP replay
   e2e/<criterion>.spec.ts      # Playwright
   mobile/<criterion>.yaml      # Maestro
-  cli/<criterion>.yaml         # command, stdin, expected stdout/exit
+  cli/<criterion>.yaml         # command, stdin, expected stdout/exit — format not settled in v1 (known limit, user decision 2026-11-08): no consumer runs cli tests, cli criteria stay level 1, bug-hunter's cli repro is its own shape
   seed/                        # how the reference was seeded (scripts or recorded calls)
 ```
 

@@ -1,4 +1,4 @@
-# contracts-version: 1.1.0
+# contracts-version: 1.1.1
 """test_contracts.py — unit tests for contracts.py, one class per contract (C1–C7) plus the YAML subset.
 
   python3 contracts/v1/test_contracts.py                 # all
@@ -16,6 +16,7 @@ import json
 import os
 import shutil
 import socketserver
+import subprocess
 import sys
 import tempfile
 import threading
@@ -548,13 +549,13 @@ class TestC6Finding(unittest.TestCase):
                                                                     "result": "not run: spec question"})))
         self.assertTrue(has(errors(C.check_finding(make_finding(source="Bug Hunter"))), "source"))
 
-    def test_version_is_1_1_0(self):
-        self.assertEqual(C.VERSION, "1.1.0")
+    def test_version_is_1_1_1(self):
+        self.assertEqual(C.VERSION, "1.1.1")
         for name in sorted(os.listdir(HERE)):
             path = os.path.join(HERE, name)
             if os.path.isfile(path) and name != "MANIFEST" and C.header_for(name):
                 with open(path, encoding="utf-8") as f:
-                    self.assertIn("contracts-version: 1.1.0", f.read(300), name)
+                    self.assertIn("contracts-version: 1.1.1", f.read(300), name)
 
 
 COST = "\n".join([
@@ -565,6 +566,18 @@ COST = "\n".join([
     json.dumps({"ts": "2026-11-08T10:02:00Z", "plugin": "sdlc", "stage": "build", "agent": "session",
                 "tier": "session", "wall_s": 100, "turns": 10, "tokens_in": 5, "tokens_out": 6, "result": "ok"}),
 ]) + "\n"
+
+
+class TestCli(unittest.TestCase):
+    def test_cli_survives_cp1252_console(self):
+        # A Windows console in cp1252 crashed on "routed: X → rspec".
+        env = dict(os.environ, PYTHONIOENCODING="cp1252")
+        fixture = os.path.join(HERE, "fixtures", "finding", "valid", "SQ-0001-spec-question.json")
+        r = subprocess.run([sys.executable, os.path.join(HERE, "contracts.py"), "finding", fixture],
+                           capture_output=True, env=env)
+        self.assertNotIn(b"Traceback", r.stderr)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn(b"routed: SQ-0001 ? rspec", r.stdout)
 
 
 class TestC7Cost(unittest.TestCase):

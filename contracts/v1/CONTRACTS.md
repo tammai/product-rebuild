@@ -1,4 +1,4 @@
-<!-- contracts-version: 1.1.0 -->
+<!-- contracts-version: 1.1.1 -->
 # Shared contracts v1
 
 The normative part of the shared-contracts spec, used by rspec, sdlc, bug-hunter and product-rebuild. `contracts.py` in this folder checks every rule. Sections C1–C7 are copied from the spec unchanged. "Settled in v1" fixes the details the spec left open.

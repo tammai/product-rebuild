@@ -22,6 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Every other finding still needs `verified_by.result: reproduced`, and a 1.0.0 finding stays valid. `source`
   is now a kebab-case name (`^[a-z][a-z0-9-]*$`).
 
+### Fixed
+
+- **Contracts 1.1.1: `contracts.py` no longer fails on a non-UTF-8 console.** On a Windows console in cp1252,
+  printing `→`, `…` or `—` raised an encoding error, so `finding` reported `error: 'charmap' codec…` and exit 1
+  instead of `routed: … → rspec`. The CLI now prints `?` for a character the console can't show; output on a
+  UTF-8 console is unchanged. The spec's C4 now records the `cli/` test format as not settled in v1.
+
 ## [2.2.0] - 2026-11-06
 
 ### Changed

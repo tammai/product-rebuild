@@ -1,4 +1,4 @@
-# contracts-version: 1.1.0
+# contracts-version: 1.1.1
 """contracts.py — validators for the shared contracts v1 (C1–C7 in CONTRACTS.md), stdlib only.
 
   python3 contracts.py id F-ISS-01.AC2 [--profile rspec|sdlc-s|sdlc-m|sdlc-l]
@@ -38,7 +38,7 @@ import urllib.request
 from xml.sax.saxutils import escape, quoteattr
 
 # Must equal the version in MANIFEST and in every header; vendor-check compares them.
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # ---------------------------------------------------------------- YAML subset
@@ -1226,7 +1226,18 @@ def _report(issues):
     return 1 if any(s != "warning" for s, _ in issues) else 0
 
 
+def _console_safe():
+    # A Windows console in cp1252 can't encode the →, … and — in our messages (or in a path or ID),
+    # and print() raised UnicodeEncodeError, which main() then reported as an error with exit 1.
+    # errors="replace" prints "?" instead; a UTF-8 console is
+    # unaffected. A stream without reconfigure (StringIO, an embedding caller's) already takes any str.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
+
+
 def main(argv=None):
+    _console_safe()
     ap = argparse.ArgumentParser(prog="contracts.py", description="Shared contracts v%s validators" % VERSION)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("id")
