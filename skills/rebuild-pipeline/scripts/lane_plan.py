@@ -336,6 +336,7 @@ def _archive(args):
 
 SPEC = "docs"
 SPEC_BUNDLE = os.path.join(SPEC, "acceptance")
+HOLDOUT_RECORD = os.path.join("plan", "holdout.json")  # holdout.RECORD; change both together
 SPEC_LOCK = os.path.join(SPEC, "criteria.lock.json")
 LANE_LOCK = ".rebuild/criteria.lock.json"  # in the lane worktree; config spec_lock names it
 SLICE_RE = re.compile(r"^##\s*Slice\s+(\d+)\s*:?\s*(.*)$", re.M)  # rspec_lib.SLICE_RE; change both together
@@ -385,6 +386,12 @@ def _step0(args):
     slice_id = args[0] if args else None
     if not slice_id or not re.fullmatch(r"S\d+", slice_id):
         return _die("lane-plan", "usage: lane_plan.py step0 <Sn>")
+    # Without the hidden entries a re-verify dropped, step 0 would send rspec:verify to re-record exactly the
+    # hidden criteria as open tests.
+    import holdout
+    _changed, err = holdout.reconcile()
+    if err:
+        return _die("lane-plan", err)
     try:
         missing = step0_missing(slice_id)
     except (OSError, ValueError) as e:
@@ -448,7 +455,9 @@ def copy_to_lane(worktree, criteria, wb_path):
     """Write the lane's open bundle and lock copy, or return why not (nothing written then)."""
     manifest = _json(os.path.join(SPEC_BUNDLE, "manifest.json"))
     tests = manifest.get("tests") or []
-    mine = [t for t in tests if t.get("criterion") in criteria and t.get("visibility", "open") == "open"]
+    # The split's record, not the manifest's visibility, says what is hidden: the manifest is rebuilt by rspec.
+    hidden = set(_json(HOLDOUT_RECORD).get("hidden") or []) if os.path.exists(HOLDOUT_RECORD) else set()
+    mine = [t for t in tests if t.get("criterion") in criteria and t.get("criterion") not in hidden and t.get("visibility", "open") == "open"]
     dest = os.path.join(worktree, "acceptance")
     stray = [str(t.get("path")) for t in mine if not bundle_path(SPEC_BUNDLE, t.get("path")) or not bundle_path(dest, t.get("path"))]
     if stray:
@@ -596,6 +605,9 @@ def _write_rspec_lane(args):
     if exposed:
         return die(f"the holdout repo is reachable from a code repo: {'; '.join(exposed)}. Remove it there before "
                    f"opening a lane.")
+    _changed, err = holdout.reconcile()  # an amend's re-verify may have dropped or re-opened hidden entries
+    if err:
+        return die(err)
     if not fix and step0_missing(slice_id):
         return die(f"{slice_id} fails step 0 (criteria with no level 2 test and no rspec reason): run "
                    f"`python3 scripts/lane_plan.py step0 {slice_id}` for the list, then rspec:verify --only <features>.")
@@ -700,9 +712,11 @@ def _refresh(args):
     # A refresh follows an amend, whose re-verify drops the hidden entries and may have re-recorded a hidden
     # test as open; reconcile first, so such a test is refused here instead of copied into the lane.
     import holdout
-    _changed, err = holdout.reconcile()
+    changed, err = holdout.reconcile()
     if err:
         return _die("lane-plan", err)
+    if changed:
+        print(f"the hidden entries a re-verify dropped are back in {holdout.MANIFEST}; commit it and {holdout.RECORD}.")
     copied = copy_to_lane(lrec["worktree"], set(lrec["criteria_ids"]), lrec["workbench_path"])
     if isinstance(copied, str):
         return _die("lane-plan", copied)

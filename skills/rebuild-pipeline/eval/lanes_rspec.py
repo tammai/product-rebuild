@@ -189,6 +189,15 @@ if ONLY in (None, "lane", "questions"):
     check("a lane is refused while a listed code repo references the holdout repo",
           r.returncode == 1 and "holdout" in r.stderr, r.stdout + r.stderr)
     w(app, ".gitmodules", '[submodule "workbench"]\n\tpath = workbench\n\turl = ../p-workbench\n')
+    # A re-verify re-recorded a hidden criterion as open: opening a lane, or step 0, must refuse, not copy it.
+    w(os.path.join(data, "holdouts", "p-preset"), "hidden.json", json.dumps({"tests": []}))
+    w(wb, "plan/holdout.json", json.dumps({"seed": 1, "count": 1, "hidden": ["F-ISS-01.AC2"], "manifest_sha256": "0" * 64}))
+    r = lane_plan("S1", "web", "--worktree", "../app-web", "--features", "F-ISS-02", "--approved-by", "Eval")
+    s0 = lane_plan("step0", "S1")
+    check("a lane open and step 0 refuse while a hidden criterion is open again in the bundle, copying nothing",
+          r.returncode == 1 and "open again" in r.stderr and s0.returncode == 1 and "open again" in s0.stderr
+          and not os.path.exists(os.path.join(proj, "app-web", "acceptance")), r.stdout + r.stderr + s0.stderr)
+    os.remove(os.path.join(wb, "plan", "holdout.json"))
     w(wb, "rebuild.yaml", "budgets:\n  parallel_lanes: 1\n")
 
 if ONLY in (None, "step0"):

@@ -224,6 +224,16 @@ if ONLY in (None, "split", "run"):
     check("a hidden criterion with two tests (http and e2e) has both hidden and moved, none left open",
           r.returncode == 0 and len(both) == 2 and all(t["visibility"] == "hidden" for t in both)
           and all(os.path.exists(os.path.join(hold_of(mwb), t["path"])) for t in both), r.stdout + r.stderr)
+    # A split killed after it wrote the holdout's hidden.json but before plan/holdout.json: it must run again.
+    cut = os.path.join(base, "cut")
+    shutil.copytree(pristine, cut)
+    cwb = os.path.join(cut, "p-workbench")
+    cut_hold = os.path.join(os.environ["PRODUCT_REBUILD_DATA"], "holdouts", "p-cut")
+    w(os.environ["PRODUCT_REBUILD_DATA"], "holdouts.json",
+      json.dumps({**config(), os.path.normcase(os.path.realpath(cwb)): cut_hold}))
+    w(cut_hold, "hidden.json", json.dumps({"tests": []}))
+    r = holdout(cwb, "split", "--seed", "7")
+    check("a split interrupted before plan/holdout.json was written runs again", r.returncode == 0, r.stdout + r.stderr)
     trav = os.path.join(base, "trav")
     shutil.copytree(pristine, trav)
     twb = os.path.join(trav, "p-workbench")

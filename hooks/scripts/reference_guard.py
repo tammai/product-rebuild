@@ -37,7 +37,9 @@ these is not seen. The list is not grown further: the hidden tests are kept out 
 lane their path, and this guard is the second line (P3: a guard, not a sandbox).
 
 The deny message names no path: a lane reads it, and P4 says nothing a lane sees names the holdout.
-Fails open outside a 3.x workbench; a crash inside a pipeline session blocks (guard_io).
+Fails open with no workbench near (a 2.x or 1.x one, marked with its own number, included); a folder with
+`locks/` beside repos.yaml or sources.yaml and no readable marker, a 0.x one among them, is judged (fails closed). A
+crash inside a pipeline session blocks (guard_io).
 """
 
 import os
@@ -138,11 +140,17 @@ def denied_roots(wb):
     return [_key(r) for r in roots]
 
 
+def judged_workbench(d):
+    """A current workbench, or one whose marker is gone (fails closed). Used both to find the workbenches and to
+    tell a lane run as its own session, so deleting the marker switches neither off."""
+    return is_current_workbench(d) or marker_unreadable(d)
+
+
 def is_lane(data):
     agent = get(data, "agent_type")
     if isinstance(agent, str) and LANE_AGENT.search(agent):
         return True
-    return pipeline_repo_of(session_root(data), data) is not None
+    return pipeline_repo_of(session_root(data), data, judged_workbench) is not None
 
 
 def _resolve(word, base):
@@ -298,7 +306,7 @@ def main():
     call = tool_call(data)
     if call.name not in TOOLS or not is_lane(data):
         return 0
-    wbs = workbenches_near(session_root(data), lambda d: is_current_workbench(d) or marker_unreadable(d))
+    wbs = workbenches_near(session_root(data), judged_workbench)
     roots = list(dict.fromkeys(r for wb in wbs for r in denied_roots(wb)))
     if not roots:
         return 0

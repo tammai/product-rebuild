@@ -190,4 +190,25 @@ Redesign decisions (coordinator, 2026-11-09, answer to the round-2 proposal):
 - **R4:** (a). `holdout.py reconcile` re-adds the hidden entries from the split record after any re-verify, run automatically by `lane_plan.py refresh`, `boundary.py` and the gate-4 lock. No rspec change.
 - Implement as a redesign round, test-first, then one focused security and code check of just these changes (not a full round).
 
+Redesign round (2026-11-09):
+
+- **R1-R4 built** in d33127c:
+  - R1: the holdout is a git repo in a per-user data folder (`PRODUCT_REBUILD_DATA`, else `%LOCALAPPDATA%` or `$XDG_DATA_HOME`, then `product-rebuild/holdouts/<project>-<random hex>`), named only in that folder's `holdouts.json`.
+    - The reference guard denies the whole data folder and every configured holdout.
+    - It fails closed when a folder has `locks/` beside repos.yaml or sources.yaml but no readable marker.
+    - README and MIGRATION-3.md list the bypass classes as limits.
+  - R2: the split checks blob ids with `git cat-file -e`, both the filtered and the `--no-filters` ids. The refusal and README name `git reflog expire --expire=now --all && git gc --prune=now`.
+  - R3: the orchestrator stamps, writes phases.txt, starts the joint run and the rerun, and opens helper lanes. Boundary reads the joint-run JUnit from the workbench's `parity/`.
+  - R4: `holdout.py reconcile` restores the hidden entries from the holdout's `hidden.json` and re-pins the record's manifest hash. It refuses when a hidden criterion is open again or a hidden file changed.
+- Deviations are logged in the state file: R1's location, R3's lanes no longer using run_phases.py, and R4's gate-4 refusing once to ask for a commit.
+- **Focused check** (`.sdlc/.work/findings/2026-11-08-l-product-rebuild-3/redesign-check.md`) FAILED: H-1, H-2, H-3. Each was fixed test-first in the follow-up commit:
+  - H-1: an interrupted split can run again.
+  - H-2: reconcile also runs when a lane opens and at step 0, and `copy_to_lane` drops every criterion the split record hides.
+  - H-3: fail-closed also covers a lane run as its own session.
+  - M-1 (a code repo's own `locks/` taken for a workbench) was fixed too.
+- Left open:
+  - H-4 (unconfirmed): a workbench split before this round has its holdout beside the workbench and no `hidden.json`, and no migration step is given. It matters only if such a workbench is in use; this is a question for the coordinator.
+  - M-2: reconcile re-pins any manifest change, so gate-4's "manifest changed after the split" refusal now fires only when reconcile refuses. This is by R4's design; ticketed.
+  - L-2 to L-4 and the fix-in-passing wording (CHANGELOG, PLAYBOOK:118, lane-worker "commit before stamping", the split's exposure message printing the path) are ticketed.
+
 Tickets (left on purpose): M12 (route rounds per run), M13 (gate-5 level None, cost.py nan, extractall on old 3.9, vendor after gate-3, round_cap order), M14 (posture resolver copies), F1 and F2 (stale 2.x wording, "change together" lists), S9 (`reference:` with a trailing comment), S10 (playbook path containment), M-N3 (BND ids collide across the workbench and holdout folders), M-N4 (an explained non-http open failure leaves the boundary red), M-N5 (route matches departures against the observed sentence), parity.py not reading departures (P7), security-r2 N1 (dispatching a helper of another agent type, unconfirmed) and Minors M1-M4.

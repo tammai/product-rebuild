@@ -188,8 +188,13 @@ if ONLY in (None, "holdout"):
               denied(guard("Read", {"file_path": hidden_file})))
         check("...and a lane's write into the workbench is still denied",
               denied(guard("Write", {"file_path": marker, "content": "rebuild_major: 2\n"})))
+        check("...and so for a lane run as its own session, rooted in its worktree",
+              denied(guard("Read", {"file_path": hidden_file}, root=lane, who=ORCHESTRATOR)))
     finally:
         os.replace(marker + ".away", marker)
+    w(lane, "locks/README.md", "the app's own locks module\n")
+    check("a code repo with its own locks/ folder is not taken for a workbench: the lane still writes there",
+          allowed(guard("Write", {"file_path": os.path.join(lane, "locks", "mutex.js"), "content": "x"})))
 
     print("\n# shapes round 1 got through: recursion, globs, spellings (AC-003, AC-004)")
     set_reference("third-party", "observe")

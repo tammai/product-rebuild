@@ -214,8 +214,12 @@ def marker_unreadable(d):
     """True for a folder with `locks/` whose locks/pipeline.yaml is missing, unreadable or names no
     `rebuild_major`. The reference guard counts such a folder as a current workbench (fails closed):
     deleting the marker once switched every 3.x guard off for the lanes. Only that guard does; the
-    others keep is_current_workbench, so a 0.x workbench (no marker line) is still left alone by them."""
-    if not os.path.isdir(os.path.join(d, "locks")):
+    others keep is_current_workbench, so a 0.x workbench (no marker line) is still left alone by them.
+    A `locks/` folder alone is not enough: a code repo can have its own, and taking it for a workbench
+    denied the lane every write in its own worktree. rebuild_init.py writes repos.yaml and sources.yaml
+    beside locks/, and a lane cannot delete those (the guard denies its writes into a workbench)."""
+    if not os.path.isdir(os.path.join(d, "locks")) or not any(
+            os.path.exists(os.path.join(d, f)) for f in ("repos.yaml", "sources.yaml")):
         return False
     try:
         with open(os.path.join(d, "locks", "pipeline.yaml"), encoding="utf-8") as f:
@@ -299,7 +303,7 @@ def listed_repos(workbenches):
     return listed
 
 
-def pipeline_repo_of(target, payload):
+def pipeline_repo_of(target, payload, accept=None):
     """{"worktree", "mainRepo"} when `target` (a file or directory, which need not exist yet) lies
     in a git worktree whose main repo is listed for this session, else None. Walks up from the
     nearest directory that exists, because a Write may create several. `.git` is a directory in a
@@ -336,7 +340,7 @@ def pipeline_repo_of(target, payload):
                 main_repo = m.group(1)
     except Exception:
         pass  # unreadable .git file: treat the worktree as its own repo
-    listed = listed_repos(workbenches_near(session_root(payload)))
+    listed = listed_repos(workbenches_near(session_root(payload), accept))
     if _real(main_repo) in listed or _real(worktree) in listed:
         return {"worktree": worktree, "mainRepo": main_repo}
     return None

@@ -286,11 +286,8 @@ def cmd_split(args):
     slice_map = slices()
     if not slice_map:
         return die(f"{SPEC}/build-plan.md has no `## Slice N:` section.")
-    hold = holdout_dir()
-    if hold and os.path.exists(os.path.join(hold, HIDDEN)):
-        return die("the local config names a holdout folder that already holds a split for this workbench, but "
-                   f"{RECORD} is missing. Restore {RECORD} from git, or ask the user before re-drawing.")
-    hold = hold or new_holdout_dir()
+    # A configured folder is reused: without RECORD no split finished, and its hidden.json is overwritten below.
+    hold = holdout_dir() or new_holdout_dir()
     bad = exposure(hold)
     if bad:
         return die(f"the holdout repo {hold} would be reachable from a code repo: {'; '.join(bad)}. "
