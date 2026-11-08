@@ -92,9 +92,10 @@ reference builds and runs at the pinned commit before anything reads it.
 The skill runs rspec's stages in the workbench and never does their work: `rspec:init`, `discover`,
 `features` (you approve the list → **Gate 1**), `stories`, `tech` (the playbook is vendored to `adr/` first
 and its stack is rspec's preference; you decide each ADR → **Gate 3**), `audit` and `verify` (tests recorded
-against the running reference), `handoff` (vertical slices of at most ~10 criteria → **Gate 2**), `check`.
-Then `holdout.py split` hides 25% of each slice's recorded tests in a repo beside the workbench that no
-lane can read, and **Gate 4** locks the contracts, the criteria lock and the test bundle (refusing, under
+against the running reference), `handoff` (vertical slices of at most ~10 criteria), `check`. Then
+`holdout.py split` hides 25% of each slice's recorded tests in a repo beside the workbench that no lane can
+read, before the bundle is first committed (so no hidden test is ever in the workbench's history), then
+**Gate 2** locks the slices and **Gate 4** locks the contracts, the criteria lock and the test bundle (refusing, under
 `observe` and `own-code`, while fewer than 90% of MVP criteria have a recorded test, unless you sign a reason).
 
 ### 3. Build (G5) — per slice
@@ -205,10 +206,14 @@ docs/MIGRATION-3.md             where each 2.x capability went
 ```
 
 **The reference guard is a guard, not a sandbox.** A build lane never reads the reference under `strict` or
-`observe`, and never the hidden tests under any posture. `hooks/scripts/reference_guard.py` denies a lane's
-Read, Grep, Glob and Bash calls that name those paths. It sees paths written in the call; a path computed at
-run time, or a script that opens the file itself, gets past it. Use `strict` for a sensitive reference, and
-check the guard's denials in the end-to-end runs.
+`observe`, and never the hidden tests under any posture, and writes only inside its own worktree.
+`hooks/scripts/reference_guard.py` denies a lane's Read, Grep, Glob, Bash and PowerShell calls that reach those
+paths (a recursive search or glob from a directory above them included) and its writes into the workbench. It
+sees paths written in the call; a path computed at run time, or a script that opens the file itself, gets past
+it. The build under test also sees a hidden test's requests when G6 runs it. Use `strict` for a sensitive
+reference, and check the guard's denials in the end-to-end runs. A workbench that committed its bundle before
+the split (any 3.0.0-rc.1 workbench past Gate 2) has the hidden tests in its history: `holdout.py split` now
+refuses there, and that history must be rewritten before lanes hold the workbench.
 
 ## Design rules the plugin enforces (so you don't have to)
 

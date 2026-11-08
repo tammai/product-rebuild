@@ -42,6 +42,8 @@ def round_cap():
     block = re.search(r"^budgets:[ \t]*\n((?:(?:[ \t]+.*)?\n)*)", read_text(p) + "\n", re.M) if os.path.exists(p) else None
     m = block and re.search(r"^[ \t]+fix_rounds:[ \t]*(\d+)", block.group(1), re.M)
     return int(m.group(1)) if m else ROUND_CAP
+# contracts C6's classes, for reading the human sample without contracts.py; contracts.ROUTES is the routing.
+CLASSES = ("build-defect", "spec-gap", "reference-defect", "accepted-departure", "test-defect", "flaky", "environment")
 SECTIONS = ("sdlc", "rspec", "human", "orchestrator", "not routed", "dropped", "invalid")
 
 
@@ -88,23 +90,47 @@ def load_state(sid):
     return st
 
 
-def sample_findings(sid, st, contracts):
-    """Write a finding for each new `differs` line of the slice's human sample."""
+SAMPLE_LINE = re.compile(r"^- (F-[A-Z0-9-]+):[ \t]*(.*)$", re.M)
+DIFFERS = re.compile(r"^differs:[ \t]*(.+?)[ \t]*\(class:[ \t]*([a-z-]+)(?:,[ \t]*severity:[ \t]*(high|medium|low))?\)[ \t]*$")
+
+
+def sample_entries(sid, classes=None):
+    """(reviewer or "", [{feature, verdict, what, class, severity, line}]) from the slice's `## Human sample`, or
+    None when none is drawn. The one parser of that section: boundary.py once accepted any `differs:` line
+    while this file wrote a finding only for one with a class, so a difference could pass the boundary without
+    ever becoming a finding. verdict is `agree`, `differs` (with a known class), or `unrecorded`."""
     p = os.path.join("plan", "slice-reviews", f"{sid}.md")
-    if not os.path.exists(p):
-        return
-    sec = re.search(r"^## Human sample\b([\s\S]*)\Z", read_text(p), re.M)
+    sec = re.search(r"^## Human sample\b([\s\S]*)\Z", read_text(p), re.M) if os.path.exists(p) else None
     if not sec:
-        return
+        return None
     who = re.search(r"Reviewer:[ \t]*([^\n·]+)", sec.group(1))
-    reviewer = who.group(1).strip() if who else ""
-    if not reviewer or reviewer.startswith("<"):
+    reviewer = who.group(1).strip() if who and not who.group(1).strip().startswith("<") else ""
+    known = classes or set(CLASSES)
+    out = []
+    for m in SAMPLE_LINE.finditer(sec.group(1)):
+        text = m.group(2).strip()
+        d = DIFFERS.match(text)
+        e = {"feature": m.group(1), "line": text, "verdict": "unrecorded", "what": None, "class": None, "severity": None}
+        if text == "agree" or text.startswith("agree "):
+            e["verdict"] = "agree"
+        elif d and d.group(2) in known:
+            e.update(verdict="differs", what=d.group(1), **{"class": d.group(2)}, severity=d.group(3) or "medium")
+        out.append(e)
+    return reviewer, out
+
+
+def sample_findings(sid, st, contracts):
+    """Write a finding for each `differs` line of the slice's human sample that has none yet. Keyed by feature
+    and line, so a second difference for one feature, or one recorded at a later boundary, gets its own."""
+    sample = sample_entries(sid, set(contracts.ROUTES))
+    if not sample or not sample[0]:
         return
-    for m in re.finditer(r"^- (F-[A-Z0-9-]+):[ \t]*differs:[ \t]*(.+?)[ \t]*\(class:[ \t]*([a-z-]+)(?:,[ \t]*severity:[ \t]*(high|medium|low))?\)[ \t]*$",
-                         sec.group(1), re.M):
-        feature, what, cls, sev = m.group(1), m.group(2), m.group(3), m.group(4) or "medium"
-        if feature in st["sample"] or cls not in contracts.ROUTES:
+    reviewer, entries = sample
+    for e in entries:
+        key = f"{e['feature']}: {e['line']}"
+        if e["verdict"] != "differs" or key in st["sample"]:
             continue
+        feature, what, cls, sev = e["feature"], e["what"], e["class"], e["severity"]
         fid = f"HS-{len(st['sample']) + 1:04d}"
         f = {"id": fid, "source": "human-sample", "class": cls, "severity": sev, "criterion": None, "rule": None,
              "feature": feature,
@@ -112,7 +138,32 @@ def sample_findings(sid, st, contracts):
              "observed": {"rebuild": what, "reference": "what the running reference does (human sample)"},
              "route": contracts.ROUTES[cls], "verified_by": {"agent": reviewer, "result": "reproduced"}}
         write(os.path.join("parity", "findings", sid, f"{fid}.json"), json.dumps(f, indent=2, ensure_ascii=False) + "\n")
-        st["sample"][feature] = fid
+        st["sample"][key] = fid
+
+
+def sync_sample(sid, contracts):
+    """sample_findings() with the state saved: boundary.py calls it before counting open findings, so a recorded
+    difference is a finding whether or not route.py has run since."""
+    st = load_state(sid)
+    before = dict(st["sample"])
+    sample_findings(sid, st, contracts)
+    if st["sample"] != before:
+        write(state_path(sid), json.dumps(st, indent=2) + "\n")
+
+
+def departure_for(f, runner=None, pointer=None, value=None):
+    """The decided departure explaining finding `f`, or None (departures.explains: only a match rule explains).
+    With no observed value given, the finding's own runner and observed text stand in for them."""
+    try:
+        import departures
+    except ImportError:
+        return None
+    if not f.get("criterion"):
+        return None
+    if runner is None:
+        runner = (f.get("repro") or {}).get("runner")
+        value = (f.get("observed") or {}).get("rebuild")
+    return departures.explained_by(f["criterion"], runner, pointer, value)
 
 
 def findings(sid):
@@ -161,10 +212,6 @@ def main(argv=None):
     if not contracts:
         return die("the plugin's contracts/v1/contracts.py was not found through .rebuild-plugin: not run.")
     sample_findings(sid, st, contracts)
-    try:
-        import departures
-    except ImportError:
-        departures = None
     groups = {k: [] for k in SECTIONS}
     by_feature = {}
     for path, f, hidden in findings(sid):
@@ -183,7 +230,7 @@ def main(argv=None):
         if hidden:
             line = f"- {fid} ({f['severity']}, hidden test of {f.get('criterion')}): {observed}"
         route = contracts.finding_route(f)
-        did = departures.explained_by(f["criterion"]) if departures and f.get("criterion") else None
+        did = departure_for(f)
         if route is None:
             groups["not routed"].append(f"{line} — verified_by: {f['verified_by'].get('result')}")
         elif route == "drop" or did:

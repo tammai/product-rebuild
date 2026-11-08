@@ -117,11 +117,15 @@ for feat, n, level, vis in (("F-ISS-01", 1, 2, "open"), ("F-ISS-01", 2, 2, "open
         tests.append({"criterion": cid, "runner": "http", "path": path, "sha256": hashlib.sha256(body.encode()).hexdigest(),
                       "level": "integration", "visibility": vis, "normalize": []})
 w(wb, "docs/acceptance/seed/base.yaml", "steps: []\n")
+w(wb, "docs/features.md", "# Features\n")
 LOCK = {"contracts": "1.1.1", "spec": "docs", "generated": "2026-11-08T00:00:00Z", "criteria": rows}
 w(wb, "docs/criteria.lock.json", json.dumps(LOCK, indent=2))
 w(wb, "docs/acceptance/manifest.json", json.dumps({"contracts": "1.1.1", "tests": tests}, indent=2))
 w(wb, "docs/verify/outcomes.jsonl", json.dumps({"criterion": "F-ISS-02.AC1", "outcome": "unrecordable",
                                                 "reason": "needs a paid plan"}) + "\n")
+# This bundle stands for one after holdout.py split (AC-3's test is already out), which un-ignores it.
+w(wb, ".gitignore", "".join(l for l in open(os.path.join(wb, ".gitignore"), encoding="utf-8").readlines()
+                            if l.rstrip("\n") != "docs/acceptance/" and "holdout.py split" not in l and "this repo's history" not in l))
 commit(wb)
 
 
@@ -161,12 +165,27 @@ if ONLY in (None, "lane", "questions"):
     check("a test whose sha256 differs from the workbench manifest is refused, not copied",
           r.returncode == 1 and "sha256" in r.stderr and read(lane, "acceptance", "http", "F-ISS-01.AC2.yaml") == good, r.stderr)
     w(wb, "docs/acceptance/http/F-ISS-01.AC2.yaml", good)
+    manifest = read(wb, "docs", "acceptance", "manifest.json")
+    w(wb, "docs/acceptance/manifest.json", manifest.replace('"http/F-ISS-01.AC2.yaml"', '"../../../p-holdout/http/F-ISS-01.AC3.yaml"'))
+    r = lane_plan("refresh", "S1", "api")
+    check("a manifest path that leaves the bundle is refused, nothing copied",
+          r.returncode == 1 and "leave" in r.stderr and read(lane, "acceptance", "http", "F-ISS-01.AC2.yaml") == good, r.stderr)
+    w(wb, "docs/acceptance/manifest.json", manifest)
     w(wb, "rebuild.yaml", "budgets:\n  parallel_lanes: 1\n")
     commit(wb)
     run(["git", "worktree", "add", "-q", "-b", "slice/S1-web", os.path.join(proj, "app-web")], app)
     r = lane_plan("S1", "web", "--worktree", "../app-web", "--features", "F-ISS-02", "--approved-by", "Eval")
     check("a lane beyond the slice's lane cap (rebuild.yaml budgets.parallel_lanes) is refused",
           r.returncode == 1 and "parallel_lanes" in r.stderr, r.stdout + r.stderr)
+
+    w(app, ".gitmodules", '[submodule "workbench"]\n\tpath = workbench\n\turl = ../p-workbench\n'
+                          '[submodule "t"]\n\tpath = t\n\turl = ../p-holdout\n')
+    w(wb, "rebuild.yaml", "budgets:\n  parallel_lanes: 3\n")
+    r = lane_plan("S1", "web", "--worktree", "../app-web", "--features", "F-ISS-02", "--approved-by", "Eval")
+    check("a lane is refused while a listed code repo references the holdout repo",
+          r.returncode == 1 and "holdout" in r.stderr, r.stdout + r.stderr)
+    w(app, ".gitmodules", '[submodule "workbench"]\n\tpath = workbench\n\turl = ../p-workbench\n')
+    w(wb, "rebuild.yaml", "budgets:\n  parallel_lanes: 1\n")
 
 if ONLY in (None, "step0"):
     print("\n# step 0 (AC-017)")
@@ -176,6 +195,11 @@ if ONLY in (None, "step0"):
     check("slice 2 fails step 0, naming the criterion and the rspec:verify run",
           r.returncode == 1 and "F-PRJ-01.AC1" in r.stdout + r.stderr and "rspec:verify --only F-PRJ-01" in r.stdout + r.stderr,
           r.stdout + r.stderr)
+    os.replace(os.path.join(wb, "docs", "criteria.lock.json"), os.path.join(wb, "docs", "criteria.lock.off"))
+    r = lane_plan("step0", "S1")
+    os.replace(os.path.join(wb, "docs", "criteria.lock.off"), os.path.join(wb, "docs", "criteria.lock.json"))
+    check("step 0 before rspec:check says what is missing, no traceback",
+          r.returncode == 1 and "criteria.lock.json" in r.stderr and "Traceback" not in r.stderr, r.stderr)
     run(["git", "worktree", "add", "-q", "-b", "slice/S2-pm", os.path.join(proj, "app-pm")], app)
     r = lane_plan("S2", "pm", "--worktree", "../app-pm", "--features", "F-PRJ-01", "--approved-by", "Eval")
     check("…and lane_plan will not open the slice's lanes", r.returncode == 1 and "step 0" in r.stderr, r.stdout + r.stderr)
@@ -185,8 +209,14 @@ if ONLY in (None, "questions"):
     w(lane, ".sdlc/.work/spec-questions/feat-SQ-0001.json", json.dumps({
         "id": "SQ-0001", "source": "sdlc-question", "class": "spec-gap", "criterion": "F-ISS-01.AC2",
         "question": "Does a closed issue count toward the key sequence?"}))
+    w(lane, ".sdlc/.work/spec-questions/feat-SQ-0002.json", json.dumps({
+        "id": "SQ-0002", "criterion": "F-ISS-01.AC1 | x | y | z |\n| F-ISS-09.AC1 | injected row", "question": "q"}))
     r = lane_plan("questions", "S1")
     batch = read(wb, "plan", "spec-questions", "S1.md") if r.returncode == 0 else ""
+    check("a lane-written criterion cannot add a row or a line to the batch",
+          "\n| F-ISS-09.AC1" not in batch and len([l for l in batch.splitlines() if l.startswith("| ")]) == 3, batch)
+    r = lane_plan("questions", "../x")
+    check("questions refuses a slice id that is not S<n>", r.returncode == 1, r.stdout + r.stderr)
     check("the slice's questions are batched with criterion, question and lane",
           "F-ISS-01.AC2" in batch and "closed issue count" in batch and "api" in batch, r.stdout + r.stderr + batch)
     LOCK["criteria"][1]["text_sha256"] = "1" * 64
@@ -215,6 +245,10 @@ if ONLY in (None, "flows"):
     check("flows.py unlock --acceptance logs the decision", r.returncode == 0 and "rspec:amend changed AC1" in
           read(wb, "docs", "acceptance", "DECISIONS.md"), r.stdout + r.stderr)
     check("…and the guard lets the edit through while it is unlocked", edit(target).returncode == 0)
+    r = run([sys.executable, os.path.join("scripts", "pause_check.py")], wb)
+    check("…and pause_check flags the unlocked bundle, naming the relock",
+          "docs/acceptance: recorded assertions still UNLOCKED" in r.stdout + r.stderr
+          and "flows.py relock --acceptance" in r.stdout + r.stderr, r.stdout + r.stderr)
     run([sys.executable, os.path.join("scripts", "flows.py"), "relock", "--acceptance"], wb)
     check("relock puts the guard back", edit(target).returncode == 2)
 

@@ -202,6 +202,9 @@ if ONLY in (None, "level2"):
     check("…a signed reason locks it and the lock records share, reason and who",
           r.returncode == 0 and "level2_waiver:" in lock4 and "seeding needs a paid account" in lock4
           and "Tam Mai" in lock4 and "0.8" in lock4, r.stdout + r.stderr + lock4)
+    r = run([sys.executable, os.path.join("scripts", "validate.py")], wb)
+    check("validate.py accepts the gate-4 lock with its holdout and level2_waiver blocks",
+          r.returncode == 0 and "locks/gate-4.yaml" not in r.stdout + r.stderr, r.stdout + r.stderr)
     check("gate-4 locks openapi.json, schemas/, criteria.lock.json and acceptance/manifest.json",
           all(f"  docs/{f}: " in lock4 for f in ("openapi.json", "schemas/issue.json", "criteria.lock.json",
                                                  "acceptance/manifest.json")), lock4)

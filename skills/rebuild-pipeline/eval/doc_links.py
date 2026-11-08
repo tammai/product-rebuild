@@ -19,7 +19,8 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.realpath(os.path.join(HERE, "..", "..", ".."))
 REFS = os.path.join(ROOT, "skills", "rebuild-pipeline", "references")
 SCRIPTS = os.path.join(ROOT, "skills", "rebuild-pipeline", "scripts")
-SKIP_DIRS = {".git", "_vendor", "specs", "eval", "node_modules", "__pycache__", "licenses"}
+# `.work` is sdlc's git-ignored scratch (review reports quote deleted docs by name); it is never shipped.
+SKIP_DIRS = {".git", "_vendor", "specs", "eval", "node_modules", "__pycache__", "licenses", ".work"}
 
 ref_names = {n for n in os.listdir(REFS) if n.endswith(".md")}
 script_names = {n for n in os.listdir(SCRIPTS) if n.endswith(".py")}

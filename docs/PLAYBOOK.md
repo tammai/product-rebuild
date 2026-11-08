@@ -34,8 +34,9 @@ Where each 2.x capability went is in [MIGRATION-3.md](MIGRATION-3.md).
 G0 Reference, posture, playbook, budgets; preflight
 rspec init → discover → features           ── GATE 1: feature lock (features.md, domain.md, departures.yaml)
 rspec stories → tech                        ── GATE 3: architecture lock (accepted ADRs; adr/ playbook + scaffold manifest)
-rspec audit → verify → handoff              ── GATE 2: slice-plan lock (build-plan.md, ≤ 10 criteria a slice)
-rspec check; holdout.py split               ── GATE 4: contract lock (openapi.json, schemas/, criteria lock, test bundle)
+rspec audit → verify → handoff → check;
+  holdout.py split, then the first commit   ── GATE 2: slice-plan lock (build-plan.md, ≤ 10 criteria a slice)
+                                            ── GATE 4: contract lock (openapi.json, schemas/, criteria lock, test bundle)
 G5 per slice: step 0, sdlc lanes on rspec's criteria, spec questions → rspec:amend
 G6 per slice: open suite → hidden suite → equivalence → coverage → bug-hunter → human sample; route.py
 GP production readiness                     ── GATE 5: prod-ready lock (terminal)
@@ -96,7 +97,7 @@ The skill runs each stage with rspec's own skill and reads rspec's `progress.py`
 - **Before `rspec:tech`**, `python3 scripts/playbook.py vendor` copies the playbook and its scaffold manifest to `adr/`, and its stack line becomes rspec's stack preference.
 - **Gate 3** (after the ADR approval, rspec handoff step 1) locks `docs/decisions/` and `adr/`; it refuses an ADR still `Proposed` and a workbench with no valid scaffold manifest, so the stack every code repo is created from cannot change under the project.
 - **Gate 2** (after `rspec:audit` and `rspec:verify`, and the build plan) locks `build-plan.md`: vertical slices, each shippable and testable on its own, at most about 10 criteria each.
-- **Hidden tests** (`python3 scripts/holdout.py split`, after `rspec:check`): 25% of each slice's level 2 tests, at least one per feature with three or more criteria, drawn from a recorded seed, moved to a git repo `<project>-holdout/` beside the workbench that no code repo may contain. Lanes never see them; at G6 they are run per criterion and reported with the observed behaviour only, so a failure report does not leak the test.
+- **Hidden tests** (`python3 scripts/holdout.py split`, after `rspec:check` and before the bundle's first commit and Gate 2): 25% of each slice's level 2 tests, at least one per feature with three or more criteria, drawn from a recorded seed, moved to a git repo `<project>-holdout/` beside the workbench that no code repo may contain. Lanes never see them; at G6 they are run per criterion and reported with the observed behaviour only, so a failure report does not leak the test.
 - **Gate 4** locks `openapi.json`, `schemas/`, `criteria.lock.json` and `acceptance/manifest.json`, and records the holdout seed and list hash. Under `observe` or `own-code` it refuses while fewer than 90% of MVP criteria are at level 2 (a recorded test), unless the user signs a reason.
 
 Slice *order* is a logged decision (`sequence.py reorder --reason`); what is *in* a slice is a gate-2 reopen.

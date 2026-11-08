@@ -184,9 +184,10 @@ def main(argv=None):
 
     # Design rule 6: a report that cannot read rspec's list says so and fails, rather than
     # writing a 0% coverage report boundary.py would relay as step 4's result.
-    if not os.path.exists(sequence.FEATURES):
-        warn(f"not run: no {sequence.FEATURES} here (rspec:features writes it; run from the workbench root).")
-        return 1
+    for need, who in ((sequence.FEATURES, "rspec:features"), (sequence.BUILD_PLAN, "rspec:handoff")):
+        if not os.path.exists(need):
+            warn(f"not run: no {need} here ({who} writes it; run from the workbench root).")
+            return 1
     parse = yamlio.load
 
     def read_yaml(p, fallback):

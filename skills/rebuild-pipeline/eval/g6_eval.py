@@ -180,7 +180,10 @@ if ONLY in (None, "route", "fix"):
     print("\n# route.py (AC-009)")
     proj, wb = project("route", split=False)
     w(wb, "docs/departures.yaml", '- id: D-001\n  kind: deliberate-change\n  criteria: [F-ISS-01.AC2]\n  summary: keys differ\n'
-                                  '  decided_by: "Tam Mai, 2026-11-08"\n')
+                                  '  match:\n    - {runner: http, rule: "regex:WRONG"}\n'
+                                  '  decided_by: "Tam Mai, 2026-11-08"\n'
+                                  '- id: D-002\n  kind: deliberate-change\n  criteria: [F-ISS-01.AC1]\n  summary: human-only\n'
+                                  '  match: []\n  decided_by: "Tam Mai, 2026-11-08"\n')
     fs = [finding("BH-0001", "build-defect", "F-ISS-01.AC1"), finding("BH-0002", "spec-gap", "F-ISS-03.AC1"),
           finding("BH-0003", "reference-defect"), finding("BH-0004", "environment"),
           finding("BH-0005", "build-defect", "F-ISS-03.AC1", verified="not-reproduced"),
@@ -265,6 +268,52 @@ if ONLY in (None, "boundary"):
     r = script(wb, "boundary.py", "S1", env={"ACCEPT_BASE_URL": URL})
     check("open and hidden green, bug-hunter run, sample recorded: the boundary passes",
           r.returncode == 0 and "PASS" in r.stdout, r.stdout + r.stderr)
+    closed_before = [json.loads(read(p))["id"] for p in found]
+
+    def boundary():
+        r = script(wb, "boundary.py", "S1", env={"ACCEPT_BASE_URL": URL})
+        return r.returncode, r.stdout + r.stderr
+
+    mpath = os.path.join(wb, "docs", "acceptance", "manifest.json")
+    m = json.loads(read(mpath))
+    m["tests"].append({"criterion": "F-ISS-03.AC1", "runner": "playwright", "path": "e2e/F-ISS-03.AC1.spec.ts",
+                       "sha256": "0" * 64, "level": "e2e", "visibility": "open", "normalize": []})
+    w(wb, "docs/acceptance/manifest.json", json.dumps(m, indent=2))
+    w(wb, "docs/acceptance/e2e/F-ISS-03.AC1.spec.ts", "// e2e\n")
+    rc, out = boundary()
+    check("an open Playwright test with no lane JUnit is not run, and the boundary does not pass",
+          rc == 2 and "F-ISS-03.AC1: not run: no lane JUnit" in out, out)
+    import time
+    w(proj, f"app/parity/{time.strftime('%Y-%m-%d')}-ac.xml",
+      '<testsuite><testcase classname="e2e" name="F-ISS-03.AC1 shows the total"/></testsuite>\n')
+    rc, out = boundary()
+    check("…read from the lanes' JUnit in the code repo, a passing case for it lets the boundary pass", rc == 0 and "PASS" in out, out)
+    good = read(wb, "plan", "slice-reviews", "S1.md")
+    first = re.findall(r"(?m)^- (F-[A-Z0-9-]+): agree$", good)[0]
+    w(wb, "plan/slice-reviews/S1.md", good.replace(f"- {first}: agree", f"- {first}: differs: total is off (class: build-defect, severity: high)"))
+    rc, out = boundary()
+    hs = glob.glob(os.path.join(wb, "parity", "findings", "S1", "HS-*.json"))
+    check("a recorded 'differs' line is a finding at the boundary without route.py having run, and holds it",
+          rc == 2 and len(hs) == 1 and "PASS" not in out, out)
+    script(wb, "route.py", "S1", "--close", "HS-0001")
+    w(wb, "plan/slice-reviews/S1.md", good.replace(f"- {first}: agree", f"- {first}: differs: total is off"))
+    rc, out = boundary()
+    check("a 'differs' line with no class is not a recorded sample", rc == 2 and "not recorded for" in out, out)
+    w(wb, "plan/slice-reviews/S1.md", good)
+    regress = open_bad[0]
+    MODE[regress] = "bad"
+    rc, out = boundary()
+    new_ids = [json.loads(read(p))["id"] for p in glob.glob(os.path.join(wb, "parity", "findings", "S1", "BND-*.json"))
+               if json.loads(read(p))["id"] not in closed_before]
+    check("a criterion failing again after its finding was closed gets a new finding, routed again",
+          rc == 2 and len(new_ids) == 1 and f"new finding {new_ids[0]}" in out, out)
+    MODE[regress] = "ok"
+    script(wb, "route.py", "S1", "--close", ",".join(new_ids))
+    os.replace(os.path.join(wb, ".rebuild-plugin"), os.path.join(wb, ".rebuild-plugin.off"))
+    rc, out = boundary()
+    os.replace(os.path.join(wb, ".rebuild-plugin.off"), os.path.join(wb, ".rebuild-plugin"))
+    check("without contracts.py the open findings are not counted as none: the boundary does not pass",
+          rc == 2 and "PASS" not in out and "not run" in out and "contracts" in out, out)
 
 if ONLY in (None, "sample"):
     print("\n# the human sample (AC-020)")
@@ -295,14 +344,29 @@ if ONLY in (None, "departures"):
     print("\n# one departures registry (AC-021)")
     proj, wb = project("departures")
     hidden = json.loads(read(wb, "plan", "holdout.json"))["hidden"][0]
-    w(wb, "docs/departures.yaml", f'- id: D-001\n  kind: simplification\n  criteria: [{hidden}]\n  summary: keys differ\n'
-                                  f'  decided_by: "Tam Mai, 2026-11-08"\n')
-    commit(wb)
     MODE[hidden] = "bad"
-    r = script(wb, "holdout.py", "run", "S1", env={"ACCEPT_BASE_URL": URL})
-    res = json.loads(read(wb, "parity", "holdout", "S1.json"))["results"][0]
-    check("a hidden failure a decided departure names is 'explained', not a failure",
-          r.returncode == 0 and res["result"] == "explained" and "D-001" in res["observed"], r.stdout + r.stderr)
+    for label, match, want in (("a criterion-only departure (match: []) does not explain a live criterion's failure", "[]", "fail"),
+                               ("a departure whose match rule does not cover the observed value explains nothing",
+                                '[{runner: http, pointer: /key, rule: "regex:^OTHER$"}]', "fail"),
+                               ("a hidden failure a decided departure's match rule covers is 'explained', not a failure",
+                                '[{runner: http, pointer: /key, rule: "regex:^WRONG"}]', "explained")):
+        w(wb, "docs/departures.yaml", f'- id: D-001\n  kind: simplification\n  criteria: [{hidden}]\n  summary: keys differ\n'
+                                      f'  match: {match}\n  decided_by: "Tam Mai, 2026-11-08"\n')
+        r = script(wb, "holdout.py", "run", "S1", env={"ACCEPT_BASE_URL": URL})
+        res = json.loads(read(wb, "parity", "holdout", "S1.json"))["results"][0]
+        check(label, res["result"] == want and (want == "fail" or "D-001" in res["observed"]), r.stdout + r.stderr)
+    probe = ("import sys, json; sys.path.insert(0, 'scripts'); import departures; "
+             "p = 'docs/criteria.lock.json'; d = json.load(open(p)); "
+             "[c.update(priority='Drop') for c in d['criteria'] if c['id'] == sys.argv[1]]; "
+             "json.dump(d, open(p, 'w')); print(departures.explains(sys.argv[1], 'http', '/key', 'WRONG'))")
+    w(wb, "docs/departures.yaml", f'- id: D-001\n  kind: simplification\n  criteria: [{hidden}]\n  summary: dropped\n'
+                                  f'  match: []\n  decided_by: "Tam Mai, 2026-11-08"\n')
+    r = run([sys.executable, "-c", probe, hidden], wb)
+    check("match: [] explains a criterion it names once that criterion is Drop", r.stdout.strip() == "D-001", r.stdout + r.stderr)
+    run(["git", "checkout", "--", "docs/criteria.lock.json"], wb)
+    w(wb, "docs/departures.yaml", f'- id: D-001\n  kind: simplification\n  criteria: [{hidden}]\n  summary: keys differ\n'
+                                  f'  match:\n    - {{runner: http, pointer: /key, rule: "regex:^WRONG"}}\n  decided_by: "Tam Mai, 2026-11-08"\n')
+    commit(wb)
     MODE[hidden] = "ok"
     r = script(wb, "flows.py", "unlock", "--acceptance", "--weakens", "--criteria", "F-ISS-03.AC1", "--by", "Tam Mai",
                "--reason", "status 201 is accepted as 200")

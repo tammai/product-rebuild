@@ -145,6 +145,15 @@ if ONLY in (None, "gate5"):
                "observed": {"rebuild": "500", "reference": "200"}, "route": "sdlc",
                "verified_by": {"agent": "repro-verifier", "result": "reproduced"}}
     refused("an open high finding", "parity/findings/S1/BH-0001.json", json.dumps(finding), "BH-0001")
+    refused("a finding that is not finding-v1 (it cannot be shown harmless)", "parity/findings/S1/BH-0002.json",
+            json.dumps({"id": "BH-0002", "class": "build-defect"}), "BH-0002")
+    refused("a fix-round state that cannot be read, without a traceback", "plan/fix-rounds/S1.json", "{not json",
+            "not counted")
+    plugin = os.path.join(wb, ".rebuild-plugin")
+    os.replace(plugin, plugin + ".off")
+    refused("open findings that cannot be counted (no contracts.py) are never read as none",
+            "parity/findings/S1/BH-0001.json", json.dumps(finding), "not counted")
+    os.replace(plugin + ".off", plugin)
     refused("a proposed departure", "docs/departures.yaml",
             '- id: D-001\n  kind: simplification\n  summary: keys differ\n  status: proposed\n', "D-001")
     lock = json.loads(read(wb, "docs", "criteria.lock.json"))

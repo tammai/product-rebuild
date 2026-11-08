@@ -385,7 +385,10 @@ def _step0(args):
     slice_id = args[0] if args else None
     if not slice_id or not re.fullmatch(r"S\d+", slice_id):
         return _die("lane-plan", "usage: lane_plan.py step0 <Sn>")
-    missing = step0_missing(slice_id)
+    try:
+        missing = step0_missing(slice_id)
+    except (OSError, ValueError) as e:
+        return _die("lane-plan", f"{slice_id} step 0 cannot run: {e}. rspec:check writes criteria.lock.json and the manifest.")
     if not missing:
         print(f"{slice_id} step 0: every criterion has a level 2 test or rspec's reason for staying at level 1.")
         return 0
@@ -428,17 +431,33 @@ def _sha(p):
         return hashlib.sha256(fh.read()).hexdigest()
 
 
+def bundle_path(base, rel):
+    """holdout.bundle_path, copied because this script runs alone; change the three together (holdout.py,
+    boundary.py uses holdout's). None for a manifest path that is absolute, has a drive or `..`, or resolves
+    outside `base`: an entry `../../p-holdout/...` would have this script copy a hidden test into a lane."""
+    if not isinstance(rel, str) or not rel or os.path.isabs(rel) or re.match(r"^[a-zA-Z]:", rel) \
+            or ".." in re.split(r"[\\/]+", rel):
+        return None
+    p = os.path.join(base, rel)
+    real_base = os.path.realpath(base)
+    real = os.path.realpath(p)
+    return p if real == real_base or real.startswith(real_base.rstrip(os.sep) + os.sep) else None
+
+
 def copy_to_lane(worktree, criteria, wb_path):
     """Write the lane's open bundle and lock copy, or return why not (nothing written then)."""
     manifest = _json(os.path.join(SPEC_BUNDLE, "manifest.json"))
     tests = manifest.get("tests") or []
     mine = [t for t in tests if t.get("criterion") in criteria and t.get("visibility", "open") == "open"]
+    dest = os.path.join(worktree, "acceptance")
+    stray = [str(t.get("path")) for t in mine if not bundle_path(SPEC_BUNDLE, t.get("path")) or not bundle_path(dest, t.get("path"))]
+    if stray:
+        return f"these manifest paths leave the acceptance bundle, so nothing is copied: {', '.join(stray)}."
     bad = [f"{t['path']} (manifest {t.get('sha256', '?')[:12]}…)" for t in mine
            if not os.path.exists(os.path.join(SPEC_BUNDLE, t["path"])) or _sha(os.path.join(SPEC_BUNDLE, t["path"])) != t.get("sha256")]
     if bad:
         return ("these tests differ from the sha256 the workbench manifest records, so they are not copied: "
                 + ", ".join(bad) + ". A recorded test changes only through rspec:amend.")
-    dest = os.path.join(worktree, "acceptance")
     if os.path.isdir(dest):
         shutil.rmtree(dest)
     for t in mine:
@@ -571,6 +590,12 @@ def _write_rspec_lane(args):
     stray = [f for f in features if f not in in_slice]
     if stray:
         return die(f"not in {slice_id} of {SPEC}/build-plan.md: {', '.join(stray)}.")
+    # The split checks this too, but it runs before Gate 4, when repos.yaml usually lists no code repo yet.
+    import holdout
+    exposed = holdout.exposure(holdout.holdout_dir())
+    if exposed:
+        return die(f"the holdout repo is reachable from a code repo: {'; '.join(exposed)}. Remove it there before "
+                   f"opening a lane.")
     if not fix and step0_missing(slice_id):
         return die(f"{slice_id} fails step 0 (criteria with no level 2 test and no rspec reason): run "
                    f"`python3 scripts/lane_plan.py step0 {slice_id}` for the list, then rspec:verify --only <features>.")
@@ -667,6 +692,8 @@ def _write_rspec_lane(args):
 
 def _refresh(args):
     slice_id, lane = (args + [None, None])[:2]
+    if not slice_id or not re.fullmatch(r"S\d+", slice_id):
+        return _die("lane-plan", "usage: lane_plan.py refresh <Sn> <lane>")
     lrec = ((read_lane_plans(slice_id) or {}).get("lanes") or {}).get(lane or "")
     if not lrec or not lrec.get("criteria_ids"):
         return _die("lane-plan", f"no rspec lane {slice_id} {lane} in plan/lane-plans/{slice_id}.yaml.")
@@ -680,7 +707,7 @@ def _refresh(args):
 
 def _questions(args):
     slice_id = args[0] if args else None
-    rec = read_lane_plans(slice_id or "")
+    rec = read_lane_plans(slice_id) if slice_id and re.fullmatch(r"S\d+", slice_id) else None
     if not rec:
         return _die("lane-plan", "usage: lane_plan.py questions <Sn> (a slice with lanes)")
     rows = []
@@ -694,7 +721,10 @@ def _questions(args):
                     q = _json(os.path.join(d, f))
                 except (OSError, ValueError):
                     q = {"criterion": "?", "question": f"(unreadable: {f})"}
-                rows.append((q.get("criterion", "?"), str(q.get("question", "")).replace("|", "/").replace("\n", " "), name, f))
+                # Lane-written text goes into a file the orchestrator acts on: no cell may add a row or a line.
+                cell = [str(x).replace("|", "/").replace("\r", " ").replace("\n", " ")
+                        for x in (q.get("criterion", "?"), q.get("question", ""), f)]
+                rows.append((cell[0], cell[1], name, cell[2]))
     lines = [f"# Spec questions, {slice_id}", "",
              "Batched for rspec:amend (human approval when an MVP criterion's `then` changes). After the amend and "
              "re-verify: `lane_plan.py refresh <Sn> <lane>`, then `state.py questions <feature>` in the lane.", "",

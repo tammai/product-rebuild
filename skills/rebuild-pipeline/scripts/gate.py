@@ -317,6 +317,12 @@ def _lock_gate2_checks(gid):
         print(f"Cannot lock {gid}: rspec's audit and verify have not finished: missing {'; '.join(missing)}.",
               file=sys.stderr)
         return 1
+    # The lock wants a clean tree, so locking before the split would force the whole bundle, hidden share
+    # included, into the history every lane holds as a submodule (05 P4).
+    if os.path.exists(_join(SPEC, "acceptance", "manifest.json")) and not os.path.exists(_join("plan", "holdout.json")):
+        print(f"Cannot lock {gid}: no holdout split yet. Run python3 scripts/holdout.py split, then commit the "
+              f"workbench (the open bundle's first commit), then lock {gid}.", file=sys.stderr)
+        return 1
     return None
 
 
@@ -504,14 +510,18 @@ def _gate5_problems():
                 if x.get("result") not in ("pass", "explained"):
                     out.append(f"hidden suite {sid}: {x.get('criterion')} {x.get('result')} with no departure")
         slices = sorted(holdout.slices())
+        out += [f"the holdout repo is reachable from a code repo: {b}" for b in holdout.exposure(holdout.holdout_dir())]
     except (ImportError, OSError, ValueError) as e:
         out.append(f"hidden suites not checked ({e})")
         slices = []
     try:
         import boundary
         for sid in slices:
-            out += [f"open high finding {f['id']} ({f['class']}, slice {sid}): route.py {sid}"
-                    for f in boundary._open_findings(sid) if f.get("severity") == "high"]
+            try:
+                out += [f"open high finding {f['id']} ({f['class']}, slice {sid}): route.py {sid}"
+                        for f in boundary._open_findings(sid) if f.get("severity") == "high"]
+            except boundary.NotRun as e:
+                out.append(f"open findings of {sid} not counted: not run: {e}")
     except ImportError:
         out.append("scripts/boundary.py is missing: open findings cannot be checked")
     try:

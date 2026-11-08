@@ -148,6 +148,16 @@ if ONLY in (None, "notrun"):
     r = script(wb, "slice_review.py", "S1")
     check("slice_review.py exits 1 naming docs/build-plan.md", r.returncode == 1 and "docs/build-plan.md" in r.stderr,
           r.stdout + r.stderr)
+    w(wb, "docs/features.md", "# Features\n")
+    r = script(wb, "parity.py")
+    check("parity.py with features.md but no build-plan.md exits 1 naming docs/build-plan.md",
+          r.returncode == 1 and "docs/build-plan.md" in r.stderr, r.stdout + r.stderr)
+    os.remove(os.path.join(wb, "docs", "features.md"))
+    w(wb, "docs/build-plan.md", "# Build plan\n\n## Slice 1: issues\n\n| 1 | F-ISS-01 a |\n")
+    r = script(wb, "slice_review.py", "S1")
+    check("slice_review.py with build-plan.md but no features.md exits 1 naming docs/features.md",
+          r.returncode == 1 and "docs/features.md" in r.stderr, r.stdout + r.stderr)
+    os.remove(os.path.join(wb, "docs", "build-plan.md"))
     r = script(wb, "boundary.py", "S1")
     step4 = r.stdout.split("== 4. coverage: parity")[-1].split("== 5.")[0]
     check("boundary.py prints step 4 as not run, with the reason", "not run: " in step4 and "docs/features.md" in step4

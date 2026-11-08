@@ -134,9 +134,9 @@ def choose(seed, slice_map, lock, tests):
     out = {}
     for sid in sorted(slice_map, key=lambda s: int(s[1:])):
         feats = slice_map[sid]
-        cands = sorted(t["criterion"] for t in tests
+        cands = sorted({t["criterion"] for t in tests
                        if t.get("visibility", "open") == "open" and level.get(t["criterion"]) == 2
-                       and feature_of.get(t["criterion"]) in feats)
+                       and feature_of.get(t["criterion"]) in feats})
         by_feat = {}
         for c in cands:
             by_feat.setdefault(feature_of[c], []).append(c)
@@ -162,6 +162,55 @@ def list_sha256(ids):
     return hashlib.sha256("\n".join(sorted(ids)).encode("utf-8")).hexdigest()
 
 
+IGNORE_LINES = ("# The bundle stays out of git until holdout.py split (05 P4): its hidden share must never be in",
+                "# this repo's history, which every lane holds as a submodule. The split removes these lines.",
+                "docs/acceptance/")  # rebuild_init.py writes them; change both together
+
+
+def bundle_path(base, rel):
+    """`base`/`rel` for a manifest `path`, or None when `rel` is absolute, has a drive or `..`, or resolves outside
+    `base`. The manifest is agent-written data: an entry `../../p-holdout/...` once made a script copy a hidden
+    test into a lane. lane_plan.py and boundary.py carry copies; change the three together."""
+    if not isinstance(rel, str) or not rel or os.path.isabs(rel) or re.match(r"^[a-zA-Z]:", rel) \
+            or ".." in re.split(r"[\\/]+", rel):
+        return None
+    p = os.path.join(base, rel)
+    real_base = os.path.realpath(base)
+    real = os.path.realpath(p)
+    return p if real == real_base or real.startswith(real_base.rstrip(os.sep) + os.sep) else None
+
+
+def write_atomic(p, text):
+    """departures.write_atomic, copied because this script runs alone; change both together."""
+    os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+    tmp = f"{p}.tmp-{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, p)
+
+
+def in_history(paths):
+    """{path: [short commit ids]} for each workbench path some commit on any ref has held. Empty outside git."""
+    out = {}
+    for rel in paths:
+        r = git(".", "log", "--all", "--format=%h", "--", rel.replace(os.sep, "/"))
+        ids = r.stdout.split() if r.returncode == 0 else []
+        if ids:
+            out[rel] = ids
+    return out
+
+
+def unignore_bundle():
+    if not os.path.exists(".gitignore"):
+        return
+    lines = read_text(".gitignore").split("\n")
+    kept = [l for l in lines if l not in IGNORE_LINES]
+    if kept != lines:
+        write_atomic(".gitignore", "\n".join(kept))
+
+
 def cmd_split(args):
     if os.path.exists(RECORD):
         return die(f"{RECORD} exists: the split already ran. Reopen gate-4 and remove it only if the user "
@@ -177,61 +226,108 @@ def cmd_split(args):
     if bad:
         return die(f"the holdout repo {hold} would be reachable from a code repo: {'; '.join(bad)}. "
                    f"Hidden tests must never be in, or a submodule of, any code repo.")
-    seed = int(args[args.index("--seed") + 1]) if "--seed" in args[:-1] else random.SystemRandom().randrange(2 ** 31)
+    if "--seed" in args[:-1]:
+        try:
+            seed = int(args[args.index("--seed") + 1])
+        except ValueError:
+            return die("--seed takes a whole number.")
+    else:
+        seed = random.SystemRandom().randrange(2 ** 31)
     manifest = load_json(MANIFEST)
     tests = manifest.get("tests") or []
     chosen = choose(seed, slice_map, load_json(os.path.join(SPEC, "criteria.lock.json")), tests)
     hidden = sorted(c for ids in chosen.values() for c in ids)
-    entries = {t["criterion"]: t for t in tests}
-    for c in hidden:
-        src = os.path.join(BUNDLE, entries[c]["path"])
+    # Every test of a hidden criterion is hidden: a criterion can carry one test per runner, and one left
+    # open would reach the lanes with the criterion it was meant to measure.
+    moves = [t for t in tests if t.get("criterion") in set(hidden)]
+    for t in moves:
+        src = bundle_path(BUNDLE, t.get("path"))
+        if not src:
+            return die(f"the manifest path {t.get('path')!r} (a test for {t.get('criterion')}) leaves {BUNDLE}.")
         if not os.path.exists(src):
-            return die(f"{src} (the test for {c}) is missing.")
+            return die(f"{src} (the test for {t['criterion']}) is missing.")
+    seen = in_history([os.path.join(BUNDLE, t["path"]) for t in moves])
+    if seen:
+        return die("these tests the split would hide are already in the workbench's git history, which every lane "
+                   "holds as a submodule: " + "; ".join(f"{p} in {', '.join(ids)}" for p, ids in sorted(seen.items()))
+                   + ". The bundle's first commit must come after the split. Rewrite those commits out of the "
+                   "history with the user (and from any remote), or re-record the bundle, then split again.")
     os.makedirs(hold, exist_ok=True)
     if not os.path.exists(os.path.join(hold, ".git")):
-        git(hold, "init", "-q")
-    for c in hidden:
-        dst = os.path.join(hold, entries[c]["path"])
+        r = git(hold, "init", "-q")
+        if r.returncode:
+            return die(f"git init in {hold} failed: {r.stderr.strip()}")
+    for t in moves:
+        dst = bundle_path(hold, t["path"])
         os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.move(os.path.join(BUNDLE, entries[c]["path"]), dst)
-        entries[c]["visibility"] = "hidden"
+        shutil.copy2(os.path.join(BUNDLE, t["path"]), dst)
+        t["visibility"] = "hidden"
     if os.path.isdir(os.path.join(BUNDLE, "seed")):
         shutil.copytree(os.path.join(BUNDLE, "seed"), os.path.join(hold, "seed"), dirs_exist_ok=True)
-    with open(MANIFEST, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
-    git(hold, "add", "-A")
-    git(hold, "commit", "-qm", f"holdout: {len(hidden)} hidden tests, seed {seed}")
+    for step in (("add", "-A"), ("commit", "-q", "--allow-empty", "-m", f"holdout: {len(hidden)} hidden tests, seed {seed}")):
+        r = git(hold, *step)
+        if r.returncode:
+            return die(f"git {step[0]} in {hold} failed, nothing in the workbench changed: "
+                       f"{(r.stderr or r.stdout).strip()}")
+    # The manifest and record go in by rename and the originals are removed last, so a crash leaves either the
+    # old bundle (re-run the split) or a finished one, never hidden files missing with nothing recording where.
+    text = json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
     rec = {"seed": seed, "count": len(hidden), "list_sha256": list_sha256(hidden), "hidden": hidden,
-           "slices": chosen, "manifest_sha256": sha256_file(MANIFEST)}
-    os.makedirs("plan", exist_ok=True)
-    with open(RECORD, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(json.dumps(rec, indent=2) + "\n")
+           "slices": chosen, "manifest_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()}
+    write_atomic(MANIFEST, text)
+    write_atomic(RECORD, json.dumps(rec, indent=2) + "\n")
+    for t in moves:
+        os.remove(os.path.join(BUNDLE, t["path"]))
+    unignore_bundle()
     for sid, ids in chosen.items():
         print(f"{sid}: {len(ids)} hidden")
-    print(f"{len(hidden)} hidden tests moved to the holdout repo (committed there, never pushed by this script); "
-          f"seed {seed}. Commit the workbench, then lock gate-4.")
+    print(f"{len(hidden)} hidden criteria ({len(moves)} tests) moved to the holdout repo (committed there, never "
+          f"pushed by this script); seed {seed}. docs/acceptance/ is no longer ignored: commit the workbench now "
+          f"(its first commit of the open bundle), then lock gate-2.")
     return 0
 
 
 # ---------------------------------------------------------------- run
 
+def _decoded(msg, at):
+    try:
+        return json.JSONDecoder().raw_decode(msg, at)[0]
+    except ValueError:
+        return None
+
+
 def observed(msg):
-    """(result, observed) from a run-http failure message, keeping what the build did and dropping what the
-    test wanted. Anything this does not recognise is withheld: a message format it has not seen may quote it."""
+    """(result, observed, pointer, value) from a run-http failure message: what the build did, never what the test
+    wanted. The value is decoded as the JSON document it is, at the offset contracts.py puts it, because a regex
+    over the message once ran into the expected value when it held the word `expected`. The observed text names
+    no field (which field a hidden test checks is test content); `pointer` and `value` are for departure match
+    rules only and are not written anywhere. Anything not recognised is withheld."""
     if msg.startswith("not run:"):
-        return "not run", msg[len("not run:"):].strip()
+        return "not run", msg[len("not run:"):].strip(), None, None
     if msg.startswith("invalid test:"):
-        return "not run", "the hidden test file does not parse"
-    for pat, fmt in ((r"status (\d+), expected", "HTTP status {0}"),
-                     (r" (/\S*): got (.*), expected ", "{0} was {1}"),
-                     (r" (/\S*): not present in the response", "{0} not in the response"),
-                     (r" (/\S*): (.*) does not satisfy rule ", "{0} was {1}"),
-                     (r"response is not JSON", "the response is not JSON"),
-                     (r": request failed: (.*)$", "the request failed: {0}")):
+        return "not run", "the hidden test file does not parse", None, None
+    m = re.search(r": status (\d+), expected \d+$", msg)
+    if m:
+        return "fail", f"HTTP status {m.group(1)}", "status", int(m.group(1))
+    for pat, what in ((r" (/\S*): got ", "a field the test checks was {0}"),
+                      (r" (/\S*): ", "a field the test checks was {0}, which breaks the test's rule")):
         m = re.search(pat, msg)
-        if m:
-            return "fail", fmt.format(*m.groups())
-    return "fail", "failed (detail withheld: the runner's message would quote the test)"
+        if m and (pat.endswith("got ") or re.search(r" does not satisfy rule ", msg)):
+            value = _decoded(msg, m.end())
+            if value is not None or msg[m.end():].startswith("null"):
+                return "fail", what.format(json.dumps(value, ensure_ascii=False)), m.group(1), value
+    m = re.search(r" (/\S*): not present in the response$", msg)
+    if m:
+        return "fail", "a field the test checks is not in the response", m.group(1), None
+    if re.search(r": response is not JSON$", msg):
+        return "fail", "the response is not JSON", None, None
+    m = re.search(r": request failed: (.*)$", msg)
+    if m:
+        e = m.group(1).lower()
+        why = ("connection refused" if "refused" in e else "timed out" if "timed out" in e
+               else "bad base URL" if "url" in e else "no HTTP answer")
+        return "fail", f"the request failed: {why}", None, None
+    return "fail", "failed (detail withheld: the runner's message would quote the test)", None, None
 
 
 def contracts_py(args):
@@ -246,19 +342,41 @@ def contracts_py(args):
     return None
 
 
+def _run(cmd, timeout, **kw):
+    """subprocess.run, with a hung build or a missing program turned into a `not run` reason (design rule 6)
+    instead of a traceback that leaves no report."""
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                              timeout=timeout, **kw), None
+    except subprocess.TimeoutExpired:
+        return None, f"timed out after {timeout} s"
+    except OSError as e:
+        return None, f"could not start {cmd[0]} ({e.strerror or e})"
+
+
+PLAYWRIGHT_CONFIG = """module.exports = {{ testDir: {test_dir}, outputDir: {out}, reporter: 'line',
+  use: {{ baseURL: process.env.ACCEPT_BASE_URL }} }};
+"""
+
+
 def run_one(entry, hold, args):
-    path = os.path.join(hold, entry["path"])
+    """(result, observed, pointer, value) for one hidden test."""
+    path = bundle_path(hold, entry.get("path"))
     runner = entry.get("runner")
-    if not os.path.exists(path):
-        return "not run", "the hidden test file is not in the holdout repo"
+    if not path or not os.path.exists(path):
+        return "not run", "the hidden test file is not in the holdout repo", None, None
+    if entry.get("sha256") and sha256_file(path) != entry["sha256"]:
+        return "not run", "the hidden test changed since gate-4 locked the manifest", None, None
+    withheld = "the runner's output is withheld because it quotes the test"
     if runner == "http":
         cpy = contracts_py(args)
         if not cpy:
-            return "not run", "contracts.py not found (pass --contracts, or check .rebuild-plugin)"
-        r = subprocess.run([sys.executable, cpy, "run-http", path], capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=600)
+            return "not run", "contracts.py not found (pass --contracts, or check .rebuild-plugin)", None, None
+        r, why = _run([sys.executable, cpy, "run-http", path], 600)
+        if why:
+            return "not run", why, None, None
         if r.returncode == 0:
-            return "pass", ""
+            return "pass", "", None, None
         # quoteattr picks single quotes when the message holds a double quote (a JSON value always does).
         m = re.search(r"<failure message=([\"'])(.*?)\1", r.stdout, re.S)
         return observed(html.unescape(m.group(2)) if m else "")
@@ -266,19 +384,32 @@ def run_one(entry, hold, args):
         repo = args[args.index("--repo") + 1] if "--repo" in args[:-1] else None
         cli = os.path.join(repo, "node_modules", "@playwright", "test", "cli.js") if repo else None
         if not cli or not os.path.exists(cli) or not shutil.which("node"):
-            return "not run", "no @playwright/test in the code repo's node_modules (pass --repo <code repo>), or no node"
-        r = subprocess.run(["node", cli, "test", path], cwd=repo, capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=1800)
-        return ("pass", "") if r.returncode == 0 else (
-            "fail", f"failed (exit {r.returncode}); the runner's output is withheld because it quotes the test")
+            return "not run", "no @playwright/test in the code repo's node_modules (pass --repo <code repo>), or no node", None, None
+        # The code repo supplies only the runner. Its own playwright.config is lane-written code and would put
+        # traces, snippets and expected values into test-results/ inside the repo, where a lane reads them, so
+        # the run uses a config written outside every repo, with its output there too, and deletes it.
+        import tempfile
+        tmp = tempfile.mkdtemp(prefix="holdout-pw-")
+        try:
+            cfg = os.path.join(tmp, "playwright.config.js")
+            with open(cfg, "w", encoding="utf-8") as fh:
+                fh.write(PLAYWRIGHT_CONFIG.format(test_dir=json.dumps(os.path.dirname(os.path.abspath(path))),
+                                                  out=json.dumps(os.path.join(tmp, "out"))))
+            env = {**os.environ, "NODE_PATH": os.path.join(os.path.abspath(repo), "node_modules")}
+            r, why = _run(["node", cli, "test", "--config", cfg, os.path.basename(path)], 1800, cwd=tmp, env=env)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        if why:
+            return "not run", why, None, None
+        return ("pass", "", None, None) if r.returncode == 0 else ("fail", f"failed (exit {r.returncode}); {withheld}", None, None)
     if runner == "maestro":
         if not shutil.which("maestro"):
-            return "not run", "maestro is not installed"
-        r = subprocess.run(["maestro", "test", path], capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=1800)
-        return ("pass", "") if r.returncode == 0 else (
-            "fail", f"failed (exit {r.returncode}); the runner's output is withheld because it quotes the test")
-    return "not run", f"{runner} tests have no settled format in contracts v1"
+            return "not run", "maestro is not installed", None, None
+        r, why = _run(["maestro", "test", path], 1800)
+        if why:
+            return "not run", why, None, None
+        return ("pass", "", None, None) if r.returncode == 0 else ("fail", f"failed (exit {r.returncode}); {withheld}", None, None)
+    return "not run", f"{runner} tests have no settled format in contracts v1", None, None
 
 
 def cmd_run(args):
@@ -287,21 +418,34 @@ def cmd_run(args):
         return die("usage: holdout.py run <Sn> [--repo <code repo>] [--contracts <contracts.py>]")
     if not os.path.exists(RECORD):
         return die(f"{RECORD} is missing: no split has run.")
-    rec = load_json(RECORD)
-    entries = {t["criterion"]: t for t in load_json(MANIFEST).get("tests") or []}
+    if not os.path.exists(MANIFEST):
+        return die(f"{MANIFEST} is missing: the split record exists but the manifest it hashed does not.")
+    try:
+        rec = load_json(RECORD)
+        tests = load_json(MANIFEST).get("tests") or []
+    except (OSError, ValueError, AttributeError) as e:
+        return die(f"{RECORD} or {MANIFEST} cannot be read: {e}")
+    by_crit = {}
+    for t in tests:
+        by_crit.setdefault(t.get("criterion"), []).append(t)
     hold = holdout_dir()
     results = []
     try:
         import departures  # vendored sibling; a workbench without it explains nothing rather than failing the run
     except ImportError:
         departures = None
+    rank = {"not run": 0, "fail": 1, "explained": 2, "pass": 3}
     for c in (rec.get("slices") or {}).get(sid, []):
-        entry = entries.get(c)
-        result, obs = run_one(entry, hold, args) if entry else ("not run", "not in the workbench manifest")
-        did = departures.explained_by(c) if departures and result == "fail" else None
-        if did:  # 05 P6 step 2: a failure a decided departure names is explained, not a failure
-            result, obs = "explained", f"explained by {did}: {obs}"
-        results.append({"criterion": c, "runner": (entry or {}).get("runner"), "result": result, "observed": obs})
+        worst = None
+        for entry in by_crit.get(c) or [None]:
+            result, obs, ptr, value = run_one(entry, hold, args) if entry else (
+                "not run", "not in the workbench manifest", None, None)
+            did = departures.explained_by(c, entry.get("runner"), ptr, value) if departures and result == "fail" else None
+            if did:  # 05 P6 step 2: a failure a decided departure's match rule covers is explained
+                result, obs = "explained", f"explained by {did}: {obs}"
+            if worst is None or rank[result] < rank[worst[0]]:
+                worst = (result, obs, (entry or {}).get("runner"))
+        results.append({"criterion": c, "runner": worst[2], "result": worst[0], "observed": worst[1]})
     out_dir = os.path.join("parity", "holdout")
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, f"{sid}.json"), "w", encoding="utf-8", newline="\n") as fh:

@@ -10,9 +10,13 @@ reader now asks this module, and every writer appends through it: holdout.py, ro
 gate.py's Gate 5 check, plus bug-hunter (which reads the YAML itself).
 
 WHAT EXPLAINS A DIFFERENCE. Only a decided departure: one with `decided_by`, not `status: proposed` (C5: autopilot
-may propose, never decide; a proposed entry blocks the gate that reads it). It explains a criterion it names in
-`criteria`, a value its `match` rule covers (`{runner, pointer, rule}`; rules `regex:<re>`, `uuid`, `int`,
-`iso8601`, `any`), or an equivalence trace named by the rule `equiv-trace:<name>`, which `equiv.py accept` writes.
+may propose, never decide; a proposed entry blocks the gate that reads it), and only when one of its `match` rules
+matches the observed difference (`{runner, pointer, rule}`; rules `regex:<re>`, `uuid`, `int`, `iso8601`, `any`;
+an HTTP status is pointer `status`). Its `criteria`, when given, scope the rules to those criteria. A departure
+with `match: []` is human-only (C5): it explains a criterion it names only when that criterion is Drop in
+criteria.lock.json, never a failure of a live one. Round 1 of the 3.0 review found a criterion-only departure for
+"keys use 2-4 letters" also explaining an HTTP 500 on that criterion. An equivalence trace is explained by the rule
+`equiv-trace:<name>`, which `equiv.py accept` writes.
 
 ADDING ONE AFTER GATE 1. Gate 1 hashes departures.yaml (05 P2), so a departure appended after the gate-1 lock
 would break that lock. Until the user decides whether the registry stays under that hash (an open spec question,
@@ -64,11 +68,11 @@ def proposed(root="."):
     return [d for d in load(root) if d.get("status") == "proposed"]
 
 
-def explained_by(cid, root="."):
-    """for_criterion() for a check that must keep running: an unreadable registry explains nothing, and the
-    caller is told once on stderr instead of crashing mid-run."""
+def explained_by(cid, runner=None, pointer=None, value=None, root="."):
+    """explains() for a check that must keep running: an unreadable registry explains nothing, and the caller is
+    told once on stderr instead of crashing mid-run."""
     try:
-        return for_criterion(cid, root)
+        return explains(cid, runner, pointer, value, root)
     except Exception as e:
         global _warned
         if not _warned:
@@ -80,9 +84,33 @@ def explained_by(cid, root="."):
 _warned = False
 
 
-def for_criterion(cid, root="."):
-    """The id of a decided departure naming this criterion, or None."""
-    return next((d["id"] for d in decided(root) if cid in (d.get("criteria") or [])), None)
+def _dropped(cid, root):
+    p = os.path.join(root, "docs", "criteria.lock.json")
+    try:
+        import json
+        with open(p, encoding="utf-8") as fh:
+            crits = json.load(fh).get("criteria") or []
+    except (OSError, ValueError, AttributeError):
+        return False
+    return any(c.get("id") == cid and c.get("priority") == "Drop" for c in crits if isinstance(c, dict))
+
+
+def explains(cid, runner, pointer, value, root="."):
+    """The id of the decided departure that explains this observed difference on criterion `cid`, or None.
+    `runner`, `pointer` and `value` describe what the build did (pointer None when the runner reports no field)."""
+    for d in decided(root):
+        crits = d.get("criteria") or []
+        if crits and cid not in crits:
+            continue
+        rules = [m for m in d.get("match") or [] if isinstance(m, dict)]
+        if not rules:
+            if cid in crits and _dropped(cid, root):
+                return d["id"]
+            continue
+        if any(m.get("runner") == runner and m.get("pointer") in (None, pointer) and _rule_ok(str(m.get("rule", "")), value)
+               for m in rules):
+            return d["id"]
+    return None
 
 
 def _rule_ok(rule, value):
@@ -101,20 +129,6 @@ def _rule_ok(rule, value):
         except re.error:
             return False
     return False
-
-
-def for_value(runner, pointer, value, criterion=None, root="."):
-    """The id of a decided departure whose match rule covers this observed value, or None. A rule scoped by the
-    departure's `criteria` applies only to those criteria."""
-    for d in decided(root):
-        crits = d.get("criteria") or []
-        if criterion and crits and criterion not in crits:
-            continue
-        for m in d.get("match") or []:
-            if (isinstance(m, dict) and m.get("runner") == runner and m.get("pointer") in (None, pointer)
-                    and _rule_ok(str(m.get("rule", "")), value)):
-                return d["id"]
-    return None
 
 
 def for_trace(name, root="."):
@@ -171,10 +185,20 @@ def append(kind, summary, decided_by, criteria=(), features=(), match=(), root="
     text = _text(p) if os.path.exists(p) else ""
     if re.fullmatch(r"\s*(#.*\n\s*)*\[\]\s*", text or "[]"):
         text = re.sub(r"\[\]\s*\Z", "", text)  # an empty flow list becomes the first block item
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(text.rstrip("\n") + ("\n" if text.strip() else "") + "\n".join(lines) + "\n")
+    write_atomic(p, text.rstrip("\n") + ("\n" if text.strip() else "") + "\n".join(lines) + "\n")
     return did
+
+
+def write_atomic(p, text):
+    """Write `text` to `p` through a temp file renamed over it, so a crash mid-write never leaves the registry
+    Gate 1 hashes truncated. holdout.py carries a copy (it runs alone); change both together."""
+    os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+    tmp = f"{p}.tmp-{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, p)
 
 
 if __name__ == "__main__":

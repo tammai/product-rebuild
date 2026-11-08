@@ -168,6 +168,11 @@ def main(argv=None):
         print(f"not run: {seq_lib.BUILD_PLAN} has no slices (rspec's handoff writes it) — this runs at a slice boundary.",
               file=sys.stderr)
         return 1
+    # Without rspec's feature list the standing would be a share of nothing, which boundary.py would relay as
+    # step 4's result (design rule 6).
+    if not os.path.exists(seq_lib.FEATURES):
+        print(f"not run: no {seq_lib.FEATURES} here (rspec:features writes it).", file=sys.stderr)
+        return 1
     by_id = {s["id"]: s for s in slices}
     progress = _dict(_read_yaml("plan/progress.yaml", {}) or {})
     slice_progress = _dict(progress.get("slices") or {})

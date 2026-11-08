@@ -16,6 +16,29 @@
       "type": "object",
       "additionalProperties": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
     },
+    "holdout": {
+      "type": "object",
+      "required": ["seed", "count", "list_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "seed": { "type": "integer" },
+        "count": { "type": "integer", "minimum": 0 },
+        "list_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "level2_waiver": {
+      "type": "object",
+      "required": ["share", "floor", "posture", "reason", "by", "at"],
+      "additionalProperties": false,
+      "properties": {
+        "share": { "type": "number" },
+        "floor": { "type": "number" },
+        "posture": { "enum": ["strict", "observe", "own-code"] },
+        "reason": { "type": "string" },
+        "by": { "type": "string" },
+        "at": { "type": "string" }
+      }
+    },
     "history": {
       "type": "array",
       "items": {

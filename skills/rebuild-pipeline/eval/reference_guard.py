@@ -103,6 +103,12 @@ def guard(tool, tool_input, root=proj, who=LANE):
             "reason": (hso or {}).get("permissionDecisionReason") or ""}
 
 
+def fwd(p):
+    # Bash reads a backslash as an escape, so a Windows path goes into a command with forward slashes, as
+    # Git Bash spells it.
+    return p.replace(os.sep, "/")
+
+
 def denied(r):
     return r["code"] == 0 and r["decision"] == "deny"
 
@@ -166,6 +172,46 @@ if ONLY in (None, "holdout"):
     check("a lane's Bash grep over the holdout is denied",
           denied(guard("Bash", {"command": f"grep -r F-ISS {holdout}"})))
     check("the orchestrator may read the holdout", allowed(guard("Read", {"file_path": hidden_file}, who=ORCHESTRATOR)))
+
+    print("\n# shapes round 1 got through: recursion, globs, spellings (AC-003, AC-004)")
+    set_reference("third-party", "observe")
+    for cmd in (f"cd {lane} && grep -rn equals ..", f"cd {lane} && find .. -name '*.yaml' -exec cat {{}} +",
+                f"cd {fwd(proj)} && rg F-ISS", f"cd {lane} && cat ../p-hold*/http/*.yaml", f"cd {lane} && tar cf - ..",
+                f"cd {lane} && cat ../ref*/src/app.js"):
+        check(f"a lane's Bash `{cmd.split('&& ')[1]}` is denied", denied(guard("Bash", {"command": cmd})))
+    check("a lane's Glob with a mid-name glob over the holdout is denied",
+          denied(guard("Glob", {"pattern": "../p-h*/**/*.yaml", "path": lane})))
+    doubled = proj.replace(os.sep, "/") + "//app/../p-holdout/http/F-ISS-01.AC1.yaml"
+    escaped = proj.replace("\\", "\\\\") + "\\\\p-holdout\\\\x"
+    for label, text in (("a `..` and doubled separator", doubled), ("escaped backslashes", escaped),
+                        ("a relative spelling", "../p-holdout/x")):
+        check(f"a lane's python -c naming the holdout with {label} is denied",
+              denied(guard("Bash", {"command": f"python3 -c \"print(open('{text}').read())\""})))
+    check("a lane's grep -r inside its own worktree is allowed",
+          allowed(guard("Bash", {"command": f"cd {lane} && grep -rn exports ."})))
+    check("a lane's plain `cd ..` and `ls ..` are allowed", allowed(guard("Bash", {"command": f"cd {lane} && cd .. && ls .."})))
+    check("a lane's PowerShell Get-Content of the holdout is denied",
+          denied(guard("PowerShell", {"command": f"Get-Content {os.path.join(holdout, 'http', 'x.yaml')}"})))
+    check("a lane's PowerShell -Recurse from the parent is denied",
+          denied(guard("PowerShell", {"command": f"Get-ChildItem {proj} -Recurse"})))
+
+    print("\n# lanes write only inside their own worktree (AC-004)")
+    check("a lane's Edit of the workbench's sources.yaml is denied",
+          denied(guard("Edit", {"file_path": SOURCES, "old_string": "a", "new_string": "b"})))
+    check("a lane's Write into the workbench's locks/ is denied",
+          denied(guard("Write", {"file_path": os.path.join(wb, "locks", "pipeline.yaml"), "content": "x"})))
+    check("a lane's Bash redirect into the workbench is denied",
+          denied(guard("Bash", {"command": f"cd {fwd(lane)} && echo x > {fwd(wb)}/repos.yaml"})))
+    check("a lane's sed -i on the workbench is denied",
+          denied(guard("Bash", {"command": f"sed -i s/observe/own-code/ {fwd(SOURCES)}"})))
+    check("a lane's git commit in the workbench is denied",
+          denied(guard("Bash", {"command": f"cd {fwd(wb)} && git commit -am x"})))
+    check("a lane's Write in its own worktree is allowed",
+          allowed(guard("Write", {"file_path": os.path.join(lane, "src", "a.js"), "content": "x"})))
+    check("a lane's git commit in its own worktree is allowed",
+          allowed(guard("Bash", {"command": f"cd {lane} && git commit -am x"})))
+    check("the orchestrator may edit the workbench",
+          allowed(guard("Edit", {"file_path": SOURCES, "old_string": "a", "new_string": "b"}, who=ORCHESTRATOR)))
 
 shutil.rmtree(base, ignore_errors=True)
 print(f"\n{failures} failure(s)." if failures else "\nall passed")

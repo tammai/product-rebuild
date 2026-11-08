@@ -519,18 +519,21 @@ def main(argv=None):
     # assertion change. Left on, the guard is simply off — and the next agent to hit a red build
     # can loosen an assertion with nothing noticing. Same category as a reopened gate: a decision
     # mid-flight, safe for an hour and not safe to sleep on.
-    unlock_file = os.path.join("parity", "flows", ".unlocked.yaml")
-    if os.path.exists(unlock_file):
-        text = _read_text(unlock_file)
+    # docs/acceptance/ (the recorded bundle) has the same guard and the same unlock file; flows.py's FLOWS_DIR and
+    # ACCEPTANCE_DIR name the two folders, so change this list with them.
+    for folder, flag in (("parity/flows", ""), ("docs/acceptance", " --acceptance")):
+        unlock_file = os.path.join(*folder.split("/"), ".unlocked.yaml")
+        if os.path.exists(unlock_file):
+            text = _read_text(unlock_file)
 
-        def get(k):
-            m = re.search(rf"^{k}:\s*(.*)$", text, re.M)
-            return re.sub(r'^"|"$', "", _trim(m.group(1))) if m else None
-        issues.append(f"parity/flows: AC flow assertions still UNLOCKED (since {get('at') or '?'}, "
-                      f"by {get('by') or '?'}: {get('reason') or 'no reason recorded'}) — the guard is off. "
-                      "Re-lock with `python3 scripts/flows.py relock`.")
-    elif os.path.exists(os.path.join("parity", "flows")):
-        notes.append("parity/flows: AC flow assertions protected.")
+            def get(k):
+                m = re.search(rf"^{k}:\s*(.*)$", text, re.M)
+                return re.sub(r'^"|"$', "", _trim(m.group(1))) if m else None
+            issues.append(f"{folder}: recorded assertions still UNLOCKED (since {get('at') or '?'}, "
+                          f"by {get('by') or '?'}: {get('reason') or 'no reason recorded'}) — the guard is off. "
+                          f"Re-lock with `python3 scripts/flows.py relock{flag}`.")
+        elif os.path.exists(os.path.join(*folder.split("/"))):
+            notes.append(f"{folder}: recorded assertions protected.")
 
     # --- 2c. Shipped slices with no slice review ---
     slice_statuses = _progress_slice_statuses()

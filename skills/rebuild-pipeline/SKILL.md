@@ -142,8 +142,8 @@ per-phase by design to keep context lean:
 | G0 (scaffolded, no `preflight.json` or Not-ready) | `references/g0-reference.md` | Finish the interview, fill `sources.yaml`, `python3 scripts/preflight.py` until Ready / Ready-with-gaps |
 | Toward gate-1 (G0 done) | nothing here: rspec's skills | `rspec:init` in the workbench (rspec's single-repo layout, `docs/`; goal `production`, which a rebuild always is: Gate 1 refuses any other), `rspec:discover`, `rspec:features` (the user approves the list) → Gate 1 |
 | Toward gate-3 | the playbook `sources.yaml` names (its stack line) | `rspec:stories`; `python3 scripts/playbook.py vendor` and the stack preference (4d); `rspec:tech`; the ADR approval, which is `rspec:handoff` step 1 → Gate 3 (refuses without the vendored manifest) |
-| Toward gate-2 | nothing here: rspec's skills | `rspec:audit`, `rspec:verify` (skipped when `reference.run.kind` is `none`), the rest of `rspec:handoff` (the build plan, ≤ 10 criteria per slice) → Gate 2 |
-| Toward gate-4 | nothing here: rspec's skills | `rspec:check` (writes `docs/criteria.lock.json`); `python3 scripts/holdout.py split` (draws the hidden tests into `<project>-holdout/`; commit the workbench after it); review the contracts and tests → Gate 4 (records the split; MVP level 2 ≥ 90% unless `strict`, or the user's signed reason) |
+| Toward gate-2 | nothing here: rspec's skills | `rspec:audit`, `rspec:verify` (skipped when `reference.run.kind` is `none`), the rest of `rspec:handoff` (the build plan, ≤ 10 criteria per slice), `rspec:check` (writes `docs/criteria.lock.json`), then `python3 scripts/holdout.py split` (draws the hidden tests into `<project>-holdout/`) and only then commit the workbench: `docs/acceptance/` stays git-ignored until the split, because a commit before it puts the hidden tests in the history every lane holds as a submodule (the split refuses when one is there) → Gate 2 (refuses before the split) |
+| Toward gate-4 | nothing here: rspec's skills | review the contracts and tests → Gate 4 (records the split; MVP level 2 ≥ 90% unless `strict`, or the user's signed reason) |
 | G5 | `references/g5-build.md` (plus `references/g5-first-slice.md` for the first slice's repo checklist, an inbound-webhook slice, and the S1 runbook) | The slice loop (4e): step 0, lanes, spec questions; the between-slices sequence at the end of it |
 | G6 | 4f below (and `references/g6-parity.md` for the parity report and slice review) | `boundary.py <Sn>`, cheapest step first; `route.py`; the human sample |
 | GP | `references/gp-production.md` | rspec's readiness checklist, `gp.py nfr` (each NFR's verification run on the production candidate), Gate 5 review |
@@ -304,7 +304,7 @@ enforcement, and is safe to run any number of times. It reports, across the work
 every repo registered in `repos.yaml`: uncommitted/untracked git changes, work that has not
 left the machine (no remote, unpushed commits including on a detached HEAD, unpushed tags,
 stash entries), any gate left mid-decision (reopened but not re-locked), AC flow assertions
-left unlocked (the `parity/flows/` guard suspended and never restored), and docker-compose
+left unlocked (the `parity/flows/` or `docs/acceptance/` guard suspended and never restored), and docker-compose
 stacks or host-native dev servers left running. Report
 its verdict to the user plainly. If it flags issues, resolve them (commit or explicitly
 flag draft work, decide on a reopened gate, stop or consciously keep services running)

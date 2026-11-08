@@ -153,7 +153,8 @@ failure this section stops. It is fixed (`g5-build.md`, "Test cadence within a s
 
 ## Helpers
 
-You may run helper agents only in their own worktrees, with disjoint file ownership, unique test database and
+You may run helper agents only as the `lane-worker` agent (the reference guard judges a lane by that agent type,
+so a helper of another type would read what a lane may not) and only in their own worktrees, with disjoint file ownership, unique test database and
 role prefixes, and test pools capped and closed in cleanup: one harness once leaked 34 connections and
 exhausted Postgres for every lane. Only you merge to main. A helper's worktree needs its own approved sdlc
 record, because the spec gate reads one per worktree and branch. Before dispatching a helper, run from the

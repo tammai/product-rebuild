@@ -29,7 +29,8 @@ import threading
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."))
 SCRIPTS = os.path.join(ROOT, "skills", "rebuild-pipeline", "scripts")
 ONLY = sys.argv[1] if len(sys.argv) > 1 else None
-SECRET = "EXPECTED-VALUE-ONLY-THE-TEST-KNOWS"
+# Carries ", expected " so a parser that splits the failure message on that text runs into it.
+SECRET = "EXPECTED-VALUE-ONLY, expected THE-TEST-KNOWS"
 
 failures = 0
 
@@ -130,13 +131,21 @@ if ONLY in (None, "split", "run"):
     print("\n# split (AC-007)")
     run([sys.executable, os.path.join("scripts", "playbook.py"), "vendor"], wb)
     commit(wb)
-    for gid in ("gate-1", "gate-3", "gate-2"):
+    for gid in ("gate-1", "gate-3"):
         r = run([sys.executable, os.path.join("scripts", "gate.py"), "lock", gid, "--by", "Eval"], wb)
         check(f"{gid} locks", r.returncode == 0, r.stdout + r.stderr)
-    r = run([sys.executable, os.path.join("scripts", "gate.py"), "lock", "gate-4", "--by", "Eval"], wb)
-    check("gate-4 refuses before the hidden tests are split out", r.returncode == 1 and "holdout" in r.stderr, r.stderr)
+    check("the recorded bundle is not committed before the split (rebuild_init ignores docs/acceptance/)",
+          run(["git", "log", "--all", "--format=%h", "--", "docs/acceptance"], wb).stdout.strip() == "")
+    r = run([sys.executable, os.path.join("scripts", "gate.py"), "lock", "gate-2", "--by", "Eval"], wb)
+    check("gate-2 refuses before the hidden tests are split out", r.returncode == 1 and "holdout" in r.stderr, r.stderr)
+    r = holdout(wb, "split", "--seed", "x")
+    check("split --seed with a non-number says so, no traceback",
+          r.returncode == 1 and "--seed" in r.stderr and "Traceback" not in r.stderr, r.stderr)
     r = holdout(wb, "split", "--seed", "7")
     check("holdout.py split runs", r.returncode == 0, r.stdout + r.stderr)
+    commit(wb)
+    r = run([sys.executable, os.path.join("scripts", "gate.py"), "lock", "gate-2", "--by", "Eval"], wb)
+    check("gate-2 locks after the split", r.returncode == 0, r.stdout + r.stderr)
     rec = record(wb)
     hidden = rec.get("hidden") or []
     by_slice = {s: [c for c in hidden if c.startswith(p)] for s, p in (("S1", "F-ISS"), ("S2", "F-PRJ"))}
@@ -152,6 +161,47 @@ if ONLY in (None, "split", "run"):
     check("each hidden file left the workbench bundle and is committed in <project>-holdout/",
           all(not os.path.exists(os.path.join(wb, "docs", "acceptance", "http", f"{c}.yaml")) and f"http/{c}.yaml" in tracked
               for c in hidden), tracked)
+    hist = [run(["git", "log", "--all", "--format=%h", "--", f"docs/acceptance/http/{c}.yaml"], wb).stdout.strip()
+            for c in hidden]
+    opened = run(["git", "ls-files", "docs/acceptance"], wb).stdout.split()
+    check("after the split and commit, no hidden test is anywhere in the workbench's history; the open ones are committed",
+          hist == [""] * len(hidden) and "docs/acceptance/manifest.json" in opened and len(opened) > 1, (hist, opened))
+    leaked = os.path.join(base, "leaked")
+    shutil.copytree(pristine, leaked)
+    lwb = os.path.join(leaked, "p-workbench")
+    run(["git", "add", "-f", "docs/acceptance"], lwb)
+    run(["git", "commit", "-qm", "bundle too early"], lwb)
+    r = holdout(lwb, "split", "--seed", "7")
+    sha = run(["git", "rev-parse", "--short", "HEAD"], lwb).stdout.strip()
+    check("split refuses, naming the commit, when a test it would hide is already in the workbench's history",
+          r.returncode == 1 and sha in r.stderr and not os.path.exists(os.path.join(leaked, "p-holdout")), r.stdout + r.stderr)
+    multi = os.path.join(base, "multi")
+    shutil.copytree(pristine, multi)
+    mwb = os.path.join(multi, "p-workbench")
+    mpath = os.path.join(mwb, "docs", "acceptance", "manifest.json")
+    m = json.load(open(mpath, encoding="utf-8"))
+    for t in list(m["tests"]):
+        if t["criterion"].startswith("F-ISS-01."):
+            w(mwb, f"docs/acceptance/e2e/{t['criterion']}.spec.ts", "// e2e\n")
+            m["tests"].append({**t, "runner": "playwright", "path": f"e2e/{t['criterion']}.spec.ts",
+                               "sha256": hashlib.sha256(b"// e2e\n").hexdigest()})
+    w(mwb, "docs/acceptance/manifest.json", json.dumps(m, indent=2))
+    r = holdout(mwb, "split", "--seed", "7")
+    m = json.load(open(mpath, encoding="utf-8"))
+    mh = record(mwb)["hidden"] if r.returncode == 0 else []
+    both = [t for t in m["tests"] if t["criterion"] in mh and t["criterion"].startswith("F-ISS-01.")]
+    check("a hidden criterion with two tests (http and e2e) has both hidden and moved, none left open",
+          r.returncode == 0 and len(both) == 2 and all(t["visibility"] == "hidden" for t in both)
+          and all(os.path.exists(os.path.join(multi, "p-holdout", t["path"])) for t in both), r.stdout + r.stderr)
+    trav = os.path.join(base, "trav")
+    shutil.copytree(pristine, trav)
+    twb = os.path.join(trav, "p-workbench")
+    m = json.load(open(os.path.join(twb, "docs", "acceptance", "manifest.json"), encoding="utf-8"))
+    for t in m["tests"]:
+        t["path"] = "../../../outside.yaml"
+    w(twb, "docs/acceptance/manifest.json", json.dumps(m, indent=2))
+    r = holdout(twb, "split", "--seed", "7")
+    check("split refuses a manifest path that leaves the bundle", r.returncode == 1 and "leaves" in r.stderr, r.stdout + r.stderr)
     again = os.path.join(base, "again")
     shutil.copytree(pristine, again)
     r = holdout(os.path.join(again, "p-workbench"), "split", "--seed", "7")
@@ -212,6 +262,14 @@ if ONLY in (None, "run"):
     res = json.load(open(os.path.join(wb, "parity", "holdout", "S2.json"), encoding="utf-8"))
     check("with no target, each test is not run with its reason, never a pass",
           r.returncode == 1 and res["results"][0]["result"] == "not run" and "ACCEPT_BASE_URL" in res["results"][0]["observed"],
+          r.stdout + r.stderr)
+    s2 = [c for c in record(wb)["hidden"] if c.startswith("F-PRJ")][0]
+    with open(os.path.join(hold, "http", f"{s2}.yaml"), "a", encoding="utf-8") as f:
+        f.write("# edited in the holdout repo\n")
+    r = holdout(wb, "run", "S2", env={"ACCEPT_BASE_URL": url})
+    res = json.load(open(os.path.join(wb, "parity", "holdout", "S2.json"), encoding="utf-8"))
+    check("a hidden test edited after gate-4 (sha256 differs from the manifest) is not run, never a pass",
+          r.returncode == 1 and res["results"][0]["result"] == "not run" and "changed" in res["results"][0]["observed"],
           r.stdout + r.stderr)
     server.shutdown()
 

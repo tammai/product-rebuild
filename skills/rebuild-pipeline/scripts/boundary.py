@@ -116,67 +116,114 @@ def _next_id(folder, prefix):
     return f"{prefix}-{(max(nums) + 1 if nums else 1):04d}"
 
 
-def _write_finding(folder, source, criterion, observed, test_path, contracts):
+def _write_finding(folder, source, criterion, observed, test_path, contracts, closed=(), runner="http"):
     """A reproduced build-defect finding for a recorded test that failed twice; reuses an open one for the same
-    criterion and source, so a boundary run twice does not double-count."""
+    criterion and source, so a boundary run twice does not double-count. A closed one is never reused: a
+    criterion that fails again after its fix round is a regression, and reusing the closed id left it routed
+    nowhere while the boundary said NOT YET forever."""
     for f in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
         try:
             old = json.loads(_read(os.path.join(folder, f)))
         except ValueError:
             continue
-        if old.get("source") == source and old.get("criterion") == criterion:
+        if old.get("source") == source and old.get("criterion") == criterion and old.get("id") not in closed:
             return old["id"], False
     row = _lock_rows().get(criterion) or {}
     fid = _next_id(folder, "BND")  # contracts C6 ids are letters, a dash, digits: no "G6"
-    steps = []
-    try:
-        steps = contracts.parse_yaml(_read(test_path)).get("steps") or []
-    except Exception:
-        pass
+    repro = {"runner": runner, "manual": f"run the recorded {runner} test for {criterion} against the slice build"}
+    if runner == "http":
+        try:
+            repro = {"runner": "http", "steps": contracts.parse_yaml(_read(test_path)).get("steps") or []}
+        except Exception:
+            repro = {"runner": "http", "steps": []}
     f = {"id": fid, "source": source, "class": "build-defect", "severity": "high" if row.get("priority") == "MVP" else "medium",
          "criterion": criterion, "rule": None, "feature": row.get("feature"),
-         "repro": {"runner": "http", "steps": steps},
+         "repro": repro,
          "observed": {"rebuild": observed, "reference": "green when recorded against the reference (level 2)"},
          "route": "sdlc", "verified_by": {"agent": "boundary.py re-run", "result": "reproduced"}}
     _write(os.path.join(folder, f"{fid}.json"), json.dumps(f, indent=2, ensure_ascii=False) + "\n")
     return fid, True
 
 
+class NotRun(Exception):
+    """The open findings could not be counted. Every caller refuses on it: zero open findings is a claim, and
+    when contracts.py was missing it used to read as "none open" and let Gate 5 lock over a high finding."""
+
+
 def _open_findings(sid):
-    """[(finding, explained-by)] routed findings of the slice that are not closed or dropped."""
+    """Routed findings of the slice that are not closed or dropped, the human sample's `differs` lines written
+    as findings first. A finding that is not finding-v1 counts as open (class `invalid`, severity high): it
+    cannot be routed, so nothing has shown it is harmless. Raises NotRun when they cannot be counted."""
     import route
     contracts = route.plugin_contracts()
     if not contracts:
-        return []
+        raise NotRun("the plugin's contracts/v1/contracts.py was not found through .rebuild-plugin")
     try:
-        import departures
-    except ImportError:
-        departures = None
-    closed = set(route.load_state(sid)["closed"])
+        route.sync_sample(sid, contracts)
+        closed = set(route.load_state(sid)["closed"])
+        found = route.findings(sid)
+    except (OSError, ValueError, KeyError) as e:
+        raise NotRun(f"plan/fix-rounds/{sid}.json or a finding cannot be read ({e})")
     out = []
-    for _p, f, _h in route.findings(sid):
-        if not isinstance(f, dict) or f.get("id") in closed:
+    for p, f, _h in found:
+        if isinstance(f, dict) and f.get("id") in closed:
             continue
-        if any(s == "error" for s, _m in contracts.check_finding(f)):
+        if not isinstance(f, dict) or any(s == "error" for s, _m in contracts.check_finding(f)):
+            fid = f.get("id") if isinstance(f, dict) and isinstance(f.get("id"), str) else os.path.basename(p)
+            out.append({"id": fid, "class": "invalid", "severity": "high"})
             continue
         r = contracts.finding_route(f)
-        if r is None or r == "drop":
-            continue
-        if departures and f.get("criterion") and departures.explained_by(f["criterion"]):
+        if r is None or r == "drop" or route.departure_for(f):
             continue
         out.append(f)
     return out
 
 
 def _blocking(sid):
-    return [f for f in _open_findings(sid) if f["class"] in ("build-defect", "spec-gap")]
+    return [f for f in _open_findings(sid) if f["class"] in ("build-defect", "spec-gap", "invalid")]
 
 
 # ---------------------------------------------------------------- steps
 
-def _open_suite(sid, contracts, cpy):
-    """(green, lines): the slice's open recorded tests, each failure re-run once."""
+def _code_repos(args):
+    """The code repos G6 reads: `--repo <path>` (repeatable), else every repo repos.yaml lists."""
     import holdout
+    given = [args[i + 1] for i, a in enumerate(args[:-1]) if a == "--repo"]
+    return [os.path.abspath(p) for p in given] or holdout.listed_repos()
+
+
+def _junit_states(repos):
+    """{criterion: (state, where)} from the lanes' newest AC JUnit in each code repo, the failures' re-run file
+    laid over it (P6 step 1: the open suite of a non-http runner is already run by the lanes, so G6 reads their
+    JUnit instead of running a harness it does not own). A case counts for a criterion whose ID its name
+    holds; the re-run decides a case it repeats, and a failure the re-run passes is flaky."""
+    import acsuite
+    out = {}
+    for repo in repos:
+        files = acsuite.ac_junit_files(repo)
+        if not files:
+            continue
+        newest = files[0]
+        joint = acsuite.read_ac_suite(newest["path"]) or {}
+        rerun = acsuite.read_ac_suite(acsuite.ac_rerun_path(newest["date"], repo)) or {}
+        again = {c["name"]: c["state"] for c in rerun.get("cases") or []}
+        for c in joint.get("cases") or []:
+            for cid in re.findall(r"F-[A-Z][A-Z0-9]*-\d+\.AC\d+", c["name"]):
+                state = c["state"]
+                if state == "failed" and again.get(c["name"]) == "passed":
+                    state = "flaky"
+                elif state == "failed" and c["name"] not in again:
+                    state = "failed, not re-run"
+                if out.get(cid, ("passed",))[0] == "passed":
+                    out[cid] = (state, newest["path"])
+    return out
+
+
+def _open_suite(sid, contracts, cpy, repos, closed):
+    """(green, lines): the slice's open recorded tests. HTTP ones run here, each failure re-run once; the other
+    runners' results come from the lanes' JUnit."""
+    import holdout
+    import route
     missing = [p for p in (os.path.join("docs", "criteria.lock.json"), holdout.MANIFEST) if not os.path.exists(p)]
     if missing:
         return False, [f"  not run: no {' or '.join(missing)} (rspec's check writes them before Gate 4)"]
@@ -186,41 +233,77 @@ def _open_suite(sid, contracts, cpy):
              if t.get("visibility", "open") == "open" and (rows.get(t["criterion"]) or {}).get("feature") in feats]
     if not tests:
         return True, ["  no open recorded tests in this slice"]
-    if not os.environ.get("ACCEPT_BASE_URL"):
-        return False, ["  not run: ACCEPT_BASE_URL is not set (point it at the slice build)"]
-    if not cpy:
-        return False, ["  not run: contracts.py not found through .rebuild-plugin"]
-    try:
-        import departures
-    except ImportError:
-        departures = None
     green, lines = True, []
+    junit = _junit_states(repos) if any(t.get("runner") != "http" for t in tests) else {}
+    folder = os.path.join("parity", "findings", sid)
     for t in tests:
-        path = os.path.join(holdout.BUNDLE, t["path"])
-        if t.get("runner") != "http":
+        cid, runner = t["criterion"], t.get("runner")
+        path = holdout.bundle_path(holdout.BUNDLE, t.get("path"))
+        if not path:
             green = False
-            lines.append(f"  {t['criterion']}: not run: {t.get('runner')} open tests run in the lanes' own harness")
+            lines.append(f"  {cid}: not run: its manifest path leaves {holdout.BUNDLE}")
+            continue
+        if runner != "http":
+            state, where = junit.get(cid, (None, None))
+            if state == "passed":
+                continue
+            if state == "flaky":
+                lines.append(f"  {cid}: failed in the lanes' run, passed on its re-run: flaky, not a finding")
+                continue
+            green = False
+            if state is None:
+                lines.append(f"  {cid}: not run: no lane JUnit in {', '.join(repos) or 'any listed repo'} holds a "
+                             f"{runner} case naming it (lane-worker writes parity/<date>-ac.xml)")
+            elif state == "failed":
+                fid, new = _write_finding(folder, "g6-open", cid, f"its {runner} test failed twice in the lanes' runs "
+                                          f"({where})", path, contracts, closed, runner)
+                lines.append(f"  {cid}: fails in the lanes' run and its re-run -> {'new' if new else 'open'} finding {fid}")
+            else:
+                lines.append(f"  {cid}: {state} in {where}: re-run the failed specs (lanes_check.py stamp --rerun)")
+            continue
+        if not os.environ.get("ACCEPT_BASE_URL"):
+            green = False
+            lines.append(f"  {cid}: not run: ACCEPT_BASE_URL is not set (point it at the slice build)")
+            continue
+        if not cpy:
+            green = False
+            lines.append(f"  {cid}: not run: contracts.py not found through .rebuild-plugin")
             continue
         ok, msg = _http(cpy, path)
+        if ok is None:
+            green = False
+            lines.append(f"  {cid}: not run: {msg}")
+            continue
         if ok:
             continue
         ok2, msg2 = _http(cpy, path)
         if ok2:
-            lines.append(f"  {t['criterion']}: failed, then passed on its one re-run: flaky, not a finding ({msg})")
+            lines.append(f"  {cid}: failed, then passed on its one re-run: flaky, not a finding")
             continue
-        did = departures.explained_by(t["criterion"]) if departures else None
+        if ok2 is None:
+            green = False
+            lines.append(f"  {cid}: not run on the re-run: {msg2}")
+            continue
+        result, obs, ptr, value = holdout.observed(msg2)
+        did = route.departure_for({"criterion": cid}, "http", ptr, value)
         if did:
-            lines.append(f"  {t['criterion']}: fails twice, explained by {did}")
+            lines.append(f"  {cid}: fails twice, explained by {did}")
             continue
         green = False
-        fid, new = _write_finding(os.path.join("parity", "findings", sid), "g6-open", t["criterion"], msg2, path, contracts)
-        lines.append(f"  {t['criterion']}: fails twice ({msg2}) -> {'new' if new else 'open'} finding {fid}")
+        fid, new = _write_finding(folder, "g6-open", cid, msg2, path, contracts, closed)
+        lines.append(f"  {cid}: fails twice ({msg2}) -> {'new' if new else 'open'} finding {fid}")
     return green, lines
 
 
 def _http(cpy, path):
-    r = subprocess.run([sys.executable, cpy, "run-http", path], capture_output=True, text=True, encoding="utf-8",
-                       errors="replace", timeout=600)
+    """(passed, message); passed None when the run could not happen (a hang, or python missing)."""
+    try:
+        r = subprocess.run([sys.executable, cpy, "run-http", path], capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=600)
+    except subprocess.TimeoutExpired:
+        return None, "timed out after 600 s"
+    except OSError as e:
+        return None, f"could not start contracts.py ({e})"
     if r.returncode == 0:
         return True, ""
     import html
@@ -228,15 +311,18 @@ def _http(cpy, path):
     return False, html.unescape(m.group(2)) if m else f"exit {r.returncode}"
 
 
-def _hidden_suite(sid, contracts):
+def _hidden_suite(sid, contracts, repos, closed):
     import holdout
     if not os.path.exists(holdout.RECORD):
         return False, ["  not run: no holdout split (plan/holdout.json)"]
-    r = _run("holdout.py", "run", sid)
+    pw = [r for r in repos if os.path.exists(os.path.join(r, "node_modules", "@playwright", "test", "cli.js"))]
+    r = _run("holdout.py", "run", sid, *(["--repo", (pw or repos)[0]] if repos else []))
     p = os.path.join("parity", "holdout", f"{sid}.json")
     if not os.path.exists(p):
         return False, [f"  not run: holdout.py wrote no report ({(r.stdout + r.stderr).strip()[-300:]})"]
-    entries = {t["criterion"]: t for t in holdout.load_json(holdout.MANIFEST).get("tests") or []}
+    entries = {}
+    for t in holdout.load_json(holdout.MANIFEST).get("tests") or []:
+        entries.setdefault(t.get("criterion"), t)
     green, lines = True, []
     for x in json.loads(_read(p)).get("results") or []:
         if x["result"] in ("pass", "explained"):
@@ -246,8 +332,9 @@ def _hidden_suite(sid, contracts):
         if x["result"] == "fail":
             entry = entries.get(x["criterion"]) or {}
             folder = os.path.join(holdout.holdout_dir(), "findings", sid)
-            fid, new = _write_finding(folder, "g6-hidden", x["criterion"], x["observed"],
-                                      os.path.join(holdout.holdout_dir(), entry.get("path", "")), contracts)
+            test = holdout.bundle_path(holdout.holdout_dir(), entry.get("path")) or ""
+            fid, new = _write_finding(folder, "g6-hidden", x["criterion"], x["observed"], test, contracts, closed,
+                                      x.get("runner") or "http")
             lines.append(f"  {x['criterion']}: fail ({x['observed']}) -> {'new' if new else 'open'} finding {fid} (kept in the holdout repo)")
         else:
             lines.append(f"  {x['criterion']}: not run: {x['observed']}")
@@ -282,27 +369,38 @@ def _cost(sid, contracts):
 
 
 def _sample_state(sid):
-    """(recorded?, why not)."""
-    p = os.path.join("plan", "slice-reviews", f"{sid}.md")
-    sec = re.search(r"^## Human sample\b([\s\S]*)\Z", _read(p), re.M) if os.path.exists(p) else None
-    if not sec:
+    """(recorded?, why not), read by route.sample_entries, the one parser of the section."""
+    import route
+    sample = route.sample_entries(sid)
+    if sample is None:
         return False, f"not drawn: python3 scripts/boundary.py sample {sid}"
-    who = re.search(r"Reviewer:[ \t]*([^\n·]+)", sec.group(1))
-    if not who or who.group(1).strip().startswith("<"):
+    reviewer, entries = sample
+    if not reviewer:
         return False, f"no reviewer named in plan/slice-reviews/{sid}.md"
-    lines = re.findall(r"^- (F-[A-Z0-9-]+):[ \t]*(.*)$", sec.group(1), re.M)
-    empty = [f for f, v in lines if not re.match(r"(agree|differs:)", v.strip())]
-    if not lines or empty:
-        return False, f"not recorded for {', '.join(empty) or 'any feature'} (agree, or differs: <what> (class: <class>))"
+    bad = [e["feature"] for e in entries if e["verdict"] not in ("agree", "differs")]
+    if not entries or bad:
+        return False, (f"not recorded for {', '.join(bad) or 'any feature'} (agree, or differs: <what> "
+                       f"(class: {CLASSES}[, severity: high|medium|low]))")
     return True, ""
 
 
-def _boundary(sid):
+def _boundary(sid, args=()):
     import holdout
     import route
     contracts = route.plugin_contracts()
     cpy = holdout.contracts_py([])
     st = _state(sid)
+    repos = _code_repos(list(args))
+    bad = holdout.exposure(holdout.holdout_dir())
+    if bad:
+        print(f"Boundary {sid}: REFUSED. The holdout repo is reachable from a code repo: {'; '.join(bad)}. "
+              f"Remove it from that repo before G6 runs.")
+        return 2
+    try:
+        closed = set(route.load_state(sid)["closed"])
+    except (OSError, ValueError) as e:
+        print(f"Boundary {sid}: not run: plan/fix-rounds/{sid}.json cannot be read ({e}).")
+        return 2
 
     rec_path = os.path.join("plan", "lane-plans", f"{sid}.yaml")
     lanes = []
@@ -323,7 +421,11 @@ def _boundary(sid):
             print(f"  {lane}: {text}")
 
     def stop(after):
-        b = _blocking(sid)
+        try:
+            b = _blocking(sid)
+        except NotRun as e:
+            print(f"\nStopped after {after}: open findings not counted: not run: {e}.")
+            return True
         if b:
             print(f"\nStopped after {after}: {len(b)} open build-defect/spec-gap finding(s) "
                   f"({', '.join(f['id'] for f in b)}). Route them: python3 scripts/route.py {sid}. "
@@ -332,12 +434,12 @@ def _boundary(sid):
         return False
 
     print("\n== 1. open suite (each failure re-run once)")
-    open_green, lines = _open_suite(sid, contracts, cpy)
+    open_green, lines = _open_suite(sid, contracts, cpy, repos, closed)
     print("\n".join(lines) or "  all green")
     if stop("the open suite"):
         return 2
     print("\n== 2. hidden suite")
-    hidden_green, lines = _hidden_suite(sid, contracts)
+    hidden_green, lines = _hidden_suite(sid, contracts, repos, closed)
     print("\n".join(lines) or "  none hidden in this slice")
     if stop("the hidden suite"):
         return 2
@@ -378,7 +480,10 @@ def _boundary(sid):
 
     print("\n== cost (05 P9)")
     print(_cost(sid, contracts))
-    high = [f["id"] for f in _open_findings(sid) if f.get("severity") == "high"]
+    try:
+        high = [f["id"] for f in _open_findings(sid) if f.get("severity") == "high"]
+    except NotRun as e:
+        high = [f"not counted: {e}"]
     missing = [m for m, ok in (("the open suite is not green", open_green), ("the hidden suite is not green", hidden_green),
                                (f"high findings are open ({', '.join(high)})", not high),
                                ("bug-hunter has not run", bool(st.get("hunted"))),
@@ -458,7 +563,7 @@ def main(argv=None):
     if args and args[0] == "hunted":
         return _hunted(args[1:])
     if args and re.fullmatch(r"S\d+", args[0]):
-        return _boundary(args[0])
+        return _boundary(args[0], args[1:])
     print("Usage: boundary.py <Sn> | sample <Sn> [--seed <n>] | hunted <Sn> | remine-done", file=sys.stderr)
     return 1
 
