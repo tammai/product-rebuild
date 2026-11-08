@@ -158,11 +158,14 @@ def main(argv=None):
     write("contracts/data-model/README.md", DATA_MODEL_README)
     write("parity/flows/README.md", FLOWS_README)
 
+    # rspec's artifacts in its single-repo layout (docs/), in rspec's order (05 P2): the numbers
+    # keep their 2.x names. gate.py's lock checks name the rspec step each one waits for.
     gates = [
-        ("gate-1", "Taxonomy lock", ["matrix/features.yaml", "findings/rules/"]),
-        ("gate-2", "Slice-plan lock", ["plan/slices.yaml"]),
-        ("gate-3", "Architecture lock", ["adr/"]),
-        ("gate-4", "Contract lock", ["contracts/"]),
+        ("gate-1", "Feature lock", ["docs/features.md", "docs/domain.md", "docs/departures.yaml"]),
+        ("gate-3", "Architecture lock", ["docs/decisions/"]),
+        ("gate-2", "Slice-plan lock", ["docs/build-plan.md"]),
+        ("gate-4", "Contract lock", ["docs/openapi.json", "docs/schemas/", "docs/criteria.lock.json",
+                                     "docs/acceptance/manifest.json"]),
         ("gate-5", "Prod-ready lock", ["parity/production-readiness.md"]),
     ]
     for gid, title, protects in gates:

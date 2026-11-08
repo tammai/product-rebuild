@@ -243,8 +243,7 @@ def main(argv=None):
     if marker_major != 3:
         made_by = "a 0.x release (locks/pipeline.yaml has no `rebuild_major`)" if marker_major is None \
             else f"a {marker_major}.x release (`rebuild_major: {marker_major}`)"
-        last = {2: "product-rebuild 2.2.0", 1: "product-rebuild 1.6.0",
-                None: "product-rebuild-skills, the plugin this one replaced"}.get(marker_major)
+        last = {2: "product-rebuild 2.2.0", 1: "product-rebuild 1.6.0"}.get(marker_major)
         fence = (f"This workbench was made by {made_by}, and plugin {plugin_version} (3.x) will not touch it: the "
                  f"scripts, the guards and the pipeline all differ, and there is no migration. Finish it on the "
                  f"release that made it{f' ({last})' if last else ''}.")

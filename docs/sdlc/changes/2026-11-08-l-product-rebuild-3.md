@@ -15,6 +15,14 @@ Spec: [docs/specs/rebuild-upgrade/05-product-rebuild.md](../../specs/rebuild-upg
 - Q6 workbench marker `rebuild_major: 3`; a 2.x workbench is refused with a message naming product-rebuild 2.2.0. Plugin version `3.0.0-rc.1` in `plugin.json` and the CHANGELOG, no tag.
 - Q7 L track, the spec's six backlog parts as `backlog.md`, branch `2026-11-08-l-product-rebuild-3` off `2026-11-08-l-shared-contracts-v1` @ 3274d37.
 
+**Coordinator answers for part 2 (task pr-2, 2026-11-08, "all as proposed"):**
+- Layout: rspec's single-repo layout at the workbench root (`docs/rspec.json`; spec and contracts in `docs/`; ADRs in `docs/decisions/`; open bundle `docs/acceptance/`). The 2.x scaffold folders stay until B6's deletions.
+- Gates, names kept, order 1, 3, 2, 4, 5: gate-1 locks `features.md`, `domain.md`, `departures.yaml` and refuses before rspec stage `features-approved`; gate-3 locks `docs/decisions/` and refuses a `Proposed` ADR (the 2.x playbook-concerns check is dropped); gate-2 locks `build-plan.md` and refuses before the audit and verify summaries (verify skipped with `reference.run.kind: none`); gate-4 locks `openapi.json`, `schemas/`, `criteria.lock.json`, `acceptance/manifest.json` (the 2.x data-model check is dropped); gate-5 unchanged until B5.
+- Gate 4's 90%: MVP criteria at level 2 over MVP criteria in `criteria.lock.json`; below 90% under `observe`/`own-code` it refuses unless `--accept-level2 "<reason>" --by "<name>"`, recorded in the lock; `strict` reports only.
+- The skill calls rspec stages and reads rspec's `scripts/progress.py` (`$RSPEC_PLUGIN_ROOT`, else the newest installed rspec); `gate.py status` prints it, or `rspec: not run: <reason>`.
+- Before `rspec:tech`, the skill writes the playbook's stack line into `docs/rspec.json` `stack` when empty (rspec weighs it as a preference).
+- Slice-loop scripts still reading `plan/slices.yaml`, `matrix/` or `contracts/` change in B3/B4.
+
 ## Decisions
 
 | Decision | Ruled out | Why |
@@ -40,7 +48,10 @@ Part 1 (B1):
 
 Later parts (refined when each part starts):
 
-- **AC-006** 05 P2 (B2): the skill calls rspec stages and reads `progress.py`; Gates 1–4 lock on rspec's artifacts, Gate 4 refusing MVP level 2 below 90% for `observe`/`own-code` without a signed reason.
+- **AC-006** 05 P2 (B2): Given a workbench holding the rspec spec in `docs/` (rspec single-repo layout), when `gate.py` runs, then the gates go in rspec's order 1, 3, 2, 4, 5 and lock rspec's artifacts: gate-1 `features.md`, `domain.md`, `departures.yaml` (refused before rspec's stage `features-approved`); gate-3 `docs/decisions/` (refused while an ADR is `Proposed`); gate-2 `build-plan.md` (refused before the audit summary and the verify summary, or `reference.run.kind: none`); gate-4 `openapi.json`, `schemas/`, `criteria.lock.json`, `acceptance/manifest.json`.
+- **AC-012** 05 P2 Gate 4 (B2): Given MVP criteria in `criteria.lock.json` below 90% at level 2, when `gate.py lock gate-4` runs under posture `observe` or `own-code`, then it refuses unless given `--accept-level2 "<reason>" --by "<name>"`, which records share, reason and signer in the lock; under `strict` the share is reported, never refused.
+- **AC-013** 05 P2, design rule 6 (B2): `gate.py status` prints rspec's stage, next step and pending units from rspec's own `progress.py`, or `rspec: not run: <reason>` when rspec cannot be found.
+- **AC-014** 05 P2 (B2): the skill routes each phase to rspec's stages (`rspec:init` … `rspec:handoff`) and to this repo's gates in P2's order, never re-implementing a stage; before `rspec:tech` it writes the playbook's stack line into `docs/rspec.json` `stack` when that is empty. `[manual: skill prose, checked in review]`
 - **AC-007** 05 P4, D4 (B3): `holdout.py split` selects 25% of level 2 tests per slice, stratified by feature, at least 1 per feature with ≥ 3 criteria, reproducible from the recorded seed, and no hidden path lands in a code repo; `holdout.py run` reports per criterion without test content.
 - **AC-008** 05 P5 (B3): the flow guard protects the workbench `acceptance/` folder; `flows.py unlock --reason` stays the only edit path.
 - **AC-009** 05 P6, P7 (B4): `route.py` routes each `finding-v1.class` as P6's table says; parity and equivalence diffs matched by a `departures.yaml` `match` rule are not failures.
@@ -56,7 +67,10 @@ Later parts (refined when each part starts):
 | AC-003 | skills/rebuild-pipeline/eval/reference_guard.py › reference | `python3 skills/rebuild-pipeline/eval/reference_guard.py reference` |
 | AC-004 | skills/rebuild-pipeline/eval/reference_guard.py › holdout | `python3 skills/rebuild-pipeline/eval/reference_guard.py holdout` |
 | AC-005 | skills/rebuild-pipeline/eval/v0_fence.py | `python3 skills/rebuild-pipeline/eval/v0_fence.py` |
-| AC-006 | skills/rebuild-pipeline/eval/gates_rspec.py (B2) | `python3 skills/rebuild-pipeline/eval/gates_rspec.py` |
+| AC-006 | skills/rebuild-pipeline/eval/gates_rspec.py › order | `python3 skills/rebuild-pipeline/eval/gates_rspec.py order` |
+| AC-012 | skills/rebuild-pipeline/eval/gates_rspec.py › level2 | `python3 skills/rebuild-pipeline/eval/gates_rspec.py level2` |
+| AC-013 | skills/rebuild-pipeline/eval/gates_rspec.py › progress | `python3 skills/rebuild-pipeline/eval/gates_rspec.py progress` |
+| AC-014 | manual | skill prose (SKILL.md phase routing, stack preference step), checked in review |
 | AC-007 | skills/rebuild-pipeline/eval/holdout.py (B3) | `python3 skills/rebuild-pipeline/eval/holdout.py` |
 | AC-008 | skills/rebuild-pipeline/eval/flows_acceptance.py (B3) | `python3 skills/rebuild-pipeline/eval/flows_acceptance.py` |
 | AC-009 | skills/rebuild-pipeline/eval/route.py (B4) | `python3 skills/rebuild-pipeline/eval/route.py` |

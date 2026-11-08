@@ -966,12 +966,10 @@ def main(argv=None):
         erd = None
         fail("scripts/erd.py", "missing — data model not checked. Copy it from the plugin's skills/rebuild-pipeline/scripts/.")
     if erd:
-        gate4 = os.path.join("locks", "gate-4.yaml")
-        gate4_locked = os.path.exists(gate4) and re.search(r"^status: locked$", read_text(gate4), re.M) is not None
+        # From 3.0.0 gate-4 locks rspec's schemas/, not this folder, so a missing data model is no
+        # longer an error once it locks; a file that is here is still checked.
         dm = erd.check_data_model()
         issues = list(dm["problems"])
-        if dm["missing"] and gate4_locked:
-            issues.append("no .mermaid file, but gate-4 is locked")
         if issues:
             body = "\n  ".join(issues) + f"\n  {erd.DATA_MODEL_REMEDY}"
             if erd.is_legacy_workbench():
@@ -1042,17 +1040,9 @@ def main(argv=None):
             elif scaffold and not scaffold["missing"]:
                 ok(f"{scaffold['path']} (scaffold manifest)")
         else:
-            # A missing vendored copy is normal until G4a runs, which is most of a project's life —
-            # failing on it from G1 onward would make `python3 scripts/validate.py` red for weeks and
-            # teach everyone to ignore it. It becomes fatal once gate-3 is locked, because then the
-            # ADRs cite a file that is supposed to be hashed into that lock. Refusing to lock WITHOUT
-            # it is gate.py's job, for the same reason the data-model check lives there: gate status
-            # is open|locked with nothing between, so a validator firing on `locked` is one tag too late.
-            gate3 = os.path.join("locks", "gate-3.yaml")
-            gate3_locked = os.path.exists(gate3) and re.search(r"^status: locked$", read_text(gate3), re.M) is not None
+            # A missing vendored copy is not an error: from 3.0.0 the playbook reaches rspec:tech as a
+            # stack preference and gate-3 locks rspec's docs/decisions/, so nothing hashes adr/playbook.md.
             issues = list(res["problems"])
-            if res["missing_vendored"] and gate3_locked:
-                issues.append(f"gate-3 is locked but {VENDORED_PLAYBOOK} does not exist — the ADRs cite a playbook nothing pins")
             meta = res.get("meta")
             if issues:
                 body = "\n  ".join(issues) + f"\n  {pb.PLAYBOOK_REMEDY}"

@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 3.0.0 in progress (version `3.0.0-rc.1`, no tag): product-rebuild becomes an orchestrator over rspec, sdlc
-and bug-hunter (spec `docs/specs/rebuild-upgrade/05-product-rebuild.md`). Part 1 of 6 below.
+and bug-hunter (spec `docs/specs/rebuild-upgrade/05-product-rebuild.md`). Parts 1 and 2 of 6 below.
 
 ### Breaking
 
@@ -18,6 +18,20 @@ and bug-hunter (spec `docs/specs/rebuild-upgrade/05-product-rebuild.md`). Part 1
 - **Dependencies** now include rspec (`>=0.11.0-rc.1 <1`) and bug-hunter (`>=0.4.0-rc.1 <1`) beside sdlc and
   sdlc-extras (`>=3.5.0-rc.6 <4`). These are pre-release ranges; the 3.0.0 release pins the finals.
   `marketplace.json` allows dependencies from the `sdlc`, `rspec` and `bug-hunter` marketplaces.
+- **rspec owns the spec, and the gates lock its artifacts** (05 P2). The workbench holds the rspec spec in
+  rspec's single-repo layout (`docs/`). The skill runs `rspec:init` through `rspec:handoff` and `rspec:check`
+  instead of mining (the 2.x G1–G4b references stay on disk until they are deleted later in 3.0). Gates keep
+  their names and lock in rspec's order, 1, 3, 2, 4:
+  - gate-1 locks `features.md`, `domain.md`, `departures.yaml`, once rspec's stage is `features-approved`;
+  - gate-3 locks `docs/decisions/`, refusing an ADR still `Proposed` (the playbook checks are gone);
+  - gate-2 locks `build-plan.md`, once rspec's audit and verify have finished;
+  - gate-4 locks `openapi.json`, `schemas/`, `criteria.lock.json` and `acceptance/manifest.json` (the data-model
+    check is gone). Under posture `observe` or `own-code` it refuses while fewer than 90% of MVP criteria are at
+    level 2, unless locked with `--accept-level2 "<reason>" --by "<name>"`, which the lock records; under `strict`
+    the share is only reported.
+  `gate.py status` prints rspec's own stage, next step and pending units from rspec's `progress.py`
+  (`$RSPEC_PLUGIN_ROOT`, else the installed rspec), or `rspec: not run: <reason>`. Before `rspec:tech` the skill
+  passes the playbook's stack line as rspec's `stack` preference.
 
 ### Added
 

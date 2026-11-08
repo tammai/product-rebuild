@@ -3,8 +3,11 @@
 Usage:
   python3 scripts/gate.py status
   python3 scripts/gate.py lock <gate-id> [--by <name>]
+  python3 scripts/gate.py lock gate-4 --accept-level2 "<reason>" --by <name>   # MVP level 2 below 90%
   python3 scripts/gate.py reopen <gate-id> --reason "..."
-Locking records sha256 hashes of every file under the gate's `protects:` paths.
+Locking records sha256 hashes of every file under the gate's `protects:` paths. Gates go in rspec's
+order (1, 3, 2, 4, 5) and, from 3.0.0, lock rspec's artifacts in docs/; `status` also prints rspec's
+own progress (its scripts/progress.py).
 
 Standard library only, plus guarded imports of its siblings (erd.py, playbook.py): lock files use a
 fixed YAML subset written and parsed here, so `status` keeps answering on a workbench whose other
@@ -50,30 +53,25 @@ def _undef(v):
     return "undefined" if v is None else v
 
 
-ORDER = ["gate-1", "gate-2", "gate-3", "gate-4", "gate-5"]
+# rspec's order, not the numbers' (05 P2): architecture (gate-3) is decided before the slices
+# (gate-2) are cut, because rspec's handoff cuts them from the accepted ADRs and the verified
+# criteria. The numbers stay as 2.x named them so existing locks, tags and docs stay readable.
+ORDER = ["gate-1", "gate-3", "gate-2", "gate-4", "gate-5"]
 
-# Paths a gate protects REGARDLESS of what its lock file's `protects:` list says.
-#
-# `protects:` is written once by rebuild_init.py at scaffold time, which means a path
-# added to a gate by a later release reaches new workbenches only. That is fine for a
-# script (the plugin's copy still runs) and not fine for a lock: a gate-1 that does not
-# hash findings/rules/ leaves the Rule Cards editable after the taxonomy locks, in every
-# workbench scaffolded before 0.17.0 — silently, and exactly in the projects most likely
-# to have rules worth locking.
-#
-# So the list is unioned in here at lock time and written into the lock file, which also
-# hands it to gate-guard for free: that hook reads `protects:` out of the locked file,
-# so a path this adds is enforced by the guard from the moment the gate locks.
-#
-# Rules are TAXONOMY, not design — the same argument that puts matrix/features.yaml behind
-# gate-1. A rule discovered later enters the way a late feature does: added under the
-# existing structure, never restructuring it.
-REQUIRED_PROTECTS = {
-    "gate-1": ["findings/rules/"],
-}
+# Where rspec keeps the spec in a workbench: its single-repo layout, `docs/` at the root.
+SPEC = "docs"
+
+# Paths a gate protects REGARDLESS of what its lock file's `protects:` list says, unioned in at
+# lock time and written into the lock file (which hands them to gate-guard). `protects:` is
+# written once at scaffold time, so this is how a path added by a later release reaches a
+# workbench scaffolded earlier. Empty since 3.0.0: the one entry, findings/rules/, was the Rule
+# Cards that 05 D2 retired.
+REQUIRED_PROTECTS = {}
 PHASE_BEFORE = {
-    "gate-1": "G2 feature matrix", "gate-2": "G3 milestone slicing",
-    "gate-3": "G4a system design", "gate-4": "G4b data model + contracts",
+    "gate-1": "rspec init → discover → features (Gate 1 approves the feature list)",
+    "gate-3": "rspec stories → tech (Gate 3: ADR approval, rspec handoff step 1)",
+    "gate-2": "rspec audit → verify → handoff (Gate 2: the slices in build-plan.md)",
+    "gate-4": "contracts and tests from rspec (Gate 4: openapi.json, schemas, criteria lock, acceptance bundle)",
     # NOT "GP production readiness" — see phase_before_gate5 below. Kept as the fallback for a
     # workbench with no slice plan at all.
     "gate-5": "GP production readiness",
@@ -136,14 +134,49 @@ def slice_states():
     return out
 
 
-def phase_before_gate1():
-    """G1 mining and G2 matrix both sit before gate-1. Until a lane has written a finding, the
-    phase is mining: a fresh workbench was told "G2 feature matrix" with findings/ empty, and
-    routing by that line alone skips G1 (Kutt rebuild, 2026-11-03)."""
-    for _dirpath, _dirs, files in os.walk("findings"):
-        if any(f.endswith((".yaml", ".yml", ".json", ".md")) and f != "README.md" for f in files):
-            return None
-    return "G1 mining"
+def rspec_root():
+    """rspec's install folder (holding scripts/progress.py), or (None, why). $RSPEC_PLUGIN_ROOT
+    wins, and a set value that is not an rspec install is not silently replaced by another one;
+    else the newest rspec in Claude Code's installed_plugins.json. Same lookup lane_plan.py does
+    for sdlc; copied, not imported, because each vendored script must run alone."""
+    env = os.environ.get("RSPEC_PLUGIN_ROOT")
+    if env:
+        ok = os.path.exists(_join(env, "scripts", "progress.py"))
+        return (env, None) if ok else (None, f"$RSPEC_PLUGIN_ROOT ({env}) has no scripts/progress.py")
+    best = None
+    for cfg in (os.environ.get("CLAUDE_CONFIG_DIR"), os.path.join(os.path.expanduser("~"), ".claude")):
+        p = _join(cfg, "plugins", "installed_plugins.json") if cfg else None
+        if not p or not os.path.exists(p):
+            continue
+        try:
+            entries = json.loads(read_text(p)).get("plugins", {}).get("rspec@rspec") or []
+        except (ValueError, AttributeError):
+            continue
+        for e in entries:
+            path = (e or {}).get("installPath")
+            if path and os.path.exists(_join(path, "scripts", "progress.py")):
+                ver = tuple(int(x) for x in re.findall(r"\d+", str(e.get("version") or "0"))[:3])
+                if best is None or ver > best[0]:
+                    best = (ver, path)
+    return (best[1], None) if best else (None, "rspec is not installed (no rspec@rspec in installed_plugins.json)")
+
+
+def rspec_progress_line():
+    """One line for `status`: rspec's own answer to where the spec stands (05 P2: read, never
+    re-implemented). A check that cannot run says `not run: <reason>` (design rule 6)."""
+    root, why = rspec_root()
+    if not root:
+        return f"rspec: not run: {why}"
+    try:
+        r = subprocess.run([sys.executable, _join(root, "scripts", "progress.py"), SPEC], capture_output=True,
+                           text=True, encoding="utf-8", errors="replace", timeout=60)
+        out = json.loads(r.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError) as e:
+        return f"rspec: not run: progress.py failed ({e})"
+    if not isinstance(out, dict):
+        return "rspec: not run: progress.py printed no JSON object"
+    pending = ", ".join(str(p) for p in out.get("pending") or []) or "none"
+    return f"rspec: stage {out.get('stage') or 'none'}, next {out.get('next') or 'none'}, pending {pending}"
 
 
 def phase_before_gate5():
@@ -236,107 +269,136 @@ def _iso_now():
     return t.strftime("%Y-%m-%dT%H:%M:%S.") + f"{t.microsecond // 1000:03d}Z"
 
 
-def _lock_gate4_checks(gid):
-    # Gate 4 locks the data model as well as the three contract layers, and G4b drafts it
-    # FIRST — Gate 3 decided where data lives, this decides what it is. The check has to be
-    # here rather than in validate.py: gate status is open|locked with nothing in between,
-    # so a validator that fires on `locked` reports a missing data model only after the tag
-    # is cut, turning a one-line edit into a reopen and a new gate-4/vN.
-    #
-    # Imported here, not at the top of the file: `erd.py` is a newer script than the four
-    # rebuild_init has always copied, so a workbench upgraded by hand can be missing it. A
-    # top-level import makes that absence take out `gate.py status` too — the command the
-    # orchestration protocol runs first, and the one thing that must never stop answering.
-    # Lock is the only path that needs it, so lock is the only path that fails on it.
+# rspec's stages in order (its rspec_lib.STAGES); copied, not imported, because a vendored
+# script must run without rspec installed. If rspec adds a stage, add it here too.
+RSPEC_STAGES = ["init", "discovered", "features-approved", "stories", "tech", "handoff"]
+
+
+def rspec_config():
+    """docs/rspec.json, or {} when it is missing or unreadable (the checks then refuse)."""
     try:
-        import erd
-    except ImportError:
-        print(f"Cannot lock {gid}: scripts/erd.py is missing, so the data model cannot be "
-              f"checked. Copy it from the plugin's skills/rebuild-pipeline/scripts/ alongside the copies "
-              f"of validate.py and gate.py already in this workbench.", file=sys.stderr)
+        cfg = json.loads(read_text(_join(SPEC, "rspec.json")))
+    except (OSError, ValueError):
+        return {}
+    return cfg if isinstance(cfg, dict) else {}
+
+
+def _lock_gate1_checks(gid):
+    # Gate 1 is the user's approval of the feature list, and rspec records that approval as its
+    # stage `features-approved`. Locking before it would hash a list rspec itself still treats as
+    # a draft, with the departures written only after approval (rspec features step 6).
+    stage = rspec_config().get("stage")
+    if stage not in RSPEC_STAGES or RSPEC_STAGES.index(stage) < RSPEC_STAGES.index("features-approved"):
+        print(f"Cannot lock {gid}: {SPEC}/rspec.json says stage {stage or 'none'}; Gate 1 locks the feature list "
+              f"after rspec records its approval (stage features-approved). Finish /rspec:features first.",
+              file=sys.stderr)
         return 1
-    dm = erd.check_data_model()
-    issues = list(dm["problems"])
-    if dm["missing"]:
-        issues.append(f"{erd.DATA_MODEL_DIR}/ contains no .mermaid file")
-    if issues:
-        body = "\n".join(f"  {i}" for i in issues) + f"\n  {erd.DATA_MODEL_REMEDY}"
-        if erd.is_legacy_workbench():
-            print(f"WARNING: locking {gid} without a checked data model:\n{body}\n"
-                  f"  Allowed because this workbench predates schema_version 0.2.0. To enforce it, add the\n"
-                  f"  data model and set schema_version: \"0.2.0\" in locks/pipeline.yaml.", file=sys.stderr)
-        else:
-            print(f"Cannot lock {gid}:\n{body}", file=sys.stderr)
-            return 1
     return None
 
 
 def proposed_adrs():
-    """ADR files under adr/ whose own `status:` line still says proposed."""
+    """ADR files under docs/decisions/ whose own Status line still says Proposed. rspec's ADR template
+    writes `- Status: Proposed`, and its handoff step 1 rewrites it to Accepted or Rejected."""
+    folder = _join(SPEC, "decisions")
     out = []
-    for name in sorted(os.listdir("adr")) if os.path.isdir("adr") else []:
-        if name.endswith(".md") and name != "playbook.md":
-            m = re.search(r"^status:\s*(\S+)", read_text(_join("adr", name)), re.M)
+    for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+        if name.endswith(".md"):
+            # `- Status: Proposed`, `status: proposed` or `**Status:** Proposed`: the word after it.
+            m = re.search(r"^\W*status\W+(\w+)", read_text(_join(folder, name)), re.M | re.I)
             if m and m.group(1).lower() == "proposed":
                 out.append(name)
     return out
 
 
 def _lock_gate3_checks(gid):
-    # Gate 3 locks the ADRs AND the playbook they cite. G4a vendors the selected playbook to
-    # adr/playbook.md precisely so the citations survive a plugin upgrade — a copy that never
-    # arrived leaves every "cites §7" pointing at whatever the registry says months from now.
-    # The undecided-concerns check is the other half: "every cross-cutting concern decided"
-    # was a prose exit criterion until the playbook's concerns: map made it a list, and a list
-    # is checkable. Same placement reasoning as gate-4's data model — a validator that fires
-    # on `locked` reports the gap only after the tag is cut.
-    try:
-        import playbook as pb
-    except ImportError:
-        print(f"Cannot lock {gid}: scripts/playbook.py is missing, so the architecture "
-              f"playbook cannot be checked. Copy it from the plugin's skills/rebuild-pipeline/scripts/ "
-              f"alongside the copies of validate.py and gate.py already in this workbench.", file=sys.stderr)
-        return 1
-    res = pb.check_playbook()
-    # No playbook means no registry manifest, so the project's own adr/scaffold.json stands in.
-    # It is held to the same checks, because G5 scaffolds from it exactly as it would from a
-    # playbook's, and "blank-slate ADRs" was never meant to include "no way to create the repo".
-    if res["disabled"] and res["scaffold"] and res["scaffold"]["problems"]:
-        body = "\n".join(f"  {i}" for i in res["scaffold"]["problems"])
-        if pb.is_pre_playbook_workbench():
-            print(f"WARNING: locking {gid} without a scaffold manifest:\n{body}", file=sys.stderr)
-        else:
-            print(f"Cannot lock {gid}:\n{body}", file=sys.stderr)
-            return 1
-    if not res["disabled"]:
-        issues = list(res["problems"])
-        if res["missing_vendored"]:
-            by = ("by default: sources.yaml's architecture.playbook is empty"
-                  if res["selected_by"] == "default" else "in sources.yaml")
-            issues.append(f'{pb.VENDORED_PLAYBOOK} does not exist — G4a step 0.3 must vendor the '
-                          f'"{res["selected"]}" playbook (selected {by}) before this gate can lock, so the '
-                          f'ADR citations are pinned by the lock')
-        if res["undecided"]:
-            issues.append(f"no ADR for concern(s): {', '.join(res['undecided'])} "
-                          f"(every key in the playbook's concerns: map needs one, even to record N/A)")
-        if issues:
-            body = "\n".join(f"  {i}" for i in issues) + f"\n  {pb.PLAYBOOK_REMEDY}"
-            if pb.is_pre_playbook_workbench():
-                print(f"WARNING: locking {gid} without a checked architecture playbook:\n{body}\n"
-                      f"  Allowed because this workbench predates schema_version 0.3.0. To enforce it, backfill\n"
-                      f"  and set schema_version: \"0.3.0\" in locks/pipeline.yaml.", file=sys.stderr)
-            else:
-                print(f"Cannot lock {gid}:\n{body}", file=sys.stderr)
-                return 1
-    # An ADR the user decided says so. Nothing else moves `status: proposed` to accepted, and the
-    # Kutt rebuild locked eleven ADRs whose own files said proposed until the orchestrator noticed
-    # and changed them by hand: the hash would have pinned "proposed" as the locked decision.
+    # An ADR the user decided says so. Nothing else moves Proposed to Accepted, and the Kutt
+    # rebuild locked eleven ADRs whose own files said proposed until the orchestrator noticed and
+    # changed them by hand: the hash would have pinned "proposed" as the locked decision. The 2.x
+    # playbook checks (a vendored adr/playbook.md, one ADR per concern) are gone with G4a: the
+    # playbook now reaches rspec:tech as a stack preference, and rspec owns the ADRs.
     undecided = proposed_adrs()
     if undecided:
-        print(f"Cannot lock {gid}: still `status: proposed`: {', '.join(undecided)}. Set each ADR the user "
-              f"decided to accepted (or rejected / superseded) first.", file=sys.stderr)
+        print(f"Cannot lock {gid}: still Status: Proposed in {SPEC}/decisions/: {', '.join(undecided)}. "
+              f"Decide each with the user (rspec handoff step 1) first.", file=sys.stderr)
         return 1
     return None
+
+
+def _lock_gate2_checks(gid):
+    # Gate 2 locks the slices rspec's handoff cut, and handoff requires a finished audit and a
+    # settled verify: a slice plan cut before them sizes slices on criteria that may still change
+    # level or wording. Verify is skipped only when the spec says the reference does not run.
+    missing = []
+    if not os.path.exists(_join(SPEC, "audit", "summary.md")):
+        missing.append(f"{SPEC}/audit/summary.md (run /rspec:audit)")
+    kind = ((rspec_config().get("reference") or {}).get("run") or {}).get("kind")
+    if kind != "none" and not os.path.exists(_join(SPEC, "verify", "summary.md")):
+        missing.append(f"{SPEC}/verify/summary.md (run /rspec:verify)")
+    if missing:
+        print(f"Cannot lock {gid}: rspec's audit and verify have not finished: missing {'; '.join(missing)}.",
+              file=sys.stderr)
+        return 1
+    return None
+
+
+def posture():
+    """sources.yaml reference.posture, resolved as validate.py and the reference guard resolve it
+    (empty: own-code for kind own-code, else observe; an unknown value counts as strict).
+    Line-parsed, like them; change the three together."""
+    try:
+        text = read_text("sources.yaml") + "\n"
+    except OSError:
+        text = ""
+    block = re.search(r"^reference:[ \t]*\n((?:(?:[ \t]+.*)?\n)*)", text, re.M)
+
+    def field(key):
+        f = block and re.search(rf"^[ \t]+{key}:[ \t]*(.*)$", block.group(1), re.M)
+        return re.split(r"\s+#", f.group(1))[0].strip().strip("\"'") if f else ""
+
+    p = field("posture")
+    if not p:
+        return "own-code" if field("kind") == "own-code" else "observe"
+    return p if p in ("strict", "observe", "own-code") else "strict"
+
+
+LEVEL2_FLOOR = 0.9  # 05 P2: MVP criteria at level 2 before Gate 4 locks, for observe/own-code
+
+
+def _lock_gate4_checks(gid, argv):
+    # Level 2 means a test recorded against the running reference (contracts C3); below it a
+    # criterion's test was written from the spec, so the builder's tests agree with the spec and
+    # nothing says the spec agrees with the product. Under `strict` the spec side may not run
+    # what it would take to record more, so the share is shown, never refused. Returns
+    # (exit code or None, extra lock lines).
+    try:
+        lock = json.loads(read_text(_join(SPEC, "criteria.lock.json")))
+        rows = [c for c in lock.get("criteria") or [] if isinstance(c, dict) and c.get("priority") == "MVP"]
+    except (OSError, ValueError, AttributeError):
+        print(f"Cannot lock {gid}: {SPEC}/criteria.lock.json is missing or not valid JSON. Run /rspec:check to "
+              f"write it.", file=sys.stderr)
+        return 1, ""
+    if not rows:
+        print(f"Cannot lock {gid}: {SPEC}/criteria.lock.json lists no MVP criterion.", file=sys.stderr)
+        return 1, ""
+    share = sum(1 for c in rows if c.get("level") == 2) / len(rows)
+    figure = f"MVP level 2: {round(share * 100)}% ({sum(1 for c in rows if c.get('level') == 2)} of {len(rows)})"
+    if share >= LEVEL2_FLOOR:
+        print(figure)
+        return None, ""
+    pos = posture()
+    if pos == "strict":
+        print(f"{figure}, below {round(LEVEL2_FLOOR * 100)}%; posture strict, so reported, not refused.")
+        return None, ""
+    reason = argv[argv.index("--accept-level2") + 1] if "--accept-level2" in argv[:-1] else None
+    by = argv[argv.index("--by") + 1] if "--by" in argv[:-1] else None
+    if not reason or not by:
+        print(f"Cannot lock {gid}: {figure}, below {round(LEVEL2_FLOOR * 100)}% with posture {pos}. Record more "
+              f"tests with /rspec:verify, or lock with the user's signed reason:\n"
+              f'  python3 scripts/gate.py lock {gid} --accept-level2 "<reason>" --by "<name>"', file=sys.stderr)
+        return 1, ""
+    print(f"{figure}, below {round(LEVEL2_FLOOR * 100)}%; locking on {by}'s signed reason.")
+    return None, (f"level2_waiver:\n  share: {round(share, 4)}\n  floor: {LEVEL2_FLOOR}\n  posture: {pos}\n"
+                  f"  reason: {yaml_str(reason)}\n  by: {yaml_str(by)}\n  at: {_iso_now()}\n")
 
 
 def _lock_gate5_checks(gid):
@@ -417,11 +479,17 @@ def cmd_lock(gid, lock, argv):
     if prev_open:
         print(f"Cannot lock {gid}: earlier gate(s) still open: {', '.join(l['id'] for l in prev_open)}", file=sys.stderr)
         return 1
-    for check, which in ((_lock_gate4_checks, "gate-4"), (_lock_gate3_checks, "gate-3"), (_lock_gate5_checks, "gate-5")):
+    extra = ""
+    for check, which in ((_lock_gate1_checks, "gate-1"), (_lock_gate3_checks, "gate-3"), (_lock_gate2_checks, "gate-2"),
+                         (_lock_gate5_checks, "gate-5")):
         if gid == which:
             rc = check(gid)
             if rc is not None:
                 return rc
+    if gid == "gate-4":
+        rc, extra = _lock_gate4_checks(gid, argv)
+        if rc is not None:
+            return rc
 
     # artifact_hashes below is computed from the WORKING TREE, but the lock commit further
     # down stages only the lock file itself. If any protected (or other) file is dirty, the
@@ -480,6 +548,7 @@ def cmd_lock(gid, lock, argv):
             f"{protects_lines}\n"
             f"artifact_hashes:\n"
             f"{hash_lines}\n"
+            f"{extra}"
             f"{history}\n")
     try:
         # Gate tags are IMMUTABLE and versioned: each lock mints the next vN and never moves
@@ -566,12 +635,12 @@ def main(argv=None):
             mark = "LOCKED" if l["status"] == "locked" else "open  "
             at = f"  ({l['locked_at']})" if l["locked_at"] else ""
             print(f"{l['id']}  [{mark}]  {_undef(l['title'])}{at}")
+        print(rspec_progress_line())
         current = next((l for l in locks if l["status"] != "locked"), None)
         if not current:
             print("\nAll gates locked — pipeline complete.")
             return 0
-        phase = ((current["id"] == "gate-5" and phase_before_gate5())
-                 or (current["id"] == "gate-1" and phase_before_gate1()) or PHASE_BEFORE[current["id"]])
+        phase = (current["id"] == "gate-5" and phase_before_gate5()) or PHASE_BEFORE[current["id"]]
         print(f"\nCurrent phase: {phase} (working toward {current['id']})")
         return 0
 
@@ -584,7 +653,7 @@ def main(argv=None):
         return cmd_lock(gid, lock, argv)
     if cmd == "reopen":
         return cmd_reopen(gid, lock, argv)
-    print('Usage: gate.py status | lock <gate-id> [--by <name>] | reopen <gate-id> --reason "..."', file=sys.stderr)
+    print('Usage: gate.py status | lock <gate-id> [--by <name>] [--accept-level2 "<reason>"] | reopen <gate-id> --reason "..."', file=sys.stderr)
     return 1
 
 

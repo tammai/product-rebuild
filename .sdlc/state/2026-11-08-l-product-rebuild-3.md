@@ -10,7 +10,7 @@ Started: 2026-11-08
 Base: 3274d37
 Owner: tammai.it@gmail.com
 Tool: claude-code
-Slice: B1   Slice base: 3274d37   Slice gates: none
+Slice: B2   Slice base: 556ddef   Slice gates: none
 Current: Stage 2 – Build
 
 ## Stages
@@ -54,10 +54,15 @@ parts in fresh sessions: each backlog part is its own coordinator task
 
 ## Gate log
 - 2026-11-08 Stage 1: pass — plan self-approved (L): (1) part-1 ACs 001-005 map to 05 Decisions/P3/P4/D7, later parts' ACs 006-011 to P1-P10, trace has no refs to check; (2) no open questions; (3) every decision answered by the coordinator (Q1-Q7, all as proposed); (4) no proposal beyond the request, nothing irreversible
+- 2026-11-08 B2 ACs refined: AC-006 narrowed to gate order and rspec artifacts; AC-012 (Gate 4 level 2 floor), AC-013 (status reads rspec progress.py) and AC-014 (skill routing, manual) added from the coordinator's pr-2 answers
 
 ## Deviations
 - 2026-11-08 surface What: script-internal functions allowed, bash_reaches, check, denied, denied_roots, guard, init_repo, is_lane, main, marked, posture_of, run, set_reference, tool_reaches, w (hooks/scripts/reference_guard.py and the evals) read as new exports. Why: they are functions inside a hook and eval scripts, imported by nothing. Effect: none; Public Surface unchanged.
 - 2026-11-08 verify What: the project test command exits 1. Why: only baselined evals fail (windows_and_upgrade 1 failure, rules_recall usage); every AC test and the drift check pass; reference_guard.py and v0_fence.py all passed. Effect: B1 committed with plain git; Review and Ship run at Feature close.
+- 2026-11-08 skills/rebuild-pipeline/eval/gate_status.py What: its G1-mining cases and adr/ proposal cases moved to the 3.x gate order and rspec's docs/decisions/. Why: 05 P2 removed G1 mining and moved ADRs to rspec; the eval tested the removed behaviour. Effect: same coverage on the 3.x paths; gate order and lock checks are in gates_rspec.py.
+- 2026-11-08 surface What: script-internal functions contracts, criteria, gate, lock_text, rspec_config, rspec_json, rspec_progress_line, rspec_root, through_gate2, workbench (gate.py and the evals) read as new exports. Why: functions inside a vendored script and an eval, imported by nothing outside them. Effect: none; Public Surface lists the one new flag and env var.
+- 2026-11-08 skills/rebuild-pipeline/scripts/upgrade.py What: B1's refusal message named the retired 0.x plugin, which eval/no_bigin.py forbids; the 0.x name was dropped from the message (SKILL.md, an allowed line, still names it). Why: a B1 regression the B1 verify run did not separate from the baselined failures. Effect: no_bigin.py passes again; the 2.x and 1.x messages still name 2.2.0 and 1.6.0.
+- 2026-11-08 verify (B2) What: the project test command exits 1. Why: only the five evals in .sdlc/baseline.md fail (lane_guards, lane_plan, run_supervision, windows_and_upgrade, rules_recall usage); gates_rspec.py, gate_status.py, no_bigin.py, reference_guard.py and v0_fence.py pass, as does every AC and the drift check. Effect: B2 committed with plain git; Review and Ship run at Feature close.
 
 ## Open questions
 -

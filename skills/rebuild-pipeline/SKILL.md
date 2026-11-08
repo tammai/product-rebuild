@@ -114,19 +114,19 @@ is not. Trust the script's output over your memory of the conversation — sessi
 resume days apart.
 
 **One correction on top of it, at the front of the pipeline.** No gate separates G0 from
-G1 — gate-1 closes G2 — so "first unlocked gate" reports G1 for every workbench that has
-been scaffolded, including one whose G0 never finished. Apply this before routing:
+rspec's first stages — gate-1 closes `rspec:features` — so "first unlocked gate" reports the
+rspec stages for every workbench that has been scaffolded, including one whose G0 never
+finished. Apply this before routing:
 
-> A workbench with `sources.yaml` filled in but **no `preflight.json`** is in **G0**, not
-> G1. Finish G0 and run `python3 scripts/preflight.py` (g0 reference has it as the last action).
-> A `preflight.json` reading **`Not-ready`** is also still G0 for dispatch purposes: report
-> the blockers from `PREFLIGHT.md`, and do not dispatch miners until it reads `Ready` or
-> `Ready-with-gaps`.
+> A workbench with `sources.yaml` filled in but **no `preflight.json`** is in **G0**. Finish
+> G0 and run `python3 scripts/preflight.py` (g0 reference has it as the last action).
+> A `preflight.json` reading **`Not-ready`** is also still G0: report the blockers from
+> `PREFLIGHT.md`, and do not start `rspec:discover` until it reads `Ready` or `Ready-with-gaps`.
 
 Everything else in G0 still proceeds and still commits — `sources.yaml` and
 `license-posture.md` are decisions, and none of preflight's blockers changes one. What is
-held is the mining fan-out, because every lane-D finding cites `path + pinned_commit` and a
-preflight that says the checkout is elsewhere is saying those citations would be wrong.
+held is rspec's discovery, because it reads and records the reference that preflight says is
+not where the workbench thinks it is.
 
 ### Step 3 — Report progress, always
 
@@ -143,11 +143,10 @@ per-phase by design to keep context lean:
 |---|---|---|
 | Not started | `references/g0-reference.md` | Onboarding interview, scaffold workbench |
 | G0 (scaffolded, no `preflight.json` or Not-ready) | `references/g0-reference.md` | Finish the interview, fill `sources.yaml`, `python3 scripts/preflight.py` until Ready / Ready-with-gaps |
-| G1 | `references/g1-mining.md` | Dispatch miner subagents per lane |
-| G2 | `references/g2-matrix.md` | Merge findings, draft taxonomy, Gate 1 review |
-| G3 | `references/g3-slicing.md` | Dependency graph, slice plan, Gate 2 review |
-| G4a | `references/g4a-architecture.md` (+ the playbook `sources.yaml` names, vendored to `adr/playbook.md` — its `concerns:` map is the ADR list) | Vendor the playbook, dispatch ADR drafts, Gate 3 review |
-| G4b | `references/g4b-contracts.md` | Data model (`contracts/data-model/`), three contract layers, Gate 4 |
+| Toward gate-1 (G0 done) | nothing here: rspec's skills | `rspec:init` in the workbench (rspec's single-repo layout, `docs/`), `rspec:discover`, `rspec:features` (the user approves the list) → Gate 1 |
+| Toward gate-3 | the playbook `sources.yaml` names (its stack line) | `rspec:stories`; the stack preference (4d); `rspec:tech`; the ADR approval, which is `rspec:handoff` step 1 → Gate 3 |
+| Toward gate-2 | nothing here: rspec's skills | `rspec:audit`, `rspec:verify` (skipped when `reference.run.kind` is `none`), the rest of `rspec:handoff` (the build plan, ≤ 10 criteria per slice) → Gate 2 |
+| Toward gate-4 | nothing here: rspec's skills | `rspec:check` (writes `docs/criteria.lock.json`); review the contracts and tests → Gate 4 (MVP level 2 ≥ 90% unless `strict`, or the user's signed reason) |
 | G5 | `references/g5-build.md` (plus `references/g5-first-slice.md` for the first slice's repo checklist, an inbound-webhook slice, and the S1 runbook) | Per-slice fan-out to build subagents; the between-slices sequence at the end of it |
 | G6 | `references/g6-parity.md` | Parity report, slice review, upstream re-mine |
 | GP | `references/gp-production.md` | Readiness checklist, Gate 5 review |
@@ -160,6 +159,18 @@ reference for all of it). Then scaffold:
 and walk the user through the generated `sources.yaml` and `license-posture.md`. Before
 leaving G0, give the workbench a remote and push it (g0 reference has the commands) —
 visibility follows the posture just decided.
+
+**4d — rspec owns the spec (05 P2).** From G0's end to Gate 4 every step is an rspec stage: call it
+with the Skill tool (`rspec:init`, `rspec:discover`, `rspec:features`, `rspec:stories`, `rspec:tech`,
+`rspec:audit`, `rspec:verify`, `rspec:handoff`, `rspec:check`) from the workbench root, and let it run its
+own agents, questions and checks. Never do a stage's work here, and never re-implement one. Which stage is
+next, and what it still has pending, is the `rspec:` line `gate.py status` prints from rspec's own
+`progress.py`; `rspec: not run: <reason>` means rspec is not installed or not found (set
+`RSPEC_PLUGIN_ROOT`), and no stage is guessed at. The gates still belong to this repo and still need the
+user (Step 5); their order is rspec's: 1, 3, 2, 4. **Before `rspec:tech`**, when `docs/rspec.json`'s
+`stack` is empty, write the selected playbook's stack line there (the playbook `sources.yaml` names, or the
+org default): rspec's stack ADR weighs it as a preference against `deploy`. Never overwrite a stack the
+user gave. List the playbook's decide-before concerns to the user at Gate 3.
 
 **4b — Delegation.** You orchestrate; subagents execute. Dispatch phase work to the
 agents in `${CLAUDE_PLUGIN_ROOT}/agents/` (miner, adr-drafter, data-model-drafter, spec-writer, rubric-judge)
