@@ -179,4 +179,15 @@ Round 2 (2026-11-09, the cap; reports `.sdlc/.work/findings/2026-11-08-l-product
   - The split checks blob ids with `git cat-file -e`, not reachable paths.
   - N1 (where the joint run writes) and N2 (how hidden criteria survive a re-verify) need the coordinator's decision.
 
+Redesign decisions (coordinator, 2026-11-09, answer to the round-2 proposal):
+
+- **R1:** (b) plus fail-closed; stop extending the denylist (P3: a guard, not a sandbox).
+  1. The holdout moves out of the project parent to a per-user data dir recorded only in the orchestrator's local config: never in the workbench, never in a lane brief, so no lane can name it. P4's "sibling repo" location is logged as a deviation.
+  2. The guard's marker fails closed when `locks/` exists.
+  3. The guard keeps its current reader and writer checks for the reference and the workbench. README and MIGRATION-3.md list the known bypass classes (unlisted recursive readers, nested shells, Windows short names) as limits.
+- **R2:** the split checks blob ids with `git cat-file -e`, and the refusal and README say the rewrite ends with `git reflog expire --expire=now --all && git gc --prune=now`.
+- **R3:** (B). The orchestrator writes phases.txt, starts the joint run and opens helper lanes. The JUnit and run meta stay in the workbench, and boundary reads them there. Lanes write only in their worktree; lane-worker.md is updated.
+- **R4:** (a). `holdout.py reconcile` re-adds the hidden entries from the split record after any re-verify, run automatically by `lane_plan.py refresh`, `boundary.py` and the gate-4 lock. No rspec change.
+- Implement as a redesign round, test-first, then one focused security and code check of just these changes (not a full round).
+
 Tickets (left on purpose): M12 (route rounds per run), M13 (gate-5 level None, cost.py nan, extractall on old 3.9, vendor after gate-3, round_cap order), M14 (posture resolver copies), F1 and F2 (stale 2.x wording, "change together" lists), S9 (`reference:` with a trailing comment), S10 (playbook path containment), M-N3 (BND ids collide across the workbench and holdout folders), M-N4 (an explained non-http open failure leaves the boundary red), M-N5 (route matches departures against the observed sentence), parity.py not reading departures (P7), security-r2 N1 (dispatching a helper of another agent type, unconfirmed) and Minors M1-M4.
