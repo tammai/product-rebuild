@@ -1,0 +1,30 @@
+{
+  "scaffold_version": "3.2.1",
+  "hosts": [
+    "claude-code"
+  ],
+  "files": {},
+  "merged": {},
+  "migrations": {
+    "applied": [],
+    "skipped": {}
+  },
+  "setup": {
+    "kind": "brownfield",
+    "completed_steps": [],
+    "complete": false
+  },
+  "command_runs": {
+    "(root)": {
+      "test": {
+        "command": "python3 -c \"import glob,subprocess,sys; sys.exit(max([subprocess.call([sys.executable,f]) for f in sorted(glob.glob('skills/rebuild-pipeline/eval/*.py'))] or [0]))\"",
+        "ran": true,
+        "exit": 1,
+        "at": "2026-11-08T04:28:57Z"
+      }
+    }
+  },
+  "declined": [
+    ".sdlc/baseline.md"
+  ]
+}

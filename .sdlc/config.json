@@ -1,0 +1,15 @@
+{
+  "min_plugin_version": "3.2.1",
+  "project": {
+    "kind": "brownfield",
+    "stack": "python"
+  },
+  "docs_dir": "docs/sdlc",
+  "commands": {
+    "install": null,
+    "test": "python3 -c \"import glob,subprocess,sys; sys.exit(max([subprocess.call([sys.executable,f]) for f in sorted(glob.glob('skills/rebuild-pipeline/eval/*.py'))] or [0]))\"",
+    "lint": null,
+    "typecheck": null,
+    "build": null
+  }
+}
