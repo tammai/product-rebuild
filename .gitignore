@@ -5,3 +5,8 @@ __pycache__/
 node_modules/
 skills/rebuild-pipeline/eval/run.log
 skills/rebuild-pipeline/eval/runs/
+.sdlc/.work/
+.sdlc/state/*.json
+.sdlc/state/*.events.jsonl
+.sdlc/state/*.commands/
+.claude/*.local.md
