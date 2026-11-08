@@ -460,25 +460,29 @@ def _lock_gate5_checks(gid):
             if re.search(r"<(failure|error)\b", body, re.A):
                 failing.append(name)
         if failing:
-            log = _join("parity", "equiv", "DECISIONS.md")
-            decisions = read_text(log) if os.path.exists(log) else ""
-            accepted = {m.group(1) for m in re.finditer(r"^\s*-\s*accepted:\s*`([^`]+)`", decisions, re.M)}
-            undecided = [n for n in failing if n not in accepted]
+            # 3.0.0 (05 P7): an accepted difference is a decided departure in docs/departures.yaml (rule
+            # `equiv-trace:<name>`, written by `equiv.py accept`), not a line in parity/equiv/DECISIONS.md.
+            try:
+                import departures
+                undecided = [n for n in failing if not departures.for_trace(n)]
+            except Exception as e:  # missing or unreadable registry: nothing is explained, and the lock says why
+                print(f"docs/departures.yaml could not be read ({e}); no red trace counts as explained.", file=sys.stderr)
+                undecided = list(failing)
             if undecided:
                 print(f"Cannot lock {gid}: the newest equivalence run ({runs[0]['path']}) has "
-                      f"{len(undecided)} failing trace(s) that no decision explains:\n" +
+                      f"{len(undecided)} failing trace(s) that no departure explains:\n" +
                       "\n".join(f"  - {n}" for n in undecided) +
                       f"\n\n  A red trace means the rebuild returns something the legacy system did not, on "
                       f"traffic recorded from the legacy system before the rebuild existed. Gate 5 is "
                       f"terminal — nothing after it catches this."
                       f"\n  Fix the difference and re-run `python3 scripts/equiv.py replay --all`, or, if the "
                       f"difference is intended, put it on the record:"
-                      f'\n    python3 scripts/equiv.py accept "<trace name>" --reason "..."'
+                      f'\n    python3 scripts/equiv.py accept "<trace name>" --reason "..." --by "<who decided>"'
                       f"\n  Accepting does not make the trace green. It makes it explained, which is all this "
                       f"gate asks of anything else that is still imperfect.", file=sys.stderr)
                 return 1
-            print(f"Equivalence: {len(failing)} red trace(s) in {runs[0]['path']}, all named in "
-                  f"parity/equiv/DECISIONS.md. Locking.")
+            print(f"Equivalence: {len(failing)} red trace(s) in {runs[0]['path']}, each explained by a departure. "
+                  f"Locking.")
     return None
 
 

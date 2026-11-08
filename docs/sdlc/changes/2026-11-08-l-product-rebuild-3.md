@@ -30,6 +30,13 @@ Spec: [docs/specs/rebuild-upgrade/05-product-rebuild.md](../../specs/rebuild-upg
 - `holdout.py run`: http through `contracts.py run-http`, Playwright through the code repo's own `@playwright/test` by path (not npx), Maestro through `maestro test`, cli `not run`; reports carry criterion ID and observed behaviour only.
 - Step 0 (`lane_plan.py step0`), the lane cap from `rebuild.yaml` (default 3), spec questions batched by `lane_plan.py questions`, and the flow guard over `docs/acceptance/` as proposed.
 
+**Coordinator answers for part 4 (task pr-4, 2026-11-09):**
+- Gate-1 and `departures.yaml`: P7 writes departures after Gate 1, which B2's gate-1 lock (P2's Gate 1 row) forbids. A spec change, so it went to the user with (a) recommended (gate-1 stops hashing it; the registry is append-only with its own checks). Until the user decides, B4 keeps the B2 rule and refuses a departure added after the gate-1 lock, in one place (`departures.py`).
+- `route.py` as proposed; a third fix round is refused and the user decides; fix lanes through `lane_plan.py --fix`.
+- `boundary.py <Sn>` sequences G6 in P6's order and itself re-runs each failing open test once (P6: "re-run the failures once"); equivalence widened from `kind: own-code` to posture `observe`/`own-code` (P3).
+- Human sample as proposed: a person comparing against the running reference is the verifier (design rule 2); kept in `plan/slice-reviews/<Sn>.md`, which `slice_review.py` now carries over instead of overwriting.
+- P7 readers in B4: `equiv.py accept` and `flows.py unlock --weakens` write departures; holdout, gate-5 and route.py read them.
+
 ## Decisions
 
 | Decision | Ruled out | Why |
@@ -65,7 +72,11 @@ Later parts (refined when each part starts):
 - **AC-016** 05 P5 step 2 (B3): Given a slice's lane, when `lane_plan.py <Sn> <lane> --features …` opens it, then its change file cites the criterion IDs (`- **AC-001** → F-…`), sdlc's state gets them as `--criteria`, the lane worktree gets only its open tests (byte-identical, sha256 checked against the workbench manifest) with a manifest of those entries, and a lock copy whose `spec` points into the workbench submodule with config `spec_lock` naming it; it refuses a lane beyond the slice's lane cap (`rebuild.yaml` `budgets.parallel_lanes`, default 3).
 - **AC-017** 05 P5 step 0 (B3): Given a slice with a criterion that has neither a level 2 test nor an rspec verify reason, when `lane_plan.py step0 <Sn>` runs, then it names the criterion and the `rspec:verify --only <features>` to run, and `lane_plan.py` refuses to open the slice's lanes.
 - **AC-018** 05 P5 step 3 (B3): Given spec questions in the lanes' `.sdlc/.work/spec-questions/`, when `lane_plan.py questions <Sn>` runs, then they are batched into `plan/spec-questions/<Sn>.md`; `lane_plan.py refresh <Sn> <lane>` re-copies the lock and open tests after an `rspec:amend`.
-- **AC-009** 05 P6, P7 (B4): `route.py` routes each `finding-v1.class` as P6's table says; parity and equivalence diffs matched by a `departures.yaml` `match` rule are not failures.
+- **AC-009** 05 P6 routing (B4): Given a slice's findings, when `route.py <Sn>` runs, then each reproduced finding goes where contracts C6 routes its class (build-defect and test-defect to one sdlc fix lane per feature, spec-gap to `rspec:amend`, reference-defect to the user, flaky and environment to the orchestrator), an `accepted-departure` or a finding a decided departure explains is dropped, an unreproduced one is not routed, and a third round is refused: the user decides.
+- **AC-019** 05 P6 sequence (B4): Given a slice build, when `boundary.py <Sn>` runs, then it re-runs each failing open test once (a pass on the re-run is flaky, not a finding), writes a reproduced finding for each that still fails, and stops before the hidden suite while a build-defect or spec-gap is open; once they are closed it runs the hidden suite, prints the bug-hunter command, and passes only when the open and hidden suites are green or explained, no high finding is open, bug-hunter has run and the human sample is recorded.
+- **AC-020** 05 P6 step 6 (B4): `boundary.py sample <Sn>` picks 2–3 of the slice's features from a recorded seed, weighted to criteria below level 2, into `plan/slice-reviews/<Sn>.md`; each `differs` line becomes a reproduced finding with the reviewer as verifier.
+- **AC-021** 05 P7 (B4): `departures.yaml` explains differences everywhere: a hidden failure a decided departure names is `explained`; `equiv.py accept` and `flows.py unlock --weakens` write departures (no more DECISIONS.md for accepted differences); gate-5 refuses only on a red trace no departure explains. While gate-1 hashes `departures.yaml`, a departure added after its lock is refused with nothing written (pending the user's decision on the gate-1 row).
+- **AC-022** 05 P6 routing (B4): `lane_plan.py <Sn> <lane> --fix <round> --findings <ids>` opens a fix lane whose ACs cite each finding's criterion (or restate what the build did when it has none), refusing a finding the round did not route to sdlc.
 - **AC-010** 05 P8–P10 (B5): Gate 5 refuses on each P8 condition; budgets and cost logs per P9.
 - **AC-011** 05 P1 (B6): `docs/MIGRATION-3.md` maps every 2.x capability to its 3.0 owner with a passing test or fixture, before any deletion.
 
@@ -88,7 +99,11 @@ Later parts (refined when each part starts):
 | AC-016 | skills/rebuild-pipeline/eval/lanes_rspec.py › lane | `python3 skills/rebuild-pipeline/eval/lanes_rspec.py lane` |
 | AC-017 | skills/rebuild-pipeline/eval/lanes_rspec.py › step0 | `python3 skills/rebuild-pipeline/eval/lanes_rspec.py step0` |
 | AC-018 | skills/rebuild-pipeline/eval/lanes_rspec.py › questions | `python3 skills/rebuild-pipeline/eval/lanes_rspec.py questions` |
-| AC-009 | skills/rebuild-pipeline/eval/route.py (B4) | `python3 skills/rebuild-pipeline/eval/route.py` |
+| AC-009 | skills/rebuild-pipeline/eval/g6_eval.py › route | `python3 skills/rebuild-pipeline/eval/g6_eval.py route` |
+| AC-019 | skills/rebuild-pipeline/eval/g6_eval.py › boundary | `python3 skills/rebuild-pipeline/eval/g6_eval.py boundary` |
+| AC-020 | skills/rebuild-pipeline/eval/g6_eval.py › sample | `python3 skills/rebuild-pipeline/eval/g6_eval.py sample` |
+| AC-021 | skills/rebuild-pipeline/eval/g6_eval.py › departures | `python3 skills/rebuild-pipeline/eval/g6_eval.py departures` |
+| AC-022 | skills/rebuild-pipeline/eval/g6_eval.py › fix | `python3 skills/rebuild-pipeline/eval/g6_eval.py fix` |
 | AC-010 | skills/rebuild-pipeline/eval/gate5.py (B5) | `python3 skills/rebuild-pipeline/eval/gate5.py` |
 | AC-011 | skills/rebuild-pipeline/eval/migration_3.py (B6) | `python3 skills/rebuild-pipeline/eval/migration_3.py` |
 

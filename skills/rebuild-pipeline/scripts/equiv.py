@@ -5,7 +5,7 @@ Usage:
   python3 scripts/equiv.py status
   python3 scripts/equiv.py record <feature-id>          # drive the LEGACY instance, write traces
   python3 scripts/equiv.py replay <feature-id>|--all    # replay against the REBUILD, write JUnit
-  python3 scripts/equiv.py accept <trace> --reason "..." # log a decision about a red trace
+  python3 scripts/equiv.py accept <trace> --reason "..." --by <name>  # a departure for a red trace
   python3 scripts/equiv.py unlock --reason "..."  |  relock
 
 Needs yamlio.py (and the vendored PyYAML under _vendor/). Unlike preflight.py this cannot run
@@ -447,18 +447,29 @@ def _read_sources():
         v = re.split(_WS + "+#", js_trim(m.group(1)))[0]
         return re.sub(r"^[\"']|[\"']\Z", "", v) or ""
 
-    return {"kind": get("kind"), "name": get("name")}
+    return {"kind": get("kind"), "name": get("name"), "posture": get("posture")}
+
+
+def _posture():
+    """reference.posture as validate.py and the reference guard resolve it (empty: own-code for kind own-code, else
+    observe; unknown: strict). Change them together."""
+    src = _read_sources()
+    p = src["posture"]
+    if not p:
+        return "own-code" if src["kind"] == "own-code" else "observe"
+    return p if p in ("strict", "observe", "own-code") else "strict"
 
 
 def _gate_reasons():
     reasons = []
-    kind = _read_sources()["kind"]
-    if kind != "own-code":
-        reasons.append(f"sources.yaml has reference.kind: {kind or '(empty)'} — this lane needs `own-code`. "
-                       "Replaying recorded traffic against a product you do not operate is neither legal nor "
-                       "practical, and under clean-room posture reading the reference's responses is the thing "
-                       "the posture forbids. A third-party rebuild uses the AC suite and the parity report; "
-                       "parity.py says the lane does not apply rather than showing an empty column.")
+    # 3.0.0 (05 P3): equivalence runs under posture observe or own-code, against a reference run locally
+    # (preflight below). Under strict the spec side only observes, and replaying recorded traffic against
+    # the reference is more than the posture allows.
+    posture = _posture()
+    if posture == "strict":
+        reasons.append("sources.yaml's reference.posture is strict — this lane needs `observe` or `own-code` (05 P3). "
+                       "Under strict the spec side only observes the reference, and replaying recorded traffic "
+                       "against it goes further than that. The open and hidden suites and the parity report still run.")
     if not os.path.exists("preflight.json"):
         reasons.append("no preflight.json — run `python3 scripts/preflight.py` (G0's last action). This lane "
                        "replays against the legacy system, so \"the reference runs\" has to be a checked fact, "
@@ -773,7 +784,7 @@ def main(argv=None):
             return 0
         traces = _trace_files(None)
         u = read_unlock()
-        print("Equivalence lane: applies (own-code, reference runs).")
+        print(f"Equivalence lane: applies (posture {_posture()}, reference runs).")
         print(f"  {len(traces)} trace(s) recorded under {EQUIV_DIR}/")
         by_feature = {}
         for t in traces:
@@ -1013,14 +1024,23 @@ def main(argv=None):
     if cmd == "accept":
         trace = arg(1)
         reason = arg_after("--reason")
-        if not trace or trace.startswith("--") or not reason:
-            print('Usage: equiv accept "<trace name>" --reason "..."', file=sys.stderr)
+        if not trace or trace.startswith("--") or not reason or not has("--by"):
+            print('Usage: equiv accept "<trace name>" --reason "..." --by "<who decided>"', file=sys.stderr)
             print("The trace name is the `name` attribute in the JUnit output — what `replay` printed.", file=sys.stderr)
-            print("A reason is required: this is the record that a difference between the old system", file=sys.stderr)
+            print("A reason and a name are required: this is the record that a difference between the old system", file=sys.stderr)
             print('and the rebuild is intended. "the test is red" is not a reason; it is the situation.', file=sys.stderr)
             return 1
-        log_decision(f"- **{now}** · accepted by {by}\n  - accepted: `{trace}`\n  - {reason}\n")
-        print(f"Logged to {DECISION_LOG}: `{trace}` is an accepted difference.")
+        # 3.0.0 (05 P7): an accepted difference is a departure in docs/departures.yaml, the one registry every
+        # check reads, not a line in parity/equiv/DECISIONS.md. The rule `equiv-trace:<name>` ties it to the trace.
+        try:
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            import departures
+            did = departures.append("deliberate-change", reason, by,
+                                    match=[{"runner": "http", "rule": f"equiv-trace:{trace}"}])
+        except (ImportError, ValueError) as e:
+            print(f"Not accepted: the departure could not be written: {e}", file=sys.stderr)
+            return 1
+        print(f"Departure {did} in docs/departures.yaml: `{trace}` is an accepted difference.")
         print("gate-5 will no longer refuse to lock on it. It stays red in the report, which is "
               "correct — the difference is real and now it is also explained.")
         return 0

@@ -291,9 +291,16 @@ def cmd_run(args):
     entries = {t["criterion"]: t for t in load_json(MANIFEST).get("tests") or []}
     hold = holdout_dir()
     results = []
+    try:
+        import departures  # vendored sibling; a workbench without it explains nothing rather than failing the run
+    except ImportError:
+        departures = None
     for c in (rec.get("slices") or {}).get(sid, []):
         entry = entries.get(c)
         result, obs = run_one(entry, hold, args) if entry else ("not run", "not in the workbench manifest")
+        did = departures.explained_by(c) if departures and result == "fail" else None
+        if did:  # 05 P6 step 2: a failure a decided departure names is explained, not a failure
+            result, obs = "explained", f"explained by {did}: {obs}"
         results.append({"criterion": c, "runner": (entry or {}).get("runner"), "result": result, "observed": obs})
     out_dir = os.path.join("parity", "holdout")
     os.makedirs(out_dir, exist_ok=True)
@@ -306,8 +313,8 @@ def cmd_run(args):
         fh.write("\n".join(lines) + "\n")
     for x in results:
         print(f"{x['criterion']}: {x['result']}{' — ' + x['observed'] if x['observed'] else ''}")
-    passed = sum(1 for x in results if x["result"] == "pass")
-    print(f"{sid}: {passed} of {len(results)} hidden tests pass. Report: {out_dir}/{sid}.md")
+    passed = sum(1 for x in results if x["result"] in ("pass", "explained"))
+    print(f"{sid}: {passed} of {len(results)} hidden tests pass or are explained by a departure. Report: {out_dir}/{sid}.md")
     return 0 if passed == len(results) else 1
 
 

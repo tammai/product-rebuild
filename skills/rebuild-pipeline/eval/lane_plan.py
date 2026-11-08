@@ -316,20 +316,23 @@ src_path = os.path.join(wb, "sources.yaml")
 src_before = read(src_path) if os.path.exists(src_path) else ""
 w(wb, "sources.yaml", "reference:\n  kind: third-party\n  upstream: active\n")
 r = boundary("S1")
-check("boundary runs archive, parity, slice review and the re-mine check in one call",
-      all(h in r.stdout for h in ("== S1: archive lane records (1 recorded)", "api: already archived", "== parity", "== slice review"))
+# 3.0.0: boundary.py is G6's sequencer (05 P6); it still archives the lanes and runs parity and the slice review,
+# and the 2.x re-mine line is information that never holds a boundary (eval/g6_eval.py tests the sequence).
+check("boundary archives the lanes, runs parity and the slice review, and prints the re-mine status",
+      all(h in r.stdout for h in ("== 0. S1: archive lane records (1 recorded)", "api: already archived", "coverage: parity",
+                                  "regression: slice review"))
       and os.path.exists(os.path.join(wb, "parity")) and "Upstream re-mine: DUE. None is recorded" in r.stdout, r.stdout[:1500] + r.stderr)
-check("a due re-mine exits 2", r.returncode == 2, r.returncode)
+check("without the G6 conditions met the boundary is not passed (exit 2)", r.returncode == 2, r.returncode)
 check("remine-done records today's date", boundary("remine-done").returncode == 0
       and re.fullmatch(r"\d{4}-\d\d-\d\d\n", read(os.path.join(wb, "parity/last-remine"))) is not None)
 r = boundary("S1")
-check("a recorded re-mine is not due, and the whole call exits 0", r.returncode == 0 and "Upstream re-mine: not due. Last on" in r.stdout, r.stdout[-400:] + r.stderr)
+check("a recorded re-mine is not due", "Upstream re-mine: not due. Last on" in r.stdout, r.stdout[-400:] + r.stderr)
 w(wb, "parity/last-remine", "2020-01-01\n")
 r = boundary("S1")
-check("a 30-day-old re-mine is due again", r.returncode == 2 and re.search(r"DUE\. Last on 2020-01-01, \d+ days ago", r.stdout), r.stdout[-300:])
+check("a 30-day-old re-mine is due again", re.search(r"DUE\. Last on 2020-01-01, \d+ days ago", r.stdout), r.stdout[-300:])
 w(wb, "sources.yaml", "reference:\n  kind: own-code\n  upstream: frozen   # replaced app\n")
 r = boundary("S1")
-check("a frozen reference says so and exits 0", r.returncode == 0 and "reference is frozen, no re-mine" in r.stdout, r.stdout[-300:] + r.stderr)
+check("a frozen reference says so", "reference is frozen, no re-mine" in r.stdout, r.stdout[-300:] + r.stderr)
 recp = os.path.join(wb, "plan/lane-plans/S1.yaml")
 rec3 = json.loads(re.sub(r"^#.*\n", "", read(recp), flags=re.M))
 rec3["lanes"]["ghost"] = {"worktree": os.path.join(base, "no-such-worktree")}

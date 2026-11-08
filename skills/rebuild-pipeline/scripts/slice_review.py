@@ -677,6 +677,13 @@ is yours — nothing here enforces it. If the plan should change, do it now, at 
 slice *order* is `python3 scripts/sequence.py reorder` (logged, cheap); what is IN a slice is still a
 gate-2 reopen (`python3 scripts/gate.py reopen gate-2 --reason "..."`).
 """
+    # The human sample (05 P6 step 6, `boundary.py sample`) is recorded in this same file by a person.
+    # This file is regenerated every boundary, so that section is carried over verbatim, never rewritten.
+    if os.path.exists(path):
+        with open(path, encoding="utf-8", errors="replace", newline="") as f:
+            kept = re.search(r"^## Human sample\b[\s\S]*\Z", re.sub(r"\r\n?", "\n", f.read()), re.M)
+        if kept:
+            body = body.rstrip("\n") + "\n\n" + kept.group(0).rstrip("\n") + "\n"
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write(body)
 

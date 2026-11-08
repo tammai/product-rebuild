@@ -148,7 +148,7 @@ per-phase by design to keep context lean:
 | Toward gate-2 | nothing here: rspec's skills | `rspec:audit`, `rspec:verify` (skipped when `reference.run.kind` is `none`), the rest of `rspec:handoff` (the build plan, ≤ 10 criteria per slice) → Gate 2 |
 | Toward gate-4 | nothing here: rspec's skills | `rspec:check` (writes `docs/criteria.lock.json`); `python3 scripts/holdout.py split` (draws the hidden tests into `<project>-holdout/`; commit the workbench after it); review the contracts and tests → Gate 4 (records the split; MVP level 2 ≥ 90% unless `strict`, or the user's signed reason) |
 | G5 | `references/g5-build.md` (plus `references/g5-first-slice.md` for the first slice's repo checklist, an inbound-webhook slice, and the S1 runbook), with the 3.0 slice loop (4e) in place of its spec-writing steps | Per-slice fan-out to build subagents; the between-slices sequence at the end of it |
-| G6 | `references/g6-parity.md` | Parity report, slice review, upstream re-mine |
+| G6 | 4f below (and `references/g6-parity.md` for the parity report and slice review) | `boundary.py <Sn>`, cheapest step first; `route.py`; the human sample |
 | GP | `references/gp-production.md` | Readiness checklist, Gate 5 review |
 
 **4a — Onboarding (no workbench).** Interview the user: which reference product, why,
@@ -193,6 +193,26 @@ there are no slice specs to write. Per slice, from the workbench root:
 At G6, `python3 scripts/holdout.py run <Sn>` (with `ACCEPT_BASE_URL` at the slice build, `--repo <code
 repo>` for Playwright tests) runs the slice's hidden tests; its report names criteria and observed
 behaviour only, so it is safe to pass to a lane.
+
+**4f — G6 at each slice boundary (05 P6, P7).** From the workbench root, with `ACCEPT_BASE_URL` at the slice
+build: `python3 scripts/boundary.py <Sn>`. It runs the open suite (each failure re-run once; a pass on the
+re-run is flaky, not a finding), the hidden suite, equivalence (posture `observe` or `own-code`), parity and
+the slice review, then bug-hunter and the human sample, and stops at the first step that leaves a build-defect
+or spec-gap open. Then:
+- **Route:** `python3 scripts/route.py <Sn>` writes fix round N (`plan/fix-rounds/<Sn>-r<N>.md`):
+  build-defect and test-defect → a fix lane per feature (`lane_plan.py <Sn> fix-r<N>-<feature> --fix <N>
+  --findings <ids>`); spec-gap → `rspec:amend` (the user approves an MVP `then`), re-verify, then a fix lane;
+  reference-defect → the user: copy it or add a departure; flaky, environment → fix the harness yourself.
+  `route.py <Sn> --close <ids>` once a round fixes them. A third round is refused: ask the user.
+- **bug-hunter:** run the command `boundary.py` prints, then `python3 scripts/boundary.py hunted <Sn>`.
+- **Human sample:** `python3 scripts/boundary.py sample <Sn>` draws 2–3 features into
+  `plan/slice-reviews/<Sn>.md`; the user compares them with the running reference and writes `agree` or
+  `differs: <what> (class: …)`. Never fill it in yourself, under autopilot or not.
+- **Departures:** every accepted difference is one entry in `docs/departures.yaml`, read by every check;
+  `equiv.py accept … --by` and `flows.py unlock --acceptance --weakens --criteria … --by` write them, and only
+  the user decides one. While gate-1 hashes that file, adding one after the gate-1 lock needs a gate-1 reopen.
+The boundary passes when the open and hidden suites are green or explained, no high finding is open,
+bug-hunter has run and the sample is recorded.
 
 **4b — Delegation.** You orchestrate; subagents execute. Dispatch phase work to the
 agents in `${CLAUDE_PLUGIN_ROOT}/agents/` (miner, adr-drafter, data-model-drafter, spec-writer, rubric-judge)

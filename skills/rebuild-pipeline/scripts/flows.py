@@ -5,6 +5,8 @@ Usage:
   python3 scripts/flows.py unlock --reason "..." [--by <name>]
   python3 scripts/flows.py relock [--by <name>]
   (each takes --acceptance to act on rspec's bundle, docs/acceptance/, instead of parity/flows/)
+  python3 scripts/flows.py unlock --acceptance --weakens --criteria F-ISS-01.AC2 --by <name> --reason "..."
+                                                   # a weaker assertion: also writes a departure (05 P7)
 
 Standard library only, and deliberately so: the PreToolUse guard imports nothing from here but
 reads the same file, and a guard that needs an install step to work is a guard that fails open
@@ -152,6 +154,22 @@ def main(argv=None):
             print('Say which assertion is changing and why the old one was wrong. "tests failing" is not a reason;', file=sys.stderr)
             print("it is the situation the rule exists for.", file=sys.stderr)
             return 1
+        if "--weakens" in argv:
+            # 05 P7: a change that weakens a recorded assertion is an accepted difference from the reference,
+            # so it goes into the one registry, decided by a named person, before the unlock is written.
+            crits = [c for c in (arg_after("--criteria") or "").split(",") if c.strip()]
+            if not crits or not arg_after("--by"):
+                print("--weakens needs --criteria <ids> and --by <who decided>: it writes a departure (contracts C5).",
+                      file=sys.stderr)
+                return 1
+            try:
+                sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+                import departures
+                did = departures.append("deliberate-change", reason, arg_after("--by"), criteria=[c.strip() for c in crits])
+            except (ImportError, ValueError) as e:
+                print(f"Not unlocked: the departure could not be written: {e}", file=sys.stderr)
+                return 1
+            print(f"Departure {did} written to docs/departures.yaml for {', '.join(crits)}.")
         os.makedirs(folder, exist_ok=True)
         write(os.path.join(folder, ".unlocked.yaml"),
               f"# Recorded assertions in {folder}/ are temporarily unprotected. Written by scripts/flows.py.\n"

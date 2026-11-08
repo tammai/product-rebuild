@@ -10,7 +10,7 @@ Started: 2026-11-08
 Base: 3274d37
 Owner: tammai.it@gmail.com
 Tool: claude-code
-Slice: B3   Slice base: 0af41e3   Slice gates: none
+Slice: B4   Slice base: 40de23b   Slice gates: none
 Current: Stage 2 – Build
 
 ## Stages
@@ -56,6 +56,7 @@ parts in fresh sessions: each backlog part is its own coordinator task
 - 2026-11-08 Stage 1: pass — plan self-approved (L): (1) part-1 ACs 001-005 map to 05 Decisions/P3/P4/D7, later parts' ACs 006-011 to P1-P10, trace has no refs to check; (2) no open questions; (3) every decision answered by the coordinator (Q1-Q7, all as proposed); (4) no proposal beyond the request, nothing irreversible
 - 2026-11-08 B2 ACs refined: AC-006 narrowed to gate order and rspec artifacts; AC-012 (Gate 4 level 2 floor), AC-013 (status reads rspec progress.py) and AC-014 (skill routing, manual) added from the coordinator's pr-2 answers
 - 2026-11-09 B3 ACs refined from the coordinator's pr-3 answers: AC-007 and AC-008 made concrete; AC-015 (holdout run), AC-016 (lane bundle and lock copy, cap), AC-017 (step 0), AC-018 (spec questions, refresh) added
+- 2026-11-09 B4 ACs refined from the coordinator's pr-4 answers: AC-009 made concrete; AC-019 (G6 sequence), AC-020 (human sample), AC-021 (departures registry), AC-022 (fix lanes) added. Open with the user: whether gate-1 keeps hashing departures.yaml (spec change to P2's Gate 1 row)
 
 ## Deviations
 - 2026-11-08 surface What: script-internal functions allowed, bash_reaches, check, denied, denied_roots, guard, init_repo, is_lane, main, marked, posture_of, run, set_reference, tool_reaches, w (hooks/scripts/reference_guard.py and the evals) read as new exports. Why: they are functions inside a hook and eval scripts, imported by nothing. Effect: none; Public Surface unchanged.
@@ -69,6 +70,12 @@ parts in fresh sessions: each backlog part is its own coordinator task
 - 2026-11-09 surface What: script-internal functions Reference, choose, cmd_run, cmd_split, contracts_py, copy_to_lane, die, exposure, holdout_dir, lane_cap, list_sha256, listed_repos, load_json, make_project, observed, read_text, read_unlock, run_one, sha256_file, slice_features, slices, step0_missing, workbench_in (holdout.py, lane_plan.py, flows.py and the evals) read as new exports. Why: functions inside vendored scripts and evals; read_unlock gained an optional folder argument, its callers unchanged. Effect: none; plan-B3.md lists the commands and the rebuild.yaml key.
 - 2026-11-09 skills/rebuild-pipeline/eval/gates_rspec.py What: its level2 group now runs holdout.py split before the first gate-4 lock and gives build-plan.md a slice. Why: B3 makes gate-4 refuse until the hidden tests are split (05 P4), so B2's eval had to make the split it now requires. Effect: same AC-012 checks.
 - 2026-11-09 verify (B3) What: the project test command exits 1. Why: only the five evals in .sdlc/baseline.md fail, each with exactly its baselined line; holdout_eval.py, lanes_rspec.py, gates_rspec.py and every other eval pass, as does every AC and the drift check. Effect: B3 committed with plain git; Review and Ship run at Feature close.
+- 2026-11-09 skills/rebuild-pipeline/scripts/departures.py What: a new vendored module holding the departures registry (load, explain, append, the gate-1 rule). Why: P7 has five readers and two writers; one module keeps the rule in one place, as the coordinator asked for the pending gate-1 decision. Effect: plan-B4.md names it; the state file's B4 task outline did not.
+- 2026-11-09 skills/rebuild-pipeline/scripts/slice_review.py What: carries a '## Human sample' section over when it regenerates plan/slice-reviews/<Sn>.md. Why: P6 records the human sample in that file, which slice_review.py rewrote on every boundary, so a person's entries would be lost. Effect: the rest of the review is generated as before.
+- 2026-11-09 surface What: script-internal names Build, append, decided, explained_by, feature_of, finding, findings, for_criterion, for_trace, for_value, gate1_allows_append, load_state, next_id, plugin_contracts, proposed, sample_findings, state_path, valid, write (departures.py, route.py, boundary.py and the eval) read as new exports. Why: functions inside vendored scripts imported only by their siblings, and an eval's helpers. Effect: none; plan-B4.md lists the commands.
+- 2026-11-09 BND ids What: boundary.py's own findings use ids BND-nnnn, not G6-nnnn. Why: contracts C6 ids are letters, a dash and digits, so G6 is invalid. Effect: none.
+- 2026-11-09 skills/rebuild-pipeline/eval/lane_plan.py What: its boundary.py checks now expect the 3.x sequencer (step headings, exit 2 until P6's conditions hold) and check the re-mine line's text only. Why: 05 P6 makes boundary.py G6's sequencer with its own pass conditions; the 2.x 30-day re-mine stays printed (P1 places 2.x capabilities before any deletion, B6) but no longer sets the exit code. Effect: same coverage of archiving, parity, slice review and the re-mine status.
+- 2026-11-09 verify (B4) What: the project test command exits 1. Why: only the five evals in .sdlc/baseline.md fail, each with exactly its baselined line; g6_eval.py, holdout_eval.py, lanes_rspec.py and every other eval pass, as do every AC and the drift check. Effect: B4 committed with plain git; Review and Ship run at Feature close.
 
 ## Open questions
 -

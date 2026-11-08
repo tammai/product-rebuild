@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 3.0.0 in progress (version `3.0.0-rc.1`, no tag): product-rebuild becomes an orchestrator over rspec, sdlc
-and bug-hunter (spec `docs/specs/rebuild-upgrade/05-product-rebuild.md`). Parts 1 to 3 of 6 below.
+and bug-hunter (spec `docs/specs/rebuild-upgrade/05-product-rebuild.md`). Parts 1 to 4 of 6 below.
 
 ### Breaking
 
@@ -46,6 +46,18 @@ and bug-hunter (spec `docs/specs/rebuild-upgrade/05-product-rebuild.md`). Parts 
   refresh` re-copies after it. The 2.x `--specs` mode stays until the 2.x parts are removed.
 - **The flow guard covers rspec's bundle**: committed files under `docs/acceptance/` change only after
   `flows.py unlock --acceptance --reason "…"`.
+- **G6 runs cheapest first** (05 P6): `boundary.py <Sn>` runs the open suite (each failure re-run once; a pass on
+  the re-run is flaky), the hidden suite, equivalence, parity and the slice review, then asks for bug-hunter
+  (`boundary.py hunted`) and the human sample (`boundary.py sample`, 2–3 features from a seed, weighted to
+  criteria below level 2), stopping at the first step that leaves a build-defect or spec-gap open. It passes
+  only with both suites green or explained, no open high finding, bug-hunter run and the sample recorded.
+- **`route.py`** routes a slice's findings by contracts C6 into fix rounds (`plan/fix-rounds/`): an sdlc fix lane
+  per feature (`lane_plan.py --fix <round> --findings <ids>`), `rspec:amend`, the user, or the orchestrator;
+  accepted departures are dropped, unreproduced findings are not routed, and a third round is refused.
+- **One departures registry** (05 P7): `docs/departures.yaml` explains differences in holdout runs, route.py,
+  Gate 5's equivalence check and bug-hunter. `equiv.py accept … --by` and `flows.py unlock --weakens --criteria
+  … --by` write departures; `parity/equiv/DECISIONS.md` no longer counts as an accepted difference.
+  Equivalence now applies under posture `observe` or `own-code` (it needed `kind: own-code`).
 
 ### Added
 
