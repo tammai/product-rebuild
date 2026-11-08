@@ -204,6 +204,13 @@ if ONLY in (None, "holdout"):
           denied(guard("Bash", {"command": f"cd {fwd(lane)} && echo x > {fwd(wb)}/repos.yaml"})))
     check("a lane's sed -i on the workbench is denied",
           denied(guard("Bash", {"command": f"sed -i s/observe/own-code/ {fwd(SOURCES)}"})))
+    for cmd in (f"perl -pi -e s/observe/own-code/ {fwd(SOURCES)}", f"sed -Ei s/a/b/ {fwd(SOURCES)}",
+                f"sed --in-place=.bak s/a/b/ {fwd(SOURCES)}", f"git --git-dir={fwd(wb)}/.git --work-tree={fwd(wb)} commit -am x"):
+        check(f"a lane's `{cmd.split(' ')[0]} {cmd.split(' ')[1]}` writing the workbench is denied",
+              denied(guard("Bash", {"command": cmd})))
+    check("a lane's `cp -a ..` (archive recurses) is denied", denied(guard("Bash", {"command": f"cd {fwd(lane)} && cp -a .. /tmp/x"})))
+    check("a lane's `ls -ltr ..` (r sorts, it does not recurse) is allowed",
+          allowed(guard("Bash", {"command": f"cd {fwd(lane)} && ls -ltr .."})))
     check("a lane's git commit in the workbench is denied",
           denied(guard("Bash", {"command": f"cd {fwd(wb)} && git commit -am x"})))
     check("a lane's Write in its own worktree is allowed",

@@ -103,6 +103,10 @@ def make_project(name):
     w(wb, "docs/criteria.lock.json", json.dumps({"contracts": "1.1.1", "spec": "docs", "generated": "2026-11-08T00:00:00Z",
                                                  "criteria": rows}, indent=2))
     w(wb, "docs/acceptance/manifest.json", json.dumps({"contracts": "1.1.1", "tests": tests}, indent=2))
+    # rspec:verify's run log: an early failing run of every criterion quotes the test's expected value.
+    w(wb, "docs/verify/runs.jsonl", "".join(json.dumps({"criterion": t["criterion"], "result": "fail",
+                                                        "detail": f"/key: got \"x\", expected \"{SECRET}\""}) + "\n"
+                                            for t in tests))
     for rel in ("docs/features.md", "docs/domain.md", "docs/departures.yaml", "docs/audit/summary.md",
                 "docs/verify/summary.md", "docs/openapi.json", "docs/schemas/issue.json"):
         w(wb, rel, "{}\n")
@@ -164,6 +168,10 @@ if ONLY in (None, "split", "run"):
     hist = [run(["git", "log", "--all", "--format=%h", "--", f"docs/acceptance/http/{c}.yaml"], wb).stdout.strip()
             for c in hidden]
     opened = run(["git", "ls-files", "docs/acceptance"], wb).stdout.split()
+    runs = open(os.path.join(wb, "docs", "verify", "runs.jsonl"), encoding="utf-8").read()
+    check("the split moves the hidden criteria's lines of rspec's verify log to the holdout repo, keeping the rest",
+          all(c not in runs for c in hidden) and runs.count("\n") == len(vis) - len(hidden)
+          and all(c in open(os.path.join(hold, "verify", "runs.jsonl"), encoding="utf-8").read() for c in hidden), runs)
     check("after the split and commit, no hidden test is anywhere in the workbench's history; the open ones are committed",
           hist == [""] * len(hidden) and "docs/acceptance/manifest.json" in opened and len(opened) > 1, (hist, opened))
     leaked = os.path.join(base, "leaked")

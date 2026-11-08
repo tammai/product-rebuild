@@ -164,7 +164,10 @@ def list_sha256(ids):
 
 IGNORE_LINES = ("# The bundle stays out of git until holdout.py split (05 P4): its hidden share must never be in",
                 "# this repo's history, which every lane holds as a submodule. The split removes these lines.",
-                "docs/acceptance/")  # rebuild_init.py writes them; change both together
+                "docs/acceptance/", "docs/verify/runs.jsonl")  # rebuild_init.py writes them; change both together
+# rspec:verify logs every recording run here with run-http's failure message, which quotes the test's expected
+# value ("got X, expected Y"): a hidden criterion's earlier failing runs would hand a lane its test.
+RUNS = os.path.join(SPEC, "verify", "runs.jsonl")
 
 
 def bundle_path(base, rel):
@@ -246,7 +249,7 @@ def cmd_split(args):
             return die(f"the manifest path {t.get('path')!r} (a test for {t.get('criterion')}) leaves {BUNDLE}.")
         if not os.path.exists(src):
             return die(f"{src} (the test for {t['criterion']}) is missing.")
-    seen = in_history([os.path.join(BUNDLE, t["path"]) for t in moves])
+    seen = in_history([os.path.join(BUNDLE, t["path"]) for t in moves] + ([RUNS] if moves else []))
     if seen:
         return die("these tests the split would hide are already in the workbench's git history, which every lane "
                    "holds as a submodule: " + "; ".join(f"{p} in {', '.join(ids)}" for p, ids in sorted(seen.items()))
@@ -264,6 +267,18 @@ def cmd_split(args):
         t["visibility"] = "hidden"
     if os.path.isdir(os.path.join(BUNDLE, "seed")):
         shutil.copytree(os.path.join(BUNDLE, "seed"), os.path.join(hold, "seed"), dirs_exist_ok=True)
+    kept_runs = None
+    if os.path.exists(RUNS):
+        kept_runs, hidden_runs = [], []
+        for line in read_text(RUNS).split("\n"):
+            try:
+                cid = json.loads(line).get("criterion") if line.strip() else None
+            except (ValueError, AttributeError):
+                cid = None
+            # A line that does not parse may be anyone's, so it goes with the hidden ones.
+            (hidden_runs if cid in set(hidden) or (line.strip() and cid is None) else kept_runs).append(line)
+        if hidden_runs:
+            write_atomic(os.path.join(hold, "verify", "runs.jsonl"), "\n".join(hidden_runs) + "\n")
     for step in (("add", "-A"), ("commit", "-q", "--allow-empty", "-m", f"holdout: {len(hidden)} hidden tests, seed {seed}")):
         r = git(hold, *step)
         if r.returncode:
@@ -276,6 +291,8 @@ def cmd_split(args):
            "slices": chosen, "manifest_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()}
     write_atomic(MANIFEST, text)
     write_atomic(RECORD, json.dumps(rec, indent=2) + "\n")
+    if kept_runs is not None:
+        write_atomic(RUNS, "\n".join(l for l in kept_runs if l.strip()) + "\n")
     for t in moves:
         os.remove(os.path.join(BUNDLE, t["path"]))
     unignore_bundle()

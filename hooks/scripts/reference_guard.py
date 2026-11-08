@@ -63,7 +63,9 @@ DENY = ("Denied by product-rebuild's reference guard: a build lane may not read 
 # so a lane can still move about the project parent.
 RECURSIVE = {"rg", "ag", "ack", "find", "du", "tree", "tar", "zip", "7z", "rsync", "fd"}
 SEARCHERS = {"rg", "ag", "ack", "grep", "egrep", "fgrep", "fd"}  # their first operand is the pattern
-RECURSIVE_WITH_FLAG = {"grep", "egrep", "fgrep", "cp", "ls", "scp", "chmod", "chown"}
+# Each program's own recursive short flags: `ls -ltr ..` only sorts by time, `cp -a` archives a tree.
+RECURSIVE_WITH_FLAG = {"grep": "rR", "egrep": "rR", "fgrep": "rR", "cp": "rRa", "scp": "r", "ls": "R",
+                       "chmod": "R", "chown": "R"}
 # Commands whose path operands they write (sed and perl only with -i), and git subcommands that write the
 # repo they run in.
 WRITERS = {"cp", "mv", "tee", "rm", "rmdir", "touch", "mkdir", "ln", "rsync", "install", "truncate", "dd",
@@ -162,8 +164,15 @@ def _judge(path, roots, recursive):
 def _recursive(prog, argv):
     if prog in RECURSIVE:
         return True
-    return prog in RECURSIVE_WITH_FLAG and any(
-        re.match(r"^-[a-zA-Z]*[rR]", a) or a in ("--recursive", "--dereference-recursive") for a in argv[1:])
+    flags = RECURSIVE_WITH_FLAG.get(prog)
+    return bool(flags) and any(
+        a in ("--recursive", "--dereference-recursive", "--archive")
+        or (re.match(r"^-[a-zA-Z]+$", a) is not None and any(f in a[1:] for f in flags)) for a in argv[1:])
+
+
+def _in_place(argv):
+    """sed's and perl's in-place edit, however it is spelled: -i, -i.bak, -Ei, -pi, -i -e, --in-place[=sfx]."""
+    return any(a.startswith("--in-place") or (re.match(r"^-[a-zA-Z]*i", a) is not None) for a in argv[1:])
 
 
 def _root_pattern(root):
@@ -193,17 +202,18 @@ def raw_reaches(command, roots, holdout_names):
 
 
 def _git_locations(argv):
-    return [argv[i + 1] for i, a in enumerate(argv[:-1]) if a in ("-C", "--git-dir", "--work-tree")]
+    out = [argv[i + 1] for i, a in enumerate(argv[:-1]) if a in ("-C", "--git-dir", "--work-tree")]
+    return out + [a.split("=", 1)[1] for a in argv if a.startswith(("--git-dir=", "--work-tree="))]
 
 
 def _writes_into(prog, argv, targets, base, workbenches):
     paths = list(targets)
     if prog == "git":
         locs = _git_locations(argv)
-        sub = next((a for a in argv[1:] if not a.startswith("-") and a not in locs), "")
+        sub = next((a for i, a in enumerate(argv[1:], 1) if not a.startswith("-") and argv[i - 1] not in ("-C", "--git-dir", "--work-tree", "-c")), "")
         if sub in GIT_WRITES:
             paths += locs or ["."]
-    elif prog in WRITERS and (prog not in ("sed", "perl") or any(a.startswith("-i") for a in argv)):
+    elif prog in WRITERS and (prog not in ("sed", "perl") or _in_place(argv)):
         paths += [a.split("=", 1)[1] if prog == "dd" and "=" in a else a
                   for a in argv[1:] if a and not a.startswith("-")]
     for w in paths:

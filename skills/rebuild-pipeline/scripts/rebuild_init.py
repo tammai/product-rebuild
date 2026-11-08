@@ -185,13 +185,13 @@ def main(argv=None):
     # __pycache__ is ignored for the same dirty-tree reason: running any script here writes
     # bytecode beside it, and an untracked scripts/__pycache__ would refuse the next gate lock.
     #
-    # docs/acceptance/ is ignored until holdout.py split removes the three lines (holdout.IGNORE_LINES; change
+    # docs/acceptance/ and rspec's verify log are ignored until holdout.py split removes these lines (holdout.IGNORE_LINES; change
     # both together): rspec:verify records the whole bundle, and a commit before the split would put the
     # hidden share into the history every lane holds as a submodule.
     write(".gitignore", "__pycache__/\n*.pyc\nparity/flows/.unlocked.yaml\nparity/equiv/.unlocked.yaml\ndocs/acceptance/.unlocked.yaml\n"
           "# The bundle stays out of git until holdout.py split (05 P4): its hidden share must never be in\n"
           "# this repo's history, which every lane holds as a submodule. The split removes these lines.\n"
-          "docs/acceptance/\n")
+          "docs/acceptance/\ndocs/verify/runs.jsonl\n")
 
     write("README.md", README)
 
