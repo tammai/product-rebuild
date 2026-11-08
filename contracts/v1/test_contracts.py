@@ -362,6 +362,11 @@ class _Ref(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/api/issues/" + UUID:
             return self._send(200, {"title": "Fix login"})
+        if self.path == "/text":
+            self.send_response(200)
+            self.send_header("Content-Length", "5")
+            self.end_headers()
+            return self.wfile.write(b"hello")
         self._send(404, {})
 
 
@@ -575,6 +580,141 @@ class TestYamlSubset(unittest.TestCase):
             with self.assertRaises(C.YamlError, msg=text) as ctx:
                 C.parse_yaml(text)
             self.assertIn(msg, str(ctx.exception), text)
+
+
+class TestRemainingMessages(unittest.TestCase):
+    """The error messages the classes above do not reach: one input each, so every message has a test."""
+
+    def test_yaml_messages(self):
+        cases = {
+            'a: "\\q"\n': "unknown escape \\q",
+            "a: {b c}\n": "expected ':' after flow key",
+            'a: ["x" y]\n': "expected ',' or ']'",
+            "a: [1] x\n": "unexpected text after the value",
+            "a: b: c\n": "a plain value cannot contain ': '",
+            "a: 1\njust text\n": "expected 'key: value'",
+            '"a" b: 1\n': "unexpected text after quoted key",
+            "%YAML 1.2\na: 1\n": "directives are outside the subset",
+            "a: %x\n": "'%' is reserved",
+            "a: @x\n": "'@' is reserved",
+            "a: `x`\n": "'`' is reserved",
+            "? a\n": "complex keys are outside the subset",
+        }
+        for text, msg in cases.items():
+            with self.assertRaises(C.YamlError, msg=text) as ctx:
+                C.parse_yaml(text)
+            self.assertIn(msg, str(ctx.exception), text)
+
+    def test_criteria_and_story_messages(self):
+        self.assertTrue(has(errors(criteria(["- [ ] ~~**F-ISS-01.AC7** text"])), "removed criterion must read"))
+        story = STORY.replace("As a member, I create an issue so the team sees it.\n", "")
+        self.assertTrue(has(errors(C.check_story(story)), "section Story is empty"))
+        story = STORY.replace("- **MNB-1** Two issues", "- Two issues").replace("→ MNB-1", "→ F-ISS-01.AC2")
+        self.assertTrue(has(errors(C.check_story(story)), "needs an MNB-<n> ID"))
+
+    def test_lock_criterion_missing_from_file(self):
+        root = tempfile.mkdtemp()
+        try:
+            write(os.path.join(root, "docs", "specs", "trackr", "features", "F-ISS-01-create-issue.md"), "# empty\n")
+            self.assertTrue(has(errors(C.check_lock(make_lock(), root)), "not found in features/"))
+        finally:
+            shutil.rmtree(root)
+
+    def test_schema_messages(self):
+        found = errors(C.check_lock({"contracts": "x", "spec": "", "generated": "today", "criteria": "no"}, None))
+        for text in ("must match", "must not be empty", "ISO 8601 date-time", "must be array"):
+            self.assertTrue(has(found, text), (text, found))
+        self.assertTrue(has(errors(C.check_cost(COST.replace('"turns": 4', '"turns": -4'))), "must be >= 0"))
+        with self.assertRaises(C.SchemaUnsupported):
+            C._validate({"exclusiveMinimum": 1}, 1, "", {}, [])
+
+    def test_http_step_messages(self):
+        steps = [
+            ({"request": "x"}, "needs request and expect mappings"),
+            ({"request": {"method": "FETCH", "path": "/a"}, "expect": {"status": 200}}, "method must be one of"),
+            ({"request": {"method": "GET", "path": "a"}, "expect": {"status": 200}}, "path must start with /"),
+            ({"request": {"method": "GET", "path": "/a", "account": "member"}, "expect": {"status": 200}},
+             "account must be an upper-case name"),
+            ({"request": {"method": "GET", "path": "/a"}, "expect": {"status": "200"}}, "expect.status must be an integer"),
+            ({"request": {"method": "GET", "path": "/a"}, "expect": {"status": 200, "json": [{"pointer": "key"}]}},
+             "needs a JSON pointer"),
+            ({"request": {"method": "GET", "path": "/a"}, "expect": {"status": 200, "json": [{"pointer": "/k"}]}},
+             "needs equals, rule or capture"),
+            ({"request": {"method": "GET", "path": "/a"}, "expect": {"status": 200,
+                                                                    "json": [{"pointer": "/k", "capture": "1x"}]}},
+             "capture must be a name"),
+            ({"request": {"method": "GET", "path": "/a"}, "expect": {"status": 200,
+                                                                    "json": [{"pointer": "/k", "rule": "regex:("}]}},
+             "is not a valid regex"),
+        ]
+        for step, msg in steps:
+            found = errors(C.check_http_test({"criterion": "F-ISS-01.AC2", "steps": [step]}, "t.yaml"))
+            self.assertTrue(has(found, msg), (msg, found))
+        self.assertTrue(has(errors(C.check_http_test({"criterion": "X", "steps": []}, "t.yaml")),
+                            "criterion must be a criterion ID"))
+        self.assertTrue(has(errors(C.check_http_test({"criterion": "F-ISS-01.AC2", "seed": "s.yaml", "steps": []},
+                                                     "t.yaml", None, ".")), "seed must be a list of paths"))
+
+    def test_vendor_check_messages(self):
+        tmp = tempfile.mkdtemp()
+        try:
+            copy = os.path.join(tmp, "v1")
+            shutil.copytree(HERE, copy, ignore=shutil.ignore_patterns("__pycache__"))
+            manifest = os.path.join(copy, "MANIFEST")
+            with open(manifest, encoding="utf-8") as f:
+                lines = f.read().split("\n")
+            with open(manifest, "w", encoding="utf-8", newline="\n") as f:
+                f.write("\n".join(["contracts-version: 0.9.0", "garbage"] + lines[1:]))
+            found = errors(C.vendor_check(copy))
+            self.assertTrue(has(found, "MANIFEST line 1 is 'contracts-version: 0.9.0'"), found)
+            self.assertTrue(has(found, "MANIFEST line 2 is not"), found)
+            write(os.path.join(copy, "notes.txt"), "x")
+            write(os.path.join(copy, "fixtures", "cost", "valid", "bad.jsonl"), "not json\n")
+            write(os.path.join(copy, "fixtures", "cost", "invalid", "good.jsonl"), COST)
+            C.seal(copy)
+            found = errors(C.vendor_check(copy))
+            self.assertTrue(has(found, "no header rule for notes.txt"), found)
+            self.assertTrue(has(found, "fixture cost/valid/bad.jsonl should pass: line 1: not JSON"), found)
+            self.assertTrue(has(found, "fixture cost/invalid/good.jsonl should fail but passed"), found)
+            schema = os.path.join(copy, "cost-line.schema.json")
+            with open(schema, encoding="utf-8") as f:
+                data = json.load(f)
+            del data["$comment"]
+            write(schema, json.dumps(data))
+            write(os.path.join(copy, "fixtures", "nonsense", "valid", "x.txt"), "x")
+            C.seal(copy)
+            found = errors(C.vendor_check(copy))
+            self.assertTrue(has(found, 'cost-line.schema.json must have "$comment"'), found)
+            self.assertTrue(has(found, "not run: fixtures"), found)
+        finally:
+            shutil.rmtree(tmp)
+
+
+class TestRunHttpMessages(TestC4RunHttp):
+    def test_failure_messages(self):
+        acct = {"ACCEPT_BASE_URL": self.base, "ACCEPT_ACCOUNT_MEMBER": "Authorization: Bearer t1"}
+        cases = [
+            (HTTP_EXAMPLE, dict(acct, ACCEPT_ACCOUNT_MEMBER="Bearer t1"), "must be a header line 'Name: value'"),
+            (HTTP_EXAMPLE, dict(acct, ACCEPT_ACCOUNT_MEMBER="Authorization: Bearer no"), "status 401, expected 201"),
+            (HTTP_EXAMPLE.replace("pointer: /key, equals", "pointer: /nope, equals"), acct,
+             "/nope: not present in the response"),
+            (HTTP_EXAMPLE.replace("rule: uuid", "rule: int"), acct, "does not satisfy rule int"),
+            (HTTP_EXAMPLE.replace("steps:", "stepz:"), acct, "invalid test"),
+            (HTTP_EXAMPLE, dict(acct, ACCEPT_BASE_URL="http://127.0.0.1:9"), "request failed"),
+        ]
+        for text, env, msg in cases:
+            xml, failed = self.run_it(text, env)
+            self.assertEqual(failed, 1, msg)
+            self.assertIn(escape_xml(msg), xml)
+
+    def test_non_json_response(self):
+        text = HTTP_EXAMPLE.replace('path: "/api/issues/{issue_id}"', "path: /text")
+        xml, failed = self.run_it(text)
+        self.assertIn("response is not JSON", xml)
+
+
+def escape_xml(s):
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 if __name__ == "__main__":

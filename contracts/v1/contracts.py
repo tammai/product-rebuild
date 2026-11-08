@@ -296,6 +296,8 @@ class _Block:
         out = {}
         while self.at(indent) and not _is_item(self.lines[self.i][2]):
             ln, _, body = self.lines[self.i]
+            if body == "?" or body.startswith("? "):
+                raise YamlError(ln, _INDICATORS["?"])
             sep = _mapping_sep(body)
             if sep is None:
                 raise YamlError(ln, "expected 'key: value'")
