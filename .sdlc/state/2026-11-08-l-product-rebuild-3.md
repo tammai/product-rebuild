@@ -15,7 +15,7 @@ Current: Stage 2 – Build
 
 ## Stages
 - [x] 1 Define   — the change file, the plan sections below
-- [ ] 2 Build
+- [x] 2 Build
 - [ ] 3 Review   — the change file's ## Review
 - [ ] 4 Ship     — PR: (Learn: knowledge, recurring-defects.md)
 
@@ -28,6 +28,7 @@ parts in fresh sessions: each backlog part is its own coordinator task
 - reference checkout fallbacks: preflight.py checkout_candidates
 - slices and features (B7): sequence.py plan_slices/plan_features read rspec's docs/build-plan.md and docs/features.md; parity, slice_review, gate status and validate go through them; matrix/ and plan/slices.yaml are read by nothing but B6's deletion candidates (validate's lane-R section, gate_facts.py)
 - every backlog part done (B6 after B7); next is Feature close: Review over the whole branch from Base 3274d37. The capability table is docs/MIGRATION-3.md (eval/migration_3.py; --external with the three *_PLUGIN_ROOT vars at the local checkouts). adr/ is the vendored playbook + scaffold manifest only (playbook.py vendor; gate-3 protects it). Open with the user: departures.gate1_allows_append (unchanged); 3.0.0 blockers: MIGRATION row 9 (rspec merges rules-recall), row 19 (client-only, user decides)
+- FEATURE CLOSE IN PROGRESS: Review round 1 FAILED (code-reviewer-r1.md: H1-H7 high, M1-M6 and M9 bugs; security-r1.md: S1-S4, S6 high, S7 bug; both in .sdlc/.work/findings/2026-11-08-l-product-rebuild-3/, which a fresh session in this worktree can read). Back at Build (Stage 2). The coordinator answered the three design calls (change file, "Review round 1": S1/H2 split before the bundle's first commit, S4 lanes may not write the workbench, H7 match rules). Next session: fix every high and bug test-first (each finding's root cause, places and what-a-fix-could-break are in the reports), log deviations, run verify, `state.py advance 3 --gate pass`, then round 2 as the closing check (write code-reviewer-r2.md / security-r2.md: same reviewers, told round 1's findings), then ## Review, Learn, ship.py --waive-baseline and git commit only (no push, no PR). Unconfirmed items (H8, S5 Playwright artifacts, S8 PowerShell tool, M7, M8, M10, M11): write the probe test; fix if it fails, else drop and say so. Lows/simplifications (M12-M14, S9-S11, fix-in-passing) become tickets in ## Review unless trivially in a touched line.
 
 ## Tasks
 1. **B1 Dependencies and version** — AC-001
@@ -62,6 +63,9 @@ parts in fresh sessions: each backlog part is its own coordinator task
 - 2026-11-09 B5 ACs refined from the coordinator's pr-5 answers: AC-010 made concrete; AC-023 (NFR evidence), AC-024 (budgets), AC-025 (cost logs), AC-026 (autopilot parking), AC-027 (rspec template PR, manual) added
 - 2026-11-09 B6 split (coordinator pr-6 Q1 a): B7 ports parity.py, slice_review.py, sequence.py and gate.py's slice states to rspec's build-plan.md and features.md, and G6 step 4 says not run when they cannot run; B6 (table, deletions, docs) now depends on B7, so the coverage row has a working owner before any 2.x part is deleted (05 P1)
 - 2026-11-09 B6 ACs refined from the coordinator's pr-6 answers: AC-011 made concrete; AC-028 (reports from rspec artifacts), AC-029 (slice order from story dependencies), AC-030 (step 4 not run) added for B7
+- 2026-11-09 verify at Feature close: only the test step fails, and only the three evals left in .sdlc/baseline.md (lane_guards worktree check, run_supervision's two stall checks, windows_and_upgrade's CRLF gate-guard check); every AC passes, drift clean
+- 2026-11-09 Stage 2: pass — Feature close: every backlog part done (B1-B7); verify fails only on the baselined evals
+- 2026-11-09 review: ran code + security (Code: L, Public Surface not none, large diff; Security: the change file's failure modes name untrusted input reaching a file path), self-chosen: L
 
 ## Deviations
 - 2026-11-08 surface What: script-internal functions allowed, bash_reaches, check, denied, denied_roots, guard, init_repo, is_lane, main, marked, posture_of, run, set_reference, tool_reaches, w (hooks/scripts/reference_guard.py and the evals) read as new exports. Why: they are functions inside a hook and eval scripts, imported by nothing. Effect: none; Public Surface unchanged.
