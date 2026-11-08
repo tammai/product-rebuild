@@ -68,7 +68,9 @@
       "agents",
       "gitignore",
       "prd",
-      "design-system"
+      "design-system",
+      "constitution",
+      "knowledge"
     ],
     "complete": false
   },
