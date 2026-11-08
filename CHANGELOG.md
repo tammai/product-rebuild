@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Shared contracts v1 in `contracts/v1/`** (decision D1): the canonical copy that rspec, sdlc and bug-hunter
+  vendor byte-identical. It holds `CONTRACTS.md` (criterion format, story sections, criteria lock, acceptance
+  bundle, departures registry, finding format, run log) and the JSON schemas. It also holds `contracts.py`, a
+  stdlib-only validator with its own YAML subset parser and the `run-http` replay runner, plus unit tests, valid
+  and invalid fixtures, and `MANIFEST`.
+  - `contracts.py vendor-check` is the drift test every consumer runs; `eval/contracts_v1.py` runs it here.
+  - `.gitattributes` keeps `contracts/v1/**` byte-exact on Windows checkouts. Each consumer needs the same line.
+
 ## [2.2.0] - 2026-11-06
 
 ### Changed
