@@ -3,15 +3,73 @@
   "hosts": [
     "claude-code"
   ],
-  "files": {},
-  "merged": {},
+  "files": {
+    ".claude/rules/sdlc.md": {
+      "class": "generated",
+      "sha256": "8eb2f28969bf7a89c4fe49caac38ed8f226bcd638073ec0132a1d8c5ccc5b111",
+      "template": "templates/project/rules/sdlc.md"
+    },
+    ".claude/rules/sdlc-code-style.md": {
+      "class": "generated",
+      "sha256": "7403550988a6d8f72595997065a964c4542a396ca85da5628f8bb585aa7221d4",
+      "template": "templates/project/rules/code-style.md"
+    },
+    ".claude/rules/sdlc-tests.md": {
+      "class": "generated",
+      "sha256": "80da5b9b808d99f619ac33c900d907bcf770c0959c384067b59ec1b1a9d79927",
+      "template": "templates/project/rules/tests.md"
+    },
+    ".claude/rules/sdlc-migrations.md": {
+      "class": "generated",
+      "sha256": "b030d35fda408790cb327e1a434c3f982545266abf5e9eb3bc4c81c9d1908bab",
+      "template": "templates/project/rules/migrations.md"
+    },
+    ".claude/rules/sdlc-sensitive.md": {
+      "class": "generated",
+      "sha256": "9e0181cc816c887facfe7e7bd041995f84b99113e01f9adde75527bb9cea7b02",
+      "template": "templates/project/rules/sensitive.md"
+    },
+    ".claude/rules/sdlc-ci.md": {
+      "class": "generated",
+      "sha256": "88ca76b30328f8b9a7cc3fbf113f17312f2276dc0d1b00c0d55cf2fa9b323a18",
+      "template": "templates/project/rules/ci.md"
+    },
+    ".claude/rules/sdlc-ui.md": {
+      "class": "generated",
+      "sha256": "012503c22f1f36ca4f92c7d7656889e427596ab7451815e1e4dc59ac9b73e29a",
+      "template": "templates/project/rules/ui.md"
+    }
+  },
+  "merged": {
+    ".gitignore": [
+      ".sdlc/.work/",
+      ".sdlc/state/*.json",
+      ".sdlc/state/*.events.jsonl",
+      ".sdlc/state/*.commands/",
+      ".claude/*.local.md"
+    ]
+  },
   "migrations": {
     "applied": [],
     "skipped": {}
   },
   "setup": {
     "kind": "brownfield",
-    "completed_steps": [],
+    "completed_steps": [
+      "stack",
+      "commands",
+      "baseline",
+      "audit",
+      "ai-config",
+      "ci",
+      "rules",
+      "guardrails",
+      "lint",
+      "agents",
+      "gitignore",
+      "prd",
+      "design-system"
+    ],
     "complete": false
   },
   "command_runs": {

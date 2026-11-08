@@ -11,5 +11,6 @@
     "lint": null,
     "typecheck": null,
     "build": null
-  }
+  },
+  "prd": "README.md"
 }
