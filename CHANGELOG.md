@@ -7,21 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-3.0.0 in progress (version `3.0.0-rc.2`, no tag): product-rebuild becomes an orchestrator over rspec, sdlc
-and bug-hunter (spec `docs/specs/rebuild-upgrade/05-product-rebuild.md`). All six parts below; where each 2.x
-capability went is in `docs/MIGRATION-3.md`.
+## [3.0.0] - 2026-11-09
+
+product-rebuild becomes an orchestrator over rspec, sdlc and bug-hunter (spec
+`docs/specs/rebuild-upgrade/05-product-rebuild.md`). This section merges the two release candidates (rc.1 and
+rc.2); where each 2.x capability went is in `docs/MIGRATION-3.md`.
 
 ### Breaking
 
 - **A 2.x workbench is refused** (05 D7). New workbenches are marked `rebuild_major: 3`; the guards leave a
   2.x workbench alone, and `upgrade.py`, scaffold-repo and the skill refuse it with a message to finish that
   rebuild on product-rebuild 2.2.0. There is no migration.
-- **Dependencies** now include rspec (`>=0.11.0-rc.1 <1`) and bug-hunter (`>=0.4.0-rc.1 <1`) beside sdlc and
-  sdlc-extras (`>=3.5.0-rc.6 <4`). These are pre-release ranges; the 3.0.0 release pins the finals.
-  `marketplace.json` allows dependencies from the `sdlc`, `rspec` and `bug-hunter` marketplaces.
+- **Dependencies** now include rspec (`>=0.11.0 <1`) and bug-hunter (`>=0.4.0 <1`) beside sdlc and
+  sdlc-extras (`>=3.5.0 <4`). `marketplace.json` allows dependencies from the `sdlc`, `rspec` and `bug-hunter` marketplaces.
 - **rspec owns the spec, and the gates lock its artifacts** (05 P2). The workbench holds the rspec spec in
   rspec's single-repo layout (`docs/`). The skill runs `rspec:init` through `rspec:handoff` and `rspec:check`
-  instead of mining (the 2.x G1–G4b references stay on disk until they are deleted later in 3.0). Gates keep
+  instead of mining (the 2.x G1–G4b references are deleted, below). Gates keep
   their names and lock in rspec's order, 1, 3, 2, 4:
   - gate-1 locks `features.md` and `domain.md`, once rspec's stage is `features-approved`. `departures.yaml` is
     append-only from that lock, not hashed: gate-1 records each departure present, refusing to lock while one is
@@ -54,7 +55,7 @@ capability went is in `docs/MIGRATION-3.md`.
   ACs cite criterion IDs, with its open recorded tests (sha256-checked) and a lock copy in the code repo for
   sdlc's spec-backed mode, capped at `rebuild.yaml` `budgets.parallel_lanes` (default 3) per slice;
   `lane_plan.py questions <Sn>` batches the lanes' spec questions for `rspec:amend`, and `lane_plan.py
-  refresh` re-copies after it. The 2.x `--specs` mode stays until the 2.x parts are removed.
+  refresh` re-copies after it. The 2.x `--specs` mode is deleted (below).
 - **The flow guard covers rspec's bundle**: committed files under `docs/acceptance/` change only after
   `flows.py unlock --acceptance --reason "…"`.
 - **G6 runs cheapest first** (05 P6): `boundary.py <Sn>` runs the open suite (each failure re-run once; a pass on
@@ -93,7 +94,8 @@ capability went is in `docs/MIGRATION-3.md`.
     `architecture-default`) and the gate rubrics;
   - **lane R (Rule Cards)**: `rules_for.py`, `rule.schema.json`, `validate.py`'s rule checks, parity's rules
     table, and the `rules_recall.py` eval with CLAUDE.md's rule that measured lane R on it. The fixture moved to
-    `docs/rspec-pr/rules-recall/` as a recall test proposed to rspec; 3.0.0 is not released until rspec has it;
+    `docs/rspec-pr/rules-recall/` as a recall test proposed to rspec; it ships here in 3.0.0 and the rspec PR
+    follows the release (`docs/MIGRATION-3.md` row 9);
   - `cite_excerpts.py`, `gate_facts.py`, `evidence_bundle.py`, `erd.py`, `basis.py`, the `feature`, `finding`,
     `rule` and `slice` schemas, `lane_plan.py --specs` (and its `--amend`), `playbook.py excerpt`, and the evals
     and fixtures that tested them;
@@ -144,7 +146,7 @@ capability went is in `docs/MIGRATION-3.md`.
   printing `→`, `…` or `—` raised an encoding error, so `finding` reported `error: 'charmap' codec…` and exit 1
   instead of `routed: … → rspec`. The CLI now prints `?` for a character the console can't show; output on a
   UTF-8 console is unchanged. The spec's C4 now records the `cli/` test format as not settled in v1.
-- **rc.2: the pre-release smoke run's blockers** (each proven by an eval that reproduces it):
+- **Found by the pre-release smoke run on rc.1, fixed in rc.2** (each proven by an eval that reproduces it):
   - **No credential in an equivalence trace.** `equiv.py record` wrote request headers into the committed
     `parity/equiv/*.trace.yaml`, so a signed-in trace committed the account token. A trace now stores
     `account: <NAME>` (contracts v1's field) in place of `Authorization`, `Proxy-Authorization`, `Cookie` or any
@@ -185,6 +187,16 @@ capability went is in `docs/MIGRATION-3.md`.
   decision of 2026-11-09). rspec's modernize track covers data migration and cutover; transcribing the existing
   backend API into a frozen contract and inventorying what the old app left on devices have no owner or test.
   Do those by hand for a client-only rebuild, or wait for a release that owns them.
+
+- **Departures appended after Gate 1 are not tamper-protected.** Gate 1 records the departures present at its
+  lock, and `validate.py` and gate-5 fail when one of those is removed or changed; a departure G6 accepts later
+  is appended but not recorded, so editing or removing it is not caught. Review `docs/departures.yaml`'s history
+  before Gate 5.
+
+- **The reference guard is a guard, not a sandbox.** It judges the paths a call spells, not a path computed at
+  run time, a script or interpreter that opens the file itself, a nested shell or a Windows short name (README,
+  and `docs/MIGRATION-3.md`, Known limits of the reference guard). Use posture `strict` for a sensitive
+  reference.
 
 ## [2.2.0] - 2026-11-06
 

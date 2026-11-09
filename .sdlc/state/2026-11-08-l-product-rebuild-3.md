@@ -23,6 +23,7 @@ Current: Stage 4 – Ship
 parts in fresh sessions: each backlog part is its own coordinator task
 
 ## Handoff
+- RELEASE 3.0.0 (2026-11-09, user-approved to an open PR; merge, tag and release are the orchestrator's): version 3.0.0; dependencies pinned to the finals (sdlc and sdlc-extras >=3.5.0 <4, rspec >=0.11.0 <1, bug-hunter >=0.4.0 <1); MIGRATION-3.md cites the released commits (rspec v0.11.0 1a84c76bbb7c, sdlc sdlc--v3.5.0 de619772cf1c, bug-hunter v0.4.0 16048641c2cf), every cited test present under its old name and passing there (migration_3.py --external); row 9 ships with its fixture here, the rspec PR follows the release (user decision); CHANGELOG [3.0.0] merges rc.1 and rc.2 with four known issues (S-42, row 19, CR-1, the guard is not a sandbox).
 - workbench marker: hooks/scripts/hooklib.py REBUILD_MAJOR + is_current_workbench; rebuild_init.py PIPELINE_YAML; upgrade.py major fence; scaffold-repo/scripts/scaffold.py checks it too
 - lanes are lane-worker subagents of a session started in the project's parent dir (g5-build.md Guardrails), so lane detection uses the payload agent_type
 - reference checkout fallbacks: preflight.py checkout_candidates

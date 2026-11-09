@@ -2,7 +2,8 @@
 
 **For:** the rspec worker, to add to tammai/rspec as a recall eval for discovery in OSS mode (rspec 0.11 line).
 Written in product-rebuild because product-rebuild's workers do not edit rspec; the coordinator dispatches it.
-Until rspec merges it, `docs/MIGRATION-3.md` row 9 blocks product-rebuild 3.0.0.
+product-rebuild 3.0.0 shipped with it here (`docs/MIGRATION-3.md` row 9, the user's decision of 2026-11-09);
+this PR to rspec follows the release.
 
 ## Why
 
