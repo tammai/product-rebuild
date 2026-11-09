@@ -311,9 +311,11 @@ def _archive(args):
                    "Only a lane sdlc shipped (Status: done) is archived.")
     dest_dir = os.path.join("plan", "lane-plans", "archive", f"{slice_id}-{lane}")
     copies = {}
+    # Named by role, not by the source's basename: sdlc 3.x calls both files `<feature>.md`, and one name
+    # let the state copy overwrite the change copy, so every archived lane read as having rewritten its criteria.
     for key in ("change", "state"):
         src = os.path.join(lrec["worktree"], lrec[key])
-        dst = os.path.join(dest_dir, os.path.basename(src))
+        dst = os.path.join(dest_dir, f"{key}.md")
         _write_text(dst, _read_text(src))
         copies[key] = dst.replace("\\", "/")
     lrec["archived"] = {**copies, "at": _iso_now(), "ac_edited": st["ac_edited"]}

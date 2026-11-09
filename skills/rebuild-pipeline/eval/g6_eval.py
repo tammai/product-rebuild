@@ -3,7 +3,7 @@
 first fix it needs, does every finding go where contracts C6 says, does the human sample become findings,
 and does one departures registry explain differences everywhere?
 
-  python3 skills/rebuild-pipeline/eval/g6_eval.py [route|boundary|sample|departures|fix|remine]
+  python3 skills/rebuild-pipeline/eval/g6_eval.py [route|boundary|sample|departures|fix|remine|reference|equiv]
 
 WHY IT EXISTS. G6 is where a build is judged against the reference rather than against its own tests. A
 boundary that runs the expensive steps over a build with a known defect wastes the budget; a router that
@@ -210,9 +210,34 @@ if ONLY in (None, "route", "fix"):
     check("not reproduced -> not routed", "BH-0005" in section("not routed") and "BH-0005" not in section("sdlc"), plan)
     check("accepted-departure and a finding a decided departure explains are dropped",
           "BH-0006" in section("dropped") and "BH-0007" in section("dropped") and "D-001" in section("dropped"), section("dropped"))
+    # The smoke run re-ran route.py with no fix in between and got a round 2 identical to round 1, burning the cap.
     r2 = script(wb, "route.py", "S1")
-    check("a second run is round 2", r2.returncode == 0 and os.path.exists(os.path.join(wb, "plan", "fix-rounds", "S1-r2.md")),
-          r2.stdout + r2.stderr)
+    check("a re-run with the same findings and no fix commit opens no round, and says round 1 is still open",
+          r2.returncode == 0 and not os.path.exists(os.path.join(wb, "plan", "fix-rounds", "S1-r2.md"))
+          and "round 1" in r2.stdout and "still open" in r2.stdout, r2.stdout + r2.stderr)
+    # Only a recorded attempt opens the next round: commits and branches say nothing about which round they fix.
+    app = os.path.join(proj, "app")
+    w(app, "unrelated.txt", "work on something else\n")
+    commit(app)
+    r2 = script(wb, "route.py", "S1")
+    check("…and a commit in a code repo is not an attempt", not os.path.exists(os.path.join(wb, "plan", "fix-rounds", "S1-r2.md"))
+          and "still open" in r2.stdout and "--attempted" in r2.stdout, r2.stdout + r2.stderr)
+    r2 = script(wb, "route.py", "S1", "--attempted", "restarted the flaky harness")
+    r2b = script(wb, "route.py", "S1")
+    check("…after route.py --attempted, a fix that did not work opens round 2 with the same findings",
+          r2.returncode == 0 and r2b.returncode == 0 and os.path.exists(os.path.join(wb, "plan", "fix-rounds", "S1-r2.md"))
+          and "restarted the flaky harness" in read(wb, "plan", "fix-rounds", "S1.json"), r2.stdout + r2.stderr + r2b.stdout + r2b.stderr)
+    # The other way an attempt is recorded: lane_plan.py archive of one of the round's fix lanes.
+    p2, wb2 = project("route-archive", split=False)
+    w(wb2, "parity/findings/S1/BH-0004.json", json.dumps(finding("BH-0004", "environment"), indent=2))
+    commit(wb2)
+    script(wb2, "route.py", "S1")
+    w(wb2, "plan/lane-plans/S1.yaml", "# eval\n" + json.dumps({"lanes": {"fix-r1-x": {"fix_round": 1,
+                                                                                       "archived": {"at": "2026-11-09"}}}}))
+    r2 = script(wb2, "route.py", "S1")
+    check("an archived fix lane of round 1 is an attempt: the same findings open round 2",
+          os.path.exists(os.path.join(wb2, "plan", "fix-rounds", "S1-r2.md")), r2.stdout + r2.stderr)
+    script(wb, "route.py", "S1", "--attempted", "another try")
     r3 = script(wb, "route.py", "S1")
     check("a third round is refused: the user decides", r3.returncode == 1 and "user" in r3.stderr and
           not os.path.exists(os.path.join(wb, "plan", "fix-rounds", "S1-r3.md")), r3.stdout + r3.stderr)
@@ -477,6 +502,177 @@ if ONLY in (None, "remine"):
           re.search(r"DUE\. Last on 2020-01-01, \d+ days ago", script(wb, "boundary.py", "S1").stdout) is not None)
     w(wb, "sources.yaml", "reference:\n  kind: own-code\n  upstream: frozen   # replaced app\n")
     check("a frozen reference says so", "reference is frozen, no re-mine" in script(wb, "boundary.py", "S1").stdout)
+
+if ONLY in (None, "reference"):
+    # The smoke run's G6 inherited ACCEPT_BASE_URL from rspec verify, which points at the reference: with the
+    # reference up, the open suite would have tested the reference and passed.
+    print("\n# G6 refuses to test the reference (S-54)")
+    proj, wb = project("reference")
+    src = read(wb, "sources.yaml")
+    w(wb, "sources.yaml", re.sub(r"^(    base_url:).*$", lambda m: f'{m.group(1)} "{URL.replace("127.0.0.1", "localhost")}/"',
+                                 src, count=1, flags=re.M))
+    sent = sum(SEEN.values())
+    r = script(wb, "boundary.py", "S1", env={"ACCEPT_BASE_URL": URL})
+    out = r.stdout + r.stderr
+    check("with ACCEPT_BASE_URL at the reference's address the boundary refuses, says why, and sends nothing",
+          r.returncode == 2 and "REFUSED" in out and "reference.run.base_url" in out and "slice build" in out
+          and sum(SEEN.values()) == sent, out[-1200:])
+    r = script(wb, "holdout.py", "run", "S1", env={"ACCEPT_BASE_URL": URL})
+    check("…and so does holdout.py run", r.returncode == 1 and "reference.run.base_url" in r.stderr
+          and sum(SEEN.values()) == sent, r.stdout + r.stderr)
+    # The same server under a path prefix, with sources.yaml written in another legal YAML layout, is still it.
+    w(wb, "sources.yaml", f'reference:   # the app we replace\n# a comment at column 0\n  kind: own-code\n'
+                          f'  run: {{base_url: "{URL.replace("127.0.0.1", "localhost")}"}}\n')
+    r = script(wb, "boundary.py", "S1", env={"ACCEPT_BASE_URL": URL + "/api"})
+    check("a path prefix and another YAML layout do not get past the check", r.returncode == 2 and "REFUSED" in r.stdout
+          and sum(SEEN.values()) == sent, r.stdout[-800:])
+    w(wb, "sources.yaml", f'reference:\n  run:\n    base_url: "{URL[len("http://"):]}"\n')
+    r = script(wb, "boundary.py", "S1", env={"ACCEPT_BASE_URL": URL})
+    check("a reference address with no scheme cannot be compared, so it refuses", r.returncode == 2 and "REFUSED" in r.stdout
+          and sum(SEEN.values()) == sent, r.stdout[-800:])
+    w(wb, "sources.yaml", "reference: [not, a, map\n")
+    r = script(wb, "boundary.py", "S1", env={"ACCEPT_BASE_URL": URL})
+    check("an unreadable sources.yaml refuses rather than passes", r.returncode == 2 and "REFUSED" in r.stdout
+          and "sources.yaml" in r.stdout and sum(SEEN.values()) == sent and "Traceback" not in r.stdout + r.stderr,
+          r.stdout[-800:] + r.stderr[-800:])
+    w(wb, "sources.yaml", src)
+    r = script(wb, "boundary.py", "S1", env={"ACCEPT_BASE_URL": URL})
+    check("with the build's URL the boundary runs and names the URL its open suite targets",
+          "REFUSED" not in r.stdout and f"target: {URL}" in r.stdout and sum(SEEN.values()) > sent, r.stdout[-1200:])
+
+if ONLY in (None, "equiv"):
+    # The smoke run's recorder wrote request headers into committed traces, so a signed-in trace held the token.
+    print("\n# equivalence traces never hold a credential (S-38)")
+    TOKEN = "s3cret-member-token"
+    LEAK = [""]
+
+    class Legacy(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            auth = self.headers.get("Authorization") or ""
+            if self.path == "/api/echo":
+                status, body = 200, {"you": auth}
+            elif self.path == "/api/leak":
+                status, body = 200, {"admin": LEAK[0]}
+            elif self.path == "/api/names":
+                status, body = 200, {"cookies": ["_myapp_session"], "lang": "en"}
+            else:
+                status, body = (200, {"name": "member"}) if auth == f"Bearer {TOKEN}" else (401, {"error": "sign in"})
+            data = json.dumps(body).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *a):
+            pass
+
+    legacy = socketserver.TCPServer(("127.0.0.1", 0), Legacy)
+    threading.Thread(target=legacy.serve_forever, daemon=True).start()
+    LURL = f"http://127.0.0.1:{legacy.server_address[1]}"
+    proj, wb = project("equiv", split=False)
+    src = read(wb, "sources.yaml")
+    src = re.sub(r"^(  kind:).*$", r"\1 own-code", src, count=1, flags=re.M)
+    w(wb, "sources.yaml", re.sub(r"^(  posture:).*$", r'\1 "own-code"', src, count=1, flags=re.M))
+    w(wb, "preflight.json", json.dumps({"checks": [{"id": "instance", "status": "pass"}]}))
+    w(wb, "parity/equiv/config.yaml", "adapter: none\nlegacy:\n  base_url_env: EQUIV_LEGACY_URL\n"
+                                      "rebuild:\n  base_url_env: EQUIV_REBUILD_URL\n")
+    w(wb, "parity/equiv/F-ISS-01/me.request.yaml", "feature: F-ISS-01\nrequest:\n  method: GET\n  path: /api/me\n"
+                                                   f"  headers: {{ Authorization: Bearer {TOKEN} }}\n")
+    acct = {"ACCEPT_ACCOUNT_MEMBER": f"Authorization: Bearer {TOKEN}"}
+    r = script(wb, "equiv.py", "record", "F-ISS-01", env={"EQUIV_LEGACY_URL": LURL, **acct})
+    tpath = os.path.join(wb, "parity", "equiv", "F-ISS-01", "me.trace.yaml")
+    raw = open(tpath, "rb").read() if os.path.exists(tpath) else b""
+    check("a signed-in recording leaves no byte of the token in the trace and names the account",
+          r.returncode == 0 and raw and TOKEN.encode() not in raw and b"account: MEMBER" in raw and b"status: 200" in raw,
+          r.stdout + r.stderr + raw.decode("utf-8", "replace"))
+    r = script(wb, "equiv.py", "replay", "F-ISS-01", env={"EQUIV_REBUILD_URL": LURL, **acct})
+    check("…and replays green with the live account re-inserted", r.returncode == 0 and "ok     F-ISS-01 › me" in r.stdout,
+          r.stdout + r.stderr)
+    r = script(wb, "equiv.py", "replay", "F-ISS-01", env={"EQUIV_REBUILD_URL": LURL})
+    check("…and with the account unset it errors naming the variable, never replays unsigned",
+          r.returncode != 0 and "ACCEPT_ACCOUNT_MEMBER" in r.stdout, r.stdout + r.stderr)
+    w(wb, "parity/equiv/F-ISS-03/cookie.request.yaml", "feature: F-ISS-03\nrequest:\n  method: GET\n  path: /api/me\n"
+                                                       "  headers: { Cookie: sid=unnamed-session }\n")
+    w(wb, "parity/equiv/F-ISS-03/echo.request.yaml", "feature: F-ISS-03\nrequest:\n  method: GET\n  path: /api/echo\n"
+                                                     "  account: MEMBER\n")
+    r = script(wb, "equiv.py", "record", "F-ISS-03", env={"EQUIV_LEGACY_URL": LURL, **acct})
+    left = [f for f in os.listdir(os.path.join(wb, "parity", "equiv", "F-ISS-03")) if f.endswith(".trace.yaml")]
+    check("a credential no account variable holds, or one the response echoes, writes no trace and says why",
+          r.returncode == 1 and not left and "Cookie" in r.stderr and "echo" in r.stderr, r.stdout + r.stderr + str(left))
+    # The scan covers every account's credential in every string of the trace, compared unescaped: an unsigned
+    # request whose response holds another account's token (with a quote and a backslash in it) is refused too.
+    admin = {"ACCEPT_ACCOUNT_ADMIN": 'Authorization: Bearer adm"in\\tok-9'}
+    LEAK[0] = 'Bearer adm"in\\tok-9'
+    w(wb, "parity/equiv/F-ISS-04/leak.request.yaml", "feature: F-ISS-04\nrequest:\n  method: GET\n  path: /api/leak\n")
+    r = script(wb, "equiv.py", "record", "F-ISS-04", env={"EQUIV_LEGACY_URL": LURL, **acct, **admin})
+    check("an unsigned trace whose response holds another account's escaped token is refused",
+          r.returncode == 1 and "ACCEPT_ACCOUNT_ADMIN" in r.stderr
+          and not os.path.exists(os.path.join(wb, "parity", "equiv", "F-ISS-04", "leak.trace.yaml")), r.stdout + r.stderr)
+    # A signed request may not name its own host: urljoin would send the operator's token there.
+    w(wb, "parity/equiv/F-ISS-05/away.request.yaml", "feature: F-ISS-05\nrequest:\n  method: GET\n"
+                                                     f"  path: {LURL}/api/me\n  account: MEMBER\n")
+    r = script(wb, "equiv.py", "record", "F-ISS-05", env={"EQUIV_LEGACY_URL": LURL, **acct})
+    check("a signed request with an absolute path is refused", r.returncode == 1 and "relative" in r.stderr
+          and not os.path.exists(os.path.join(wb, "parity", "equiv", "F-ISS-05", "away.trace.yaml")), r.stdout + r.stderr)
+    # A tab in the path survives the "starts with one /" check, and urljoin drops it, which makes the rest a host.
+    w(wb, "parity/equiv/F-ISS-09/tab.request.yaml", "feature: F-ISS-09\nrequest:\n  method: GET\n"
+                                                    f'  path: "/\\t/127.0.0.1:{server.server_address[1]}/api/x"\n  account: MEMBER\n')
+    sent = sum(SEEN.values())
+    r = script(wb, "equiv.py", "record", "F-ISS-09", env={"EQUIV_LEGACY_URL": LURL, **acct})
+    check("a path that urljoin turns into another host is refused, and that host gets nothing", r.returncode == 1
+          and sum(SEEN.values()) == sent and not os.path.exists(os.path.join(wb, "parity", "equiv", "F-ISS-09", "tab.trace.yaml")),
+          r.stdout + r.stderr)
+    # A credential the scan cannot read is a credential it cannot find: refuse, never record unscanned.
+    r = script(wb, "equiv.py", "record", "F-ISS-01", "--force", env={"EQUIV_LEGACY_URL": LURL, **acct,
+                                                                     "ACCEPT_ACCOUNT_ADMIN": "Bearer no-header-name"})
+    check("a malformed ACCEPT_ACCOUNT_ variable refuses the recording, naming it", r.returncode == 1
+          and "ACCEPT_ACCOUNT_ADMIN" in r.stderr and "recorded " not in r.stdout, r.stdout + r.stderr)
+    # A cookie's name is not its secret: a response naming the cookie records.
+    w(wb, "parity/equiv/F-ISS-06/names.request.yaml", "feature: F-ISS-06\nrequest:\n  method: GET\n  path: /api/names\n"
+                                                      "  account: COOKIE\n")
+    r = script(wb, "equiv.py", "record", "F-ISS-06", env={"EQUIV_LEGACY_URL": LURL,
+                                                          "ACCEPT_ACCOUNT_COOKIE": "Cookie: lang=en; _myapp_session=abc123xyz"})
+    check("a response that names the account's cookie, or holds a short cookie's value (lang=en), records", r.returncode == 0
+          and os.path.exists(os.path.join(wb, "parity", "equiv", "F-ISS-06", "names.trace.yaml")), r.stdout + r.stderr)
+    # A replay failure quotes the rebuild's response; the committed JUnit and the console must not carry a token.
+    w(wb, "parity/equiv/F-ISS-07/echo.trace.yaml", "feature: F-ISS-07\nrules: []\nrequest:\n  method: GET\n"
+                                                   "  path: /api/echo\n  account: MEMBER\nexpect:\n  status: 200\n"
+                                                   "  body:\n    you: nobody\nignore: []\ntables: []\n")
+    r = script(wb, "equiv.py", "replay", "F-ISS-07", env={"EQUIV_REBUILD_URL": LURL, **acct})
+    junit = "".join(read(p) for p in glob.glob(os.path.join(wb, "parity", "*-equiv.xml")))
+    check("a replay difference that echoes the token is reported without it", r.returncode == 1
+          and "FAIL" in r.stdout and TOKEN not in r.stdout + r.stderr + junit and "you" in junit, r.stdout + junit[-600:])
+    # Equivalence is a G6 step too: replaying against the legacy system compares it with itself.
+    r = script(wb, "equiv.py", "replay", "F-ISS-01", env={"EQUIV_REBUILD_URL": LURL, "EQUIV_LEGACY_URL": LURL, **acct})
+    check("replay refuses a rebuild URL that is the legacy system's", r.returncode == 1 and "legacy" in r.stderr
+          and "ok " not in r.stdout, r.stdout + r.stderr)
+    r = script(wb, "boundary.py", "S1", env={"ACCEPT_BASE_URL": URL, "EQUIV_REBUILD_URL": LURL, "EQUIV_LEGACY_URL": LURL, **acct})
+    check("…and the boundary stops there, not carrying on to step 4", r.returncode == 2 and "Stopped after equivalence" in r.stdout
+          and "== 4." not in r.stdout, r.stdout[-1200:])
+    r = script(wb, "boundary.py", "S1", env={"ACCEPT_BASE_URL": URL, "EQUIV_REBUILD_URL": LURL, **acct,
+                                             "ACCEPT_ACCOUNT_ADMIN": "Bearer no-header-name"})
+    check("an unreadable ACCEPT_ACCOUNT_ variable stops the boundary at equivalence too", r.returncode == 2
+          and "Stopped after equivalence" in r.stdout and "== 4." not in r.stdout, r.stdout[-1200:])
+    # A lane that applies (observe or own-code, the reference runs) but was never set up is not a refusal: G6
+    # reports it not run and goes on, or a third-party workbench under observe could never pass step 3.
+    cfg_p = os.path.join(wb, "parity", "equiv", "config.yaml")
+    os.replace(cfg_p, cfg_p + ".off")
+    r = script(wb, "boundary.py", "S1", env={"ACCEPT_BASE_URL": URL, **acct})
+    os.replace(cfg_p + ".off", cfg_p)
+    check("an equivalence lane that is not set up is reported not run, and the boundary carries on to step 4",
+          "not run:" in r.stdout.split("== 3.")[-1].split("== 4.")[0] and "== 4." in r.stdout
+          and "Stopped after equivalence" not in r.stdout, r.stdout[-1500:])
+    # A trace written before rc.2 can hold a header literally: record and replay say to re-record it.
+    w(wb, "parity/equiv/F-ISS-08/old.request.yaml", "feature: F-ISS-08\nrequest:\n  method: GET\n  path: /api/me\n")
+    w(wb, "parity/equiv/F-ISS-08/old.trace.yaml", "feature: F-ISS-08\nrules: []\nrequest:\n  method: GET\n  path: /api/me\n"
+                                                  f"  headers:\n    Authorization: Bearer {TOKEN}\nexpect:\n  status: 200\n"
+                                                  "  body:\n    name: member\nignore: []\ntables: []\n")
+    r = script(wb, "equiv.py", "record", "F-ISS-08", env={"EQUIV_LEGACY_URL": LURL, **acct})
+    check("an existing trace holding a credential header is named, with the re-record command",
+          "old.trace.yaml" in r.stdout + r.stderr and "--force" in r.stdout + r.stderr and "credential" in r.stdout + r.stderr,
+          r.stdout + r.stderr)
+    legacy.shutdown()
 
 server.shutdown()
 shutil.rmtree(base, ignore_errors=True)

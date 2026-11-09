@@ -3,7 +3,7 @@
 NFR to its own stated verification, do the budgets reach the scripts that spend them, does each slice's cost
 show beside its quality figures, and does a parked decision block only what depends on it?
 
-  python3 skills/rebuild-pipeline/eval/gp_eval.py [gate5|nfr|budgets|cost|park]
+  python3 skills/rebuild-pipeline/eval/gp_eval.py [gate5|nfr|budgets|cost|park|help]
 
 WHY IT EXISTS. Gate 5 is terminal: nothing after it catches a hidden test that never ran, a departure nobody
 decided or a restore drill nobody did. Each refusal is checked one at a time against a workbench that otherwise
@@ -214,6 +214,8 @@ if ONLY in (None, "budgets"):
          "verified_by": {"agent": "repro-verifier", "result": "reproduced"}}
     w(wb, "parity/findings/S1/BH-0001.json", json.dumps(f))
     script(wb, "route.py", "S1")
+    # A new finding, so the second run is a real next round and not a re-run of the first (which opens none).
+    w(wb, "parity/findings/S1/BH-0002.json", json.dumps({**f, "id": "BH-0002"}))
     r = script(wb, "route.py", "S1")
     check("route.py's round cap is budgets.fix_rounds", r.returncode == 1 and "1 fix round" in r.stderr, r.stdout + r.stderr)
 
@@ -249,6 +251,29 @@ if ONLY in (None, "park"):
     r = script(wb, "autopilot.py", "unpark", "--what", "human-sample", "--slice", "S1")
     check("unpark lifts it", r.returncode == 0 and script(wb, "autopilot.py", "blocked", "boundary:S1").returncode == 0,
           r.stdout + r.stderr)
+
+if ONLY in (None, "help"):
+    # The smoke run's `autopilot.py engage --help` engaged autopilot: the script never read --help.
+    print("\n# autopilot.py --help and unknown flags change nothing (S-16)")
+    proj, wb = project("help")
+    import time
+    w(base, "rate-limits.json", json.dumps({"at": int(time.time()), "five_hour": {"used_percentage": 10}}))
+    env = {"REBUILD_RATE_LIMITS": os.path.join(base, "rate-limits.json"), "CLAUDE_CONFIG_DIR": os.path.join(base, "claude")}
+    head = run(["git", "rev-parse", "HEAD"], wb).stdout
+    for label, args, code in (("engage --help prints usage and exits 0", ("engage", "--help"), 0),
+                              ("engage with an unknown flag prints usage and exits 1", ("engage", "--thresold", "50"), 1)):
+        r = script(wb, "autopilot.py", *args, env=env)
+        check(f"{label}, engaging nothing", r.returncode == code and "Usage" in r.stdout + r.stderr
+              and not os.path.exists(os.path.join(wb, "plan", "autopilot.yaml"))
+              and run(["git", "rev-parse", "HEAD"], wb).stdout == head, r.stdout + r.stderr)
+    r = script(wb, "autopilot.py", "engage", "--phase", "G5", env=env)
+    check("…while a plain engage in the same workbench does engage", r.returncode == 0
+          and os.path.exists(os.path.join(wb, "plan", "autopilot.yaml")), r.stdout + r.stderr)
+    r = script(wb, "autopilot.py", "log", "--unit", "build", "--outcome", "done", "--note", "-h", env=env)
+    check("…and -h as a flag's value is the value, not a request for help", r.returncode == 0
+          and "Usage" not in r.stdout and "build" in read(wb, "plan", "autopilot.yaml"), r.stdout + r.stderr)
+    r = script(wb, "autopilot.py", "status", env={**env, "PYTHONOPTIMIZE": "2"})
+    check("…and it runs with docstrings stripped (python -OO)", r.returncode == 0 and "Traceback" not in r.stderr, r.stderr)
 
 shutil.rmtree(base, ignore_errors=True)
 print(f"\n{failures} failure(s)." if failures else "\nall passed")

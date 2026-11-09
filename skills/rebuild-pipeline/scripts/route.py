@@ -4,6 +4,7 @@
 
   python3 scripts/route.py <Sn>                 # route the slice's open findings as the next fix round
   python3 scripts/route.py <Sn> --close <ids>   # findings a fix round closed (comma-separated)
+  python3 scripts/route.py <Sn> --attempted "<what was fixed>"   # a workbench-side fix of the last round was tried
 
 WHY A SCRIPT. G6 routing takes no judgement beyond C6's table (README topology: "orchestrator only"), and a
 router that is prose gets a spec gap fixed in code, or a reference defect copied, depending on the session.
@@ -22,7 +23,11 @@ the oracle, design rule 2). A hidden finding is listed by criterion and observed
 round's file is safe to hand to a lane.
 
 ROUND CAP. Two fix rounds per slice, as in sdlc's Review; a third is refused and the user decides (another
-round, departures, or tickets). State lives in `plan/fix-rounds/<Sn>.json`; each round writes
+round, departures, or tickets). The same findings open the next round only once the last round was attempted,
+and an attempt is recorded, never inferred: lane_plan.py archive of one of the round's fix lanes, or
+`--attempted` for a fix made on the workbench side (a harness, an amend, a departure). A smoke run re-ran
+route.py with no fix in between and spent its last round on a copy of the first; inferring a fix from commits
+then counted a fix lane's new branch as one and missed every workbench-side fix. State lives in `plan/fix-rounds/<Sn>.json`; each round writes
 `plan/fix-rounds/<Sn>-r<N>.md`.
 """
 from __future__ import annotations
@@ -184,6 +189,22 @@ def findings(sid):
     return out
 
 
+def attempted(sid, rnd):
+    """What records that fix round `rnd` was tried, or None: its `--attempted` note, or an archived fix lane of
+    that round in plan/lane-plans/<Sn>.yaml (lane_plan.py writes `fix_round` and `archived`)."""
+    if rnd.get("attempted"):
+        return rnd["attempted"]
+    p = os.path.join("plan", "lane-plans", f"{sid}.yaml")
+    try:
+        lanes = (json.loads(re.sub(r"^#.*\n", "", read_text(p), flags=re.M)) or {}).get("lanes") or {} \
+            if os.path.exists(p) else {}
+    except (ValueError, AttributeError):
+        lanes = {}
+    done = sorted(n for n, l in lanes.items() if isinstance(l, dict) and l.get("fix_round") == rnd.get("n")
+                  and l.get("archived"))
+    return f"fix lane{'s' if len(done) > 1 else ''} {', '.join(done)} archived" if done else None
+
+
 def feature_of(f):
     return f.get("feature") or (f["criterion"].split(".")[0] if f.get("criterion") else None)
 
@@ -199,7 +220,7 @@ def main(argv=None):
         return die("no locks/pipeline.yaml here — run from the workbench root.")
     sid = args[0] if args else None
     if not sid or not re.fullmatch(r"S\d+", sid):
-        return die("usage: route.py <Sn> [--close <id,id,...>]")
+        return die("usage: route.py <Sn> [--close <id,id,...> | --attempted \"<what was fixed>\"]")
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     st = load_state(sid)
     if "--close" in args[:-1]:
@@ -208,12 +229,23 @@ def main(argv=None):
         write(state_path(sid), json.dumps(st, indent=2) + "\n")
         print(f"{sid}: closed {', '.join(ids)}")
         return 0
+    if "--attempted" in args:
+        what = args[args.index("--attempted") + 1].strip() if "--attempted" in args[:-1] else ""
+        if not what or what.startswith("--"):
+            return die('usage: route.py <Sn> --attempted "<what was fixed>"')
+        if not st["rounds"]:
+            return die(f"{sid} has no fix round to have attempted.")
+        st["rounds"][-1]["attempted"] = what
+        write(state_path(sid), json.dumps(st, indent=2) + "\n")
+        print(f"{sid}: fix round {st['rounds'][-1]['n']} attempted: {what}. Route again once the boundary re-ran.")
+        return 0
     contracts = plugin_contracts()
     if not contracts:
         return die("the plugin's contracts/v1/contracts.py was not found through .rebuild-plugin: not run.")
     sample_findings(sid, st, contracts)
     groups = {k: [] for k in SECTIONS}
     by_feature = {}
+    routed = []
     for path, f, hidden in findings(sid):
         if f is None:
             groups["invalid"].append(f"- {path}: not JSON")
@@ -237,13 +269,24 @@ def main(argv=None):
             groups["dropped"].append(f"{line} — {did + ' explains it' if did else 'accepted departure'}")
         elif route == "sdlc":
             by_feature.setdefault(feature_of(f) or "other", []).append((fid, line))
+            routed.append(fid)
         else:
             groups[route].append(line)
+            routed.append(fid)
     routable = by_feature or groups["rspec"] or groups["human"] or groups["orchestrator"]
     if not routable:
         write(state_path(sid), json.dumps(st, indent=2) + "\n")
         print(f"{sid}: nothing to route ({len(groups['dropped'])} dropped, {len(groups['not routed'])} not routed, "
               f"{len(groups['invalid'])} invalid).")
+        return 0
+    routed.sort()
+    last = st["rounds"][-1] if st["rounds"] else None
+    if last and last.get("routed") == routed and not attempted(sid, last):
+        write(state_path(sid), json.dumps(st, indent=2) + "\n")
+        print(f"{sid}: fix round {last['n']} is still open: the same findings, and no attempt at it is recorded. Fix "
+              f"them as plan/fix-rounds/{sid}-r{last['n']}.md says; an archived fix lane records the attempt, and a "
+              f"workbench-side fix is recorded with route.py {sid} --attempted \"<what was fixed>\". Close what is "
+              f"fixed (route.py {sid} --close <ids>), then route again.")
         return 0
     n = len(st["rounds"]) + 1
     cap = round_cap()
@@ -267,7 +310,8 @@ def main(argv=None):
     for k in SECTIONS:
         body += [f"## {titles[k]}", ""] + (groups[k] or ["- none"]) + [""]
     write(os.path.join("plan", "fix-rounds", f"{sid}-r{n}.md"), "\n".join(body))
-    st["rounds"].append({"n": n, "sdlc": {feat: [i for i, _ in items] for feat, items in by_feature.items()}})
+    st["rounds"].append({"n": n, "sdlc": {feat: [i for i, _ in items] for feat, items in by_feature.items()},
+                         "routed": routed})
     write(state_path(sid), json.dumps(st, indent=2) + "\n")
     print(f"{sid}: fix round {n} -> plan/fix-rounds/{sid}-r{n}.md "
           f"(sdlc {sum(len(v) for v in by_feature.values())}, rspec {len(groups['rspec'])}, human {len(groups['human'])}, "

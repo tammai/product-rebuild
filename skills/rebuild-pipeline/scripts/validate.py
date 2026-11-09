@@ -391,6 +391,34 @@ def main(argv=None):
                 if now != expected:
                     fail(f, f"locked artifact modified: {file} (reopen {_js_str(lock.get('gate'))} instead of editing)")
 
+    # The split's hidden entries stay in the manifest as `visibility: hidden`. rspec's verify report rewrites the
+    # manifest from what it can see, which is not those, and a smoke run lost them that way with nothing but
+    # gate-4's lock to notice. Read-only here: reconcile writes, and needs the holdout folder CI does not have.
+    import holdout
+    if os.path.exists(holdout.RECORD):
+        try:
+            hidden = holdout.load_json(holdout.RECORD).get("hidden")
+            tests = holdout.load_json(holdout.MANIFEST).get("tests") or []
+            if not isinstance(hidden, list) or not all(isinstance(c, str) for c in hidden):
+                raise ValueError(f"{holdout.RECORD}'s `hidden` is not a list of criterion ids")
+            seen = {}
+            for t in tests:
+                seen.setdefault(t.get("criterion"), set()).add(t.get("visibility", "open"))
+        except (OSError, ValueError, AttributeError, TypeError) as e:
+            fail(holdout.RECORD, f"{holdout.RECORD} or {holdout.MANIFEST} cannot be read: {e}")
+        else:
+            # Reconcile refuses a hidden criterion that is open again, so that case gets its own words.
+            reopened = [c for c in hidden if seen.get(c, set()) - {"hidden"}]
+            dropped = [c for c in hidden if "hidden" not in seen.get(c, set()) and c not in reopened]
+            if reopened:
+                fail(holdout.MANIFEST, f"hidden criteria {', '.join(reopened)} are open again in the manifest (a re-verify "
+                                       f"re-recorded their tests), so lanes may see them. Ask the user whether to re-draw.")
+            if dropped:
+                fail(holdout.MANIFEST, f"hidden criteria {', '.join(dropped)} are missing from the manifest (a re-verify "
+                                       f"rewrote it without them). Restore them: python3 scripts/holdout.py reconcile")
+            if not reopened and not dropped:
+                ok(f"{holdout.MANIFEST} (all {len(hidden)} hidden entries kept)")
+
     # The departures registry is append-only from the gate-1 lock rather than hashed (05 P2).
     import departures
     for problem in departures.record_problems():

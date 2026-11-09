@@ -2,7 +2,7 @@
 """holdout_eval.py (eval) — 3.0.0, spec 05 P4 and D4: are the hidden tests chosen as D4 says, kept
 out of every code repo, pinned by Gate 4, and run without telling a lane what they expect?
 
-  python3 skills/rebuild-pipeline/eval/holdout_eval.py [split|run]
+  python3 skills/rebuild-pipeline/eval/holdout_eval.py [split|run|validate]
 
 WHY IT EXISTS. Hidden tests are the one check a builder cannot have tuned the build to: a selection
 that varies run to run, a file left in a repo a lane can read, or a failure report that quotes the
@@ -332,6 +332,42 @@ if ONLY in (None, "run"):
           r.returncode == 1 and res["results"][0]["result"] == "not run" and "changed" in res["results"][0]["observed"],
           r.stdout + r.stderr)
     server.shutdown()
+
+if ONLY in (None, "validate"):
+    # The smoke run re-ran rspec's verify report after the split: it rewrote the manifest without the hidden
+    # entries, and nothing but gate-4's lock would have noticed.
+    print("\n# validate.py notices a dropped hidden entry (S-37)")
+    vproj, vwb = make_project("validate")
+    r = holdout(vwb, "split", "--seed", "7")
+    check("validate: holdout.py split runs", r.returncode == 0, r.stdout + r.stderr)
+    commit(vwb)
+    v = run([sys.executable, os.path.join("scripts", "validate.py")], vwb)
+    check("with every hidden entry in the manifest, validate names no reconcile", "holdout.py reconcile" not in v.stdout + v.stderr,
+          v.stdout[-900:] + v.stderr)
+    gone = record(vwb)["hidden"][0]
+    mpath = os.path.join(vwb, "docs", "acceptance", "manifest.json")
+    m = json.load(open(mpath, encoding="utf-8"))
+    w(vwb, "docs/acceptance/manifest.json", json.dumps({**m, "tests": [t for t in m["tests"] if t["criterion"] != gone]}, indent=2))
+    v = run([sys.executable, os.path.join("scripts", "validate.py")], vwb)
+    out = v.stdout + v.stderr
+    check("a hidden entry missing from the manifest fails validate, naming it and the reconcile command",
+          v.returncode == 1 and re.search(rf"FAIL \S*manifest\.json\n  .*{re.escape(gone)}.*holdout\.py reconcile", out) is not None, out[-900:])
+    w(vwb, "docs/acceptance/manifest.json", json.dumps({**m, "tests": [dict(t, visibility="open") if t["criterion"] == gone
+                                                                       else t for t in m["tests"]]}, indent=2))
+    v = run([sys.executable, os.path.join("scripts", "validate.py")], vwb)
+    out = v.stdout + v.stderr
+    check("a hidden criterion re-recorded as open is named as open again, not as missing", v.returncode == 1
+          and re.search(rf"FAIL \S*manifest\.json\n  .*{re.escape(gone)}.*open again", out) is not None, out[-900:])
+    w(vwb, "plan/holdout.json", json.dumps({**record(vwb), "hidden": 3}))
+    v = run([sys.executable, os.path.join("scripts", "validate.py")], vwb)
+    out = v.stdout + v.stderr
+    check("a split record of the wrong shape fails validate, no traceback", v.returncode == 1 and "Traceback" not in out
+          and re.search(r"FAIL plan[/\\]holdout\.json\n", out) is not None, out[-900:])
+    w(vwb, "plan/holdout.json", "{not json")
+    v = run([sys.executable, os.path.join("scripts", "validate.py")], vwb)
+    out = v.stdout + v.stderr
+    check("an unreadable split record fails validate, saying so", v.returncode == 1
+          and re.search(r"FAIL plan[/\\]holdout\.json\n  .*cannot be read", out) is not None, out[-900:])
 
 shutil.rmtree(base, ignore_errors=True)
 print(f"\n{failures} failure(s)." if failures else "\nall passed")

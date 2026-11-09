@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-3.0.0 in progress (version `3.0.0-rc.1`, no tag): product-rebuild becomes an orchestrator over rspec, sdlc
+3.0.0 in progress (version `3.0.0-rc.2`, no tag): product-rebuild becomes an orchestrator over rspec, sdlc
 and bug-hunter (spec `docs/specs/rebuild-upgrade/05-product-rebuild.md`). All six parts below; where each 2.x
 capability went is in `docs/MIGRATION-3.md`.
 
@@ -144,8 +144,42 @@ capability went is in `docs/MIGRATION-3.md`.
   printing `→`, `…` or `—` raised an encoding error, so `finding` reported `error: 'charmap' codec…` and exit 1
   instead of `routed: … → rspec`. The CLI now prints `?` for a character the console can't show; output on a
   UTF-8 console is unchanged. The spec's C4 now records the `cli/` test format as not settled in v1.
+- **rc.2: the pre-release smoke run's blockers** (each proven by an eval that reproduces it):
+  - **No credential in an equivalence trace.** `equiv.py record` wrote request headers into the committed
+    `parity/equiv/*.trace.yaml`, so a signed-in trace committed the account token. A trace now stores
+    `account: <NAME>` (contracts v1's field) in place of `Authorization`, `Proxy-Authorization`, `Cookie` or any
+    header an `ACCEPT_ACCOUNT_<NAME>` line uses, and replay re-inserts the live header from that variable (unset:
+    the trace errors, never replays unsigned). A request file may name `account:` itself. A credential no account
+    variable holds, or any account's credential anywhere in the request, response or snapshots, is refused and
+    nothing is written for it. A signed request's path must be relative, so the token cannot be sent to another
+    host. Replay scrubs credentials from its report, refuses a rebuild URL that is the legacy system's or the
+    reference's, and both commands warn about a trace written earlier that still holds a credential header.
+  - **G6 refuses to test the reference.** `ACCEPT_BASE_URL` is left at the reference by rspec verify, so with
+    the reference up the open suite tested the reference and passed. `boundary.py` and `holdout.py run` refuse,
+    saying why, when it reaches the same server as `sources.yaml` `reference.run.base_url` (any path, any
+    spelling of this machine), when `sources.yaml` cannot be read, and when either address does not parse; the
+    open suite prints the URL it targets. The boundary stops when equivalence replay refuses (a legacy or
+    reference rebuild URL, an unreadable `ACCEPT_ACCOUNT_*`); a lane that applies but is not set up is reported
+    not run and G6 goes on.
+  - **`route.py` opens no duplicate fix round.** The same findings open the next round only once the last round
+    was attempted, and the attempt is recorded rather than inferred: `lane_plan.py archive` of one of the round's
+    fix lanes, or the new `route.py <Sn> --attempted "<what was fixed>"` for a fix on the workbench side. A
+    re-run with nothing recorded says the round is still open, instead of spending the 2-round cap on a copy.
+  - **Archiving a lane keeps its change file.** `lane_plan.py archive` wrote the change and state files to one
+    name (`<feature>.md` in sdlc 3.x), so the slice review reported criteria rewritten that were not. The archive
+    now holds `change.md` and `state.md`.
+  - **`autopilot.py --help`** prints usage and changes nothing (`engage --help` engaged autopilot); an unknown
+    flag prints usage and exits 1.
+  - **`validate.py` notices a dropped hidden entry.** Re-running rspec's verify report after `holdout.py split`
+    drops the hidden entries from `docs/acceptance/manifest.json`; validate now fails, naming the criteria and
+    `python3 scripts/holdout.py reconcile`, and fails on an unreadable `plan/holdout.json`.
 
 ### Known issues
+
+- **In a BFF or proxy stack, run the recorded HTTP criteria against the public surface.** The surface the user
+  reaches is the BFF or web server, not the API behind it: a lane that runs them against its own stub of the
+  API can pass while the BFF adds the account token for an unauthenticated caller. Run them against the BFF.
+  No plugin enforces this yet (which surface a criterion binds to is an open spec question for rspec and sdlc).
 
 - **`target_shape: client-only` is only partly covered in 3.0.0** (`docs/MIGRATION-3.md` row 19, the user's
   decision of 2026-11-09). rspec's modernize track covers data migration and cutover; transcribing the existing

@@ -255,6 +255,10 @@ session without it reads the default folder's config, and its guard would not kn
   cutover; nothing yet transcribes the existing backend API into a frozen contract or inventories what the old
   app left on devices (local databases, files, keychain entries). Do both by hand before Gate 4.
   [docs/MIGRATION-3.md](docs/MIGRATION-3.md) row 19.
+- **In a BFF or proxy stack, run the recorded HTTP criteria against the public surface the user reaches** (the
+  BFF or web server), not a lane's stub of the API behind it. Through a BFF that adds the account token, an
+  unauthenticated caller can succeed where the stubbed API refused it, so a stub run proves nothing about that
+  surface. No plugin enforces this yet.
 
 ## FAQ
 

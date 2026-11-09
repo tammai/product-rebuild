@@ -105,6 +105,8 @@ failure this section stops. It is fixed (`g5-build.md`, "Test cadence within a s
   tests for the packages you touched; the ONE E2E for the criterion you are working on, if it is a UI-level
   one (`--grep` / `-run`). Not the E2E set, not the full backend suite. `verify.py` runs the repo's
   `commands.test`, which in a rebuild repo is the fast suite, so it is within this cadence.
+- **Recorded HTTP criteria run against the surface the user reaches:** in a BFF or proxy stack that is the BFF or
+  web server, never your own stub of the API behind it.
 - **The joint run is the orchestrator's, not yours.** You write only inside your own worktree (the reference
   guard denies any write into the workbench), and the joint run writes the workbench: the orchestrator runs
   `python3 scripts/lanes_check.py stamp` from the workbench root, then ONE run of the cumulative suite (all

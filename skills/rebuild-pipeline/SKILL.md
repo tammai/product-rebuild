@@ -200,7 +200,8 @@ repo>` for Playwright tests) runs the slice's hidden tests; its report names cri
 behaviour only, so it is safe to pass to a lane.
 
 **4f — G6 at each slice boundary (05 P6, P7).** From the workbench root, with `ACCEPT_BASE_URL` at the slice
-build: `python3 scripts/boundary.py <Sn>`. It runs the open suite (each failure re-run once; a pass on the
+build (rspec verify leaves it at the reference; `boundary.py` and `holdout.py run` refuse the address in
+`sources.yaml` `reference.run.base_url`): `python3 scripts/boundary.py <Sn>`. It runs the open suite (each failure re-run once; a pass on the
 re-run is flaky, not a finding), the hidden suite, equivalence (posture `observe` or `own-code`), parity and
 the slice review, then bug-hunter and the human sample, and stops at the first step that leaves a build-defect
 or spec-gap open. Then:
@@ -208,7 +209,10 @@ or spec-gap open. Then:
   build-defect and test-defect → a fix lane per feature (`lane_plan.py <Sn> fix-r<N>-<feature> --fix <N>
   --findings <ids>`); spec-gap → `rspec:amend` (the user approves an MVP `then`), re-verify, then a fix lane;
   reference-defect → the user: copy it or add a departure; flaky, environment → fix the harness yourself.
-  `route.py <Sn> --close <ids>` once a round fixes them. A third round is refused: ask the user.
+  `route.py <Sn> --close <ids>` once a round fixes them. The same findings open the next round only once the
+  round's attempt is recorded: archiving its fix lane does it, and a fix you made on the workbench side (the
+  harness, an amend, a departure) is `route.py <Sn> --attempted "<what you fixed>"`. A third round is refused:
+  ask the user.
 - **bug-hunter:** run the command `boundary.py` prints, then `python3 scripts/boundary.py hunted <Sn>`.
 - **Human sample:** `python3 scripts/boundary.py sample <Sn>` draws 2–3 features into
   `plan/slice-reviews/<Sn>.md`; the user compares them with the running reference and writes `agree` or

@@ -37,7 +37,8 @@ test into an open one. A test that cannot run is `not run: <reason>` and fails t
 `@playwright/test` by path (npx can fetch a different version than the repo locks); Maestro through
 `maestro test`; the cli format is not settled in contracts v1, so a cli test is not run.
 
-Standard library only; vendored into each workbench and run alone, so its helpers are copies.
+Standard library only, but for reference_target(), which reads sources.yaml with the yamlio vendored beside
+it; vendored into each workbench and run alone, so its other helpers are copies.
 """
 from __future__ import annotations
 
@@ -158,6 +159,75 @@ def listed_repos():
     for m in re.finditer(r"^\s*-\s*(?:name:\s*(\S+)\s*)?path:\s*(\S+)", read_text(p), re.M):
         out.append(os.path.abspath(m.group(2)))
     return out
+
+
+def _server(url):
+    """(scheme, host, port): the server a URL reaches, or None. The path is left out, since one server answers
+    under every prefix, and every spelling of this machine (localhost, 127.1, ::1, a trailing dot) is one host."""
+    import ipaddress
+    import socket
+    from urllib.parse import urlsplit
+    try:
+        u = urlsplit(str(url).strip())
+        scheme = u.scheme.lower()
+        port = u.port or {"http": 80, "https": 443}.get(scheme)
+    except ValueError:
+        return None
+    host = (u.hostname or "").lower().rstrip(".")
+    try:
+        ip = ipaddress.ip_address(socket.inet_ntoa(socket.inet_aton(host)))  # also 127.1 and 2130706433
+    except OSError:
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            ip = None
+    if host == "localhost" or (ip is not None and (ip.is_loopback or ip.is_unspecified)):
+        host = "this machine"
+    elif ip is not None:
+        host = str(ip)
+    return (scheme, host, port) if host else None
+
+
+def same_server(a, b):
+    return bool(a) and bool(b) and _server(a) is not None and _server(a) == _server(b)
+
+
+def reference_target(url, var="ACCEPT_BASE_URL"):
+    """Why `url` (from `var`) must not be what G6 runs against, or None. rspec verify points ACCEPT_BASE_URL at the
+    reference and G6 runs in the same shell after it: a smoke run's open suite inherited it, and with the reference
+    up it would have tested the reference and passed. The reference's address is sources.yaml
+    `reference.run.base_url`, read with the vendored yamlio (a line parser here once took a comment or another
+    layout as "no address" and let the reference through), and a sources.yaml that cannot be read refuses rather
+    than passes. An empty address has nothing to compare; the open suite prints the URL it targets instead."""
+    if not url:
+        return None
+    try:
+        import yamlio
+        with open("sources.yaml", encoding="utf-8", errors="replace") as fh:
+            src = yamlio.load(fh.read())
+        def as_map(v, what):
+            if v is None:
+                return {}
+            if not isinstance(v, dict):
+                raise ValueError(f"{what} is not a map")
+            return v
+        run = as_map(as_map(as_map(src, "sources.yaml").get("reference"), "reference").get("run"), "reference.run")
+        addr = run.get("base_url") or ""
+        if not isinstance(addr, str):
+            raise ValueError("reference.run.base_url is not a string")
+    except Exception as e:
+        return (f"{var} is {url}, and sources.yaml cannot be read to tell whether that is the reference "
+                f"({str(e).splitlines()[0] if str(e) else type(e).__name__}). Fix sources.yaml, then run again.")
+    # Fail closed on either side: an address that does not parse (`localhost:3000`, no scheme) cannot be told
+    # apart from the reference's, so it is not taken as "a different server".
+    for name, value in ((var, url), ("sources.yaml reference.run.base_url", addr)):
+        if value and _server(value) is None:
+            return (f"{name} is {value!r}, which is not a URL with a scheme and a host (http://host:port), so G6 "
+                    f"cannot tell whether {var} is the reference. Fix it, then run again.")
+    if not same_server(url, addr):
+        return None
+    return (f"{var} is {url}, the reference's address (sources.yaml reference.run.base_url: {addr}), left from "
+            f"rspec verify. G6 judges the slice build: point {var} at the slice build and run again.")
 
 
 def exposure(hold):
@@ -550,6 +620,9 @@ def cmd_run(args):
     sid = next((a for a in args if re.fullmatch(r"S\d+", a)), None)
     if not sid:
         return die("usage: holdout.py run <Sn> [--repo <code repo>] [--contracts <contracts.py>]")
+    why = reference_target(os.environ.get("ACCEPT_BASE_URL"))
+    if why:
+        return die(why)
     if not os.path.exists(RECORD):
         return die(f"{RECORD} is missing: no split has run.")
     if not os.path.exists(MANIFEST):

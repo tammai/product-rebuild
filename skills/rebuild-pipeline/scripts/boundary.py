@@ -392,6 +392,10 @@ def _boundary(sid, args=()):
     cpy = holdout.contracts_py([])
     st = _state(sid)
     repos = _code_repos(list(args))
+    why = holdout.reference_target(os.environ.get("ACCEPT_BASE_URL"))
+    if why:
+        print(f"Boundary {sid}: REFUSED. {why}")
+        return 2
     bad = holdout.exposure(holdout.holdout_dir())
     if bad:
         print(f"Boundary {sid}: REFUSED. The holdout repo is reachable from a code repo: {'; '.join(bad)}. "
@@ -442,6 +446,9 @@ def _boundary(sid, args=()):
         return False
 
     print("\n== 1. open suite (each failure re-run once)")
+    # Printed whatever it is: when sources.yaml leaves the reference's address empty, reference_target() has
+    # nothing to compare, and this line is how a person sees which build the suite hit.
+    print(f"  target: {os.environ.get('ACCEPT_BASE_URL') or '(ACCEPT_BASE_URL not set)'}")
     open_green, lines = _open_suite(sid, contracts, cpy, closed)
     print("\n".join(lines) or "  all green")
     if stop("the open suite"):
@@ -458,6 +465,17 @@ def _boundary(sid, args=()):
     else:
         r = _run("equiv.py", "replay", "--all")
         print("  " + ((r.stdout + r.stderr).strip()[-1500:] or "(no output)").replace("\n", "\n  "))
+        # Red traces are findings and the boundary goes on. A refusal (the rebuild URL is the legacy system's or the
+        # reference's, or an ACCEPT_ACCOUNT_ variable cannot be read) stops it: replaying would judge the wrong
+        # system or leak a credential. A lane that applies but was never set up (no config, no rebuild URL, no
+        # traces) is reported not run and the boundary goes on: stopping there held every observe workbench whose
+        # reference runs at step 3 for good.
+        if r.returncode and "trace(s) equivalent" not in r.stdout:
+            last = ((r.stdout + r.stderr).strip().splitlines() or [f"exit {r.returncode}"])[-1]
+            if "equiv replay: REFUSED" in r.stdout + r.stderr:
+                print(f"\nStopped after equivalence: {last}")
+                return 2
+            print(f"  not run: {last}")
     for label, script, args in (("4. coverage: parity", "parity.py", []), ("4. regression: slice review", "slice_review.py", [sid])):
         r = _run(script, *args)
         print(f"\n== {label}")

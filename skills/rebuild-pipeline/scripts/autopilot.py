@@ -10,6 +10,10 @@ Usage:
   python3 scripts/autopilot.py log --unit "..." --outcome done|failed|skipped [--note "..."]
   python3 scripts/autopilot.py disengage --reason <r> [--next "..."]
   python3 scripts/autopilot.py status
+  python3 scripts/autopilot.py park --what <decision> [--slice Sn] [--blocks gate-4,boundary:S2] --note "..."
+  python3 scripts/autopilot.py unpark --what <decision> [--slice Sn]
+  python3 scripts/autopilot.py blocked gate-<n>|boundary:<Sn>|lanes:<Sn>
+  python3 scripts/autopilot.py <command> --help
 
 Autopilot never touches a gate. It runs the mechanical stretches BETWEEN gates and halts
 at each one; locking stays a human act (SKILL.md Step 5).
@@ -914,6 +918,34 @@ COMMANDS = {
 }
 
 
+# The flags each command reads, every one taking a value. A flag outside this list is refused, not ignored:
+# `engage --help` once engaged autopilot, and a typo such as `--thresold 50` engages at the default threshold.
+# Change it together with the handler that reads the flag.
+FLAGS = {
+    "check": ("--threshold", "--context-tokens"), "preflight": ("--threshold", "--context-tokens"),
+    "status": ("--threshold", "--context-tokens"), "engage": ("--threshold", "--context-tokens", "--phase"),
+    "log": ("--unit", "--outcome", "--note"), "disengage": ("--reason", "--next"),
+    "park": ("--what", "--slice", "--blocks", "--note"), "unpark": ("--what", "--slice"), "blocked": (),
+}
+# From the module docstring, so the two never disagree; `python -OO` strips docstrings, hence the fallback.
+USAGE = ("Usage:\n" + __doc__.split("Usage:\n", 1)[1].split("\n\n", 1)[0] if __doc__
+         else "Usage: python3 scripts/autopilot.py preflight|check|engage|log|disengage|status|park|unpark|blocked")
+HELP = ("--help", "-h")
+
+
+def _unknown_flags(cmd, rest):
+    """The first argument that looks like a flag `cmd` does not take, or None. A known flag's value is skipped."""
+    i = 0
+    while i < len(rest):
+        if rest[i] in FLAGS[cmd]:
+            i += 2
+            continue
+        if rest[i].startswith("-"):
+            return rest[i]
+        i += 1
+    return None
+
+
 def main(argv=None):
     for s in (sys.stdout, sys.stderr):
         try:
@@ -923,16 +955,20 @@ def main(argv=None):
         except Exception:
             pass
     args = list(sys.argv[1:] if argv is None else argv)
+    cmd = args[0] if args and args[0] else "status"
+    handler = COMMANDS.get(cmd)
+    # Help is asked for in a flag's place only: `log --note -h` logs the note "-h". It needs no workbench.
+    bad = _unknown_flags(cmd, args[1:]) if handler else None
+    if cmd in HELP or bad in HELP:
+        print(USAGE)
+        return 0
     if not os.path.exists(os.path.join("locks", "pipeline.yaml")):
         print("No locks/pipeline.yaml here — run from the workbench root.", file=sys.stderr)
         return 1
-    state = read_state()
-    cmd = args[0] if args and args[0] else "status"
-    handler = COMMANDS.get(cmd)
-    if handler is None:
-        print("Usage: autopilot.py preflight | check | engage | log | disengage | status", file=sys.stderr)
+    if handler is None or bad:
+        print((f"Unknown flag {bad} for {cmd}.\n" if bad else "") + USAGE, file=sys.stderr)
         return 1
-    return handler(args, state)
+    return handler(args, state=read_state())
 
 
 if __name__ == "__main__":

@@ -190,6 +190,14 @@ in `docs/features/` — method, path, body, the `tables:` the request touches, a
 list — and `record` executes it against the legacy system and writes the `*.trace.yaml` beside
 it: status, response body, and the adapter's row snapshots.
 
+**A signed-in request names its account, never its token.** Traces are committed. Write `account: <NAME>`
+under `request:` and set `ACCEPT_ACCOUNT_<NAME>` to the header line (`Authorization: Bearer …`), as for the
+recorded HTTP tests; `record` and `replay` add the header from it. A credential header written in the request
+file is recorded as the account whose variable holds it; one no variable holds, or any account's credential
+anywhere in the trace (a response that echoes it, a snapshot), is refused and nothing is written for it. A
+signed request's `path` starts with one `/`. Replay refuses a rebuild URL that is the legacy system's or the
+reference's.
+
 **`ignore:` is declared per trace and never inferred.** Fields the rebuild is *allowed* to differ
 on — surrogate ids, timestamps, hashes, whatever the Gate 4 contract renamed — are listed. Any
 difference not on the list is a failure. A differ that guessed at "probably a timestamp" would

@@ -3,7 +3,7 @@
 does step 0 hold a slice whose criteria have no recorded test, do spec questions reach one batch, and
 does the flow guard keep the recorded bundle read-only?
 
-  python3 skills/rebuild-pipeline/eval/lanes_rspec.py [lane|step0|questions|flows|archive]
+  python3 skills/rebuild-pipeline/eval/lanes_rspec.py [lane|step0|questions|flows|archive|archive2]
 
 WHY IT EXISTS. sdlc 3.5 builds spec-backed only from what is inside the code repo (config `spec_lock`,
 `acceptance/manifest.json`), and the rebuild's lock and bundle live in the workbench. lane_plan.py is
@@ -299,6 +299,31 @@ if ONLY in (None, "archive"):
     r = run([sys.executable, os.path.join("scripts", "boundary.py"), "S1"], wb)
     check("boundary names a lane it cannot archive, and does not pass", r.returncode == 2 and "ghost: NOT archived" in r.stdout,
           r.stdout[:800])
+
+if ONLY in (None, "archive2"):
+    # The smoke run archived two lanes and the slice review said both rewrote their criteria: archive wrote the
+    # change file and the state file to one name, so the state file stood in for the change file.
+    print("\n# archiving lanes keeps their criteria as approved (S-57)")
+    recp = os.path.join(wb, "plan", "lane-plans", "S1.yaml")
+    if os.path.exists(recp):  # the archive group leaves an unarchivable "ghost" lane, which holds the lane cap
+        rec = json.loads(re.sub(r"^#.*\n", "", read(recp), flags=re.M))
+        rec["lanes"].pop("ghost", None)
+        w(wb, "plan/lane-plans/S1.yaml", "# eval\n" + json.dumps(rec))
+    for name, feat in (("one", "F-ISS-01"), ("two", "F-ISS-02")):
+        path = os.path.join(proj, f"app-{name}")
+        run(["git", "worktree", "add", "-q", "-b", f"slice/S1-{name}", path], app)
+        r = lane_plan("S1", name, "--worktree", f"../app-{name}", "--features", feat, "--approved-by", "Eval")
+        check(f"archive2: lane {name} opens", r.returncode == 0, r.stdout + r.stderr)
+        sdir = os.path.join(path, ".sdlc", "state")
+        for f in (x for x in os.listdir(sdir) if x.endswith(".md")):
+            w(sdir, f, read(sdir, f).replace("Status: active", "Status: done"))
+        r = lane_plan("archive", "S1", name)
+        check(f"archive2: lane {name} archives without a criteria warning", r.returncode == 0
+              and "acceptance criteria differ" not in r.stdout, r.stdout + r.stderr)
+    run([sys.executable, os.path.join("scripts", "slice_review.py"), "S1"], wb)
+    sr = read(wb, "plan", "slice-reviews", "S1.md")
+    check("the slice review reports no rewritten criteria for either archived lane",
+          "one's change file" not in sr and "two's change file" not in sr and "- one:" in sr and "- two:" in sr, sr[:2000])
 
 shutil.rmtree(base, ignore_errors=True)
 print(f"\n{failures} failure(s)." if failures else "\nall passed")
