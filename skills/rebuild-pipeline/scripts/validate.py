@@ -391,6 +391,11 @@ def main(argv=None):
                 if now != expected:
                     fail(f, f"locked artifact modified: {file} (reopen {_js_str(lock.get('gate'))} instead of editing)")
 
+    # The departures registry is append-only from the gate-1 lock rather than hashed (05 P2).
+    import departures
+    for problem in departures.record_problems():
+        fail(departures.PATH, problem)
+
     print(f"\n{failures} failure(s)." if failures else "\nAll artifacts valid.")
     return 1 if failures else 0
 

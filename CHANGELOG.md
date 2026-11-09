@@ -23,7 +23,13 @@ capability went is in `docs/MIGRATION-3.md`.
   rspec's single-repo layout (`docs/`). The skill runs `rspec:init` through `rspec:handoff` and `rspec:check`
   instead of mining (the 2.x G1–G4b references stay on disk until they are deleted later in 3.0). Gates keep
   their names and lock in rspec's order, 1, 3, 2, 4:
-  - gate-1 locks `features.md`, `domain.md`, `departures.yaml`, once rspec's stage is `features-approved`;
+  - gate-1 locks `features.md` and `domain.md`, once rspec's stage is `features-approved`. `departures.yaml` is
+    append-only from that lock, not hashed: gate-1 records each departure present, refusing to lock while one is
+    `proposed`, lacks `decided_by` or has an ID that is not `D-<nnn>`. `validate.py` and gate-5 fail when a
+    recorded one is removed or changed, and no departure explains a difference until it is restored; departures
+    G6 accepts later are appended. Hashing the registry, as Gate 1 first did, refused every later departure; a
+    gate-1 lock whose `artifact_hashes` still lists `docs/departures.yaml` refuses additions until it is reopened
+    and locked again;
   - gate-3 locks `docs/decisions/`, refusing an ADR still `Proposed` (the playbook checks are gone);
   - gate-2 locks `build-plan.md`, once rspec's audit and verify have finished;
   - gate-4 locks `openapi.json`, `schemas/`, `criteria.lock.json` and `acceptance/manifest.json` (the data-model
@@ -138,6 +144,13 @@ capability went is in `docs/MIGRATION-3.md`.
   printing `→`, `…` or `—` raised an encoding error, so `finding` reported `error: 'charmap' codec…` and exit 1
   instead of `routed: … → rspec`. The CLI now prints `?` for a character the console can't show; output on a
   UTF-8 console is unchanged. The spec's C4 now records the `cli/` test format as not settled in v1.
+
+### Known issues
+
+- **`target_shape: client-only` is only partly covered in 3.0.0** (`docs/MIGRATION-3.md` row 19, the user's
+  decision of 2026-11-09). rspec's modernize track covers data migration and cutover; transcribing the existing
+  backend API into a frozen contract and inventorying what the old app left on devices have no owner or test.
+  Do those by hand for a client-only rebuild, or wait for a release that owns them.
 
 ## [2.2.0] - 2026-11-06
 

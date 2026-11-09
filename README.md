@@ -16,7 +16,8 @@ to a verified, production-ready codebase.
 stack. And the rebuild does not have to own both halves: set `target_shape: client-only` and the existing
 backend API stays where it is, a contract the pipeline transcribes and freezes rather than designs. A messy
 old React Native app rebuilt in Flutter, backend untouched, is the same pipeline with three fields set
-differently at G0.
+differently at G0. In 3.0.0 that shape is a [known issue](#known-issues): the API transcription and device
+inventory are yours to do.
 
 **You interact with one thing only: the `rebuild-pipeline` skill** (or the `/product-rebuild:rebuild`
 command). It detects where the project stands, reports progress, runs rspec's stages, dispatches build
@@ -247,6 +248,13 @@ session without it reads the default folder's config, and its guard would not kn
 - **Every slice ships.** Deployment is part of the definition of done.
 - **The work leaves the machine.** Every repo gets a remote when it is created, private unless the license
   posture says otherwise, and the pause check tells you when something still hasn't been pushed.
+
+## Known issues
+
+- **`target_shape: client-only` is a known gap in 3.0.0.** rspec's modernize track covers data migration and
+  cutover; nothing yet transcribes the existing backend API into a frozen contract or inventories what the old
+  app left on devices (local databases, files, keychain entries). Do both by hand before Gate 4.
+  [docs/MIGRATION-3.md](docs/MIGRATION-3.md) row 19.
 
 ## FAQ
 

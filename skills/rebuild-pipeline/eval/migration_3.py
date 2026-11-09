@@ -9,7 +9,9 @@ that work now. A capability nobody placed is lost silently, and a table row nami
 a claim, not a placement. So each row's proof is run, not read.
 
 What it checks:
-  - every row of the capability table names an owner (rspec, sdlc, bug-hunter or this repo) and at least one proof;
+  - every row of the capability table names an owner (rspec, sdlc, bug-hunter or this repo) and at least one proof,
+    except a row whose Status starts `known gap`: a capability the user chose to ship without (README and CHANGELOG,
+    Known issues), which still names its partial owner;
   - every proof this repo owns (`eval/<file>.py [group]`) runs and exits 0, and a fixture proof exists;
   - every external proof is written `<repo>@<sha> <path>::<test>`.
 With --external it also runs each external test from a `git archive` copy of that repo at the cited commit, so
@@ -49,14 +51,14 @@ def check(name, ok, detail=""):
 
 
 def rows():
-    """(number, capability, owner cell, proof cell) for each row of the capability table."""
+    """(number, capability, owner cell, proof cell, status cell) for each row of the capability table."""
     with open(TABLE, encoding="utf-8") as f:
         text = f.read()
     out = []
     for line in text.splitlines():
         cells = [c.strip() for c in line.strip().strip("|").split("|")] if line.startswith("|") else []
         if len(cells) >= 5 and cells[0].isdigit():
-            out.append((cells[0], cells[1], cells[2], cells[3]))
+            out.append((cells[0], cells[1], cells[2], cells[3], cells[4]))
     return out
 
 
@@ -107,14 +109,24 @@ def main():
     check("the capability table has rows", len(table) > 0)
     cache, trees = {}, {}
     try:
-        for num, cap, owner, proof in table:
+        for num, cap, owner, proof, status in table:
             label = f"{num}. {cap[:70]}"
             owners = [o for o in OWNERS if o in owner]
             locals_ = LOCAL.findall(proof)
             fixtures = FIXTURE.findall(proof)
             externals = EXTERNAL.findall(proof)
-            check(f"{label}: has an owner and a proof", bool(owners) and bool(locals_ or fixtures or externals),
-                  f"owner {owner!r}, proof {proof!r}")
+            gap = status.lower().startswith("known gap")
+            check(f"{label}: has an owner and {'no proof (known gap)' if gap else 'a proof'}",
+                  bool(owners) and (gap or bool(locals_ or fixtures or externals)), f"owner {owner!r}, proof {proof!r}")
+            if gap:
+                # The waiver holds only while users are told: a gap missing from Known issues is a lost capability.
+                for doc in ("README.md", "CHANGELOG.md"):
+                    with open(os.path.join(ROOT, doc), encoding="utf-8") as f:
+                        text = f.read()
+                    # The first Known issues section: in CHANGELOG that is the newest release's.
+                    sec = re.search(r"^#{2,3} Known issues[ \t]*\n(.*?)(?=^#{1,3} |\Z)", text, re.M | re.S)
+                    told = sec and re.search(rf"MIGRATION-3\.md\S*\s+row {num}\b", sec.group(1))
+                    check(f"{label}: {doc} lists the known gap (cites MIGRATION-3.md row {num})", bool(told))
             for script, group in locals_:
                 code, out = run_local(cache, script, group)
                 check(f"{label}: eval/{script}{' ' + group if group else ''} passes", code == 0, out)

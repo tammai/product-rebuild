@@ -162,7 +162,8 @@ def main(argv=None):
     # rspec's artifacts in its single-repo layout (docs/), in rspec's order (05 P2): the numbers
     # keep their 2.x names. gate.py's lock checks name the rspec step each one waits for.
     gates = [
-        ("gate-1", "Feature lock", ["docs/features.md", "docs/domain.md", "docs/departures.yaml"]),
+        # docs/departures.yaml is not hashed: it is append-only from the gate-1 lock (departures.py).
+        ("gate-1", "Feature lock", ["docs/features.md", "docs/domain.md"]),
         ("gate-3", "Architecture lock", ["docs/decisions/", "adr/"]),
         ("gate-2", "Slice-plan lock", ["docs/build-plan.md"]),
         ("gate-4", "Contract lock", ["docs/openapi.json", "docs/schemas/", "docs/criteria.lock.json",

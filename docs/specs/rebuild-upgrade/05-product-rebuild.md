@@ -37,7 +37,7 @@ Before deleting any 2.x part, a table in `docs/MIGRATION-3.md` maps each 2.x cap
 |---|---|---|
 | G0 reference, posture, playbook, budgets | this repo | — |
 | Preflight: reference builds, runs, seeds | this repo (unchanged) | blocks while `Not-ready` |
-| init → discover → features | rspec | **Gate 1**: `features.md`, `domain.md`, `departures.yaml` |
+| init → discover → features | rspec | **Gate 1**: `features.md`, `domain.md`; `departures.yaml` is not hashed but append-only from Gate 1 on (changed 2026-11-09, user): every entry needs `decided_by`, a `proposed` entry blocks the gates that read it (C5), and Gate 1 records the IDs present at its lock; removing or changing one of those fails validation |
 | stories → tech (playbook answers passed as stack preferences) | rspec | **Gate 3**: accepted ADRs (rspec handoff step 1) |
 | audit → verify | rspec | checked at Gate 4 |
 | handoff (build plan, ≤ 10 criteria per slice) | rspec | **Gate 2**: slice boundaries |

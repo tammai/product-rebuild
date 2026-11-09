@@ -67,6 +67,10 @@ SPEC = "docs"
 # workbench scaffolded earlier. gate-3's adr/ holds the vendored playbook and its scaffold manifest
 # (the stack every code repo is created from); 3.0 release candidates scaffolded gate-3 without it.
 REQUIRED_PROTECTS = {"gate-3": ["adr/"]}
+# The reverse: paths an earlier scaffold put under a gate that it no longer hashes, dropped at lock time.
+# Each path maps to the reason printed when it is dropped.
+RETIRED_PROTECTS = {"gate-1": {"docs/departures.yaml": "the departures registry is append-only from the gate-1 "
+                                                       "lock instead (departures.py)"}}
 PHASE_BEFORE = {
     "gate-1": "rspec init → discover → features (Gate 1 approves the feature list)",
     "gate-3": "rspec stories → tech (Gate 3: ADR approval, rspec handoff step 1)",
@@ -245,7 +249,8 @@ def rspec_config():
     return cfg if isinstance(cfg, dict) else {}
 
 
-def _lock_gate1_checks(gid):
+def _lock_gate1_checks(gid, argv):
+    # (exit code or None, extra lock lines), like _lock_gate4_checks.
     # Gate 1 is the user's approval of the feature list, and rspec records that approval as its
     # stage `features-approved`. Locking before it would hash a list rspec itself still treats as
     # a draft, with the departures written only after approval (rspec features step 6).
@@ -254,14 +259,24 @@ def _lock_gate1_checks(gid):
         print(f"Cannot lock {gid}: {SPEC}/rspec.json says stage {stage or 'none'}; Gate 1 locks the feature list "
               f"after rspec records its approval (stage features-approved). Finish /rspec:features first.",
               file=sys.stderr)
-        return 1
+        return 1, ""
     # 05 P8: a rebuild is built for production, so rspec's goal is `production` (which makes rspec require a
     # Verification per NFR and the readiness checklist GP walks). The skill sets it at rspec:init.
     if rspec_config().get("goal") != "production":
         print(f"Cannot lock {gid}: {SPEC}/rspec.json goal is {rspec_config().get('goal') or 'empty'}; a rebuild's goal is "
               f"production (05 P8). Set it with the user and re-run the stages it changes.", file=sys.stderr)
-        return 1
-    return None
+        return 1, ""
+    # The departures registry is append-only from here, not hashed (05 P2): the lock records what is there,
+    # and validate.py and gate-5 refuse a recorded departure removed or changed (departures.record_problems).
+    # The block sits before `history:` so cmd_reopen's strip of artifact_hashes..history clears it too;
+    # if either moves, change both.
+    try:
+        import departures
+        rec = departures.record()
+    except Exception as e:
+        print(f"Cannot lock {gid}: {e}", file=sys.stderr)
+        return 1, ""
+    return None, ("departures_at_lock:\n" + "".join(f"  {k}: {v}\n" for k, v in rec.items())) if rec else ""
 
 
 def proposed_adrs():
@@ -542,6 +557,9 @@ def _gate5_problems():
     try:
         import departures
         out += [f"departure {d.get('id')} is still proposed: the user decides it" for d in departures.proposed()]
+        # gate_guard no longer blocks edits to the registry (it is append-only, not hashed), so the terminal gate
+        # refuses a recorded departure removed or changed rather than trusting what it now explains.
+        out += departures.record_problems()
     except Exception as e:
         out.append(f"docs/departures.yaml could not be read ({e})")
     try:
@@ -568,16 +586,16 @@ def cmd_lock(gid, lock, argv):
         print(f"Cannot lock {gid}: earlier gate(s) still open: {', '.join(l['id'] for l in prev_open)}", file=sys.stderr)
         return 1
     extra = ""
-    for check, which in ((_lock_gate1_checks, "gate-1"), (_lock_gate3_checks, "gate-3"), (_lock_gate2_checks, "gate-2"),
-                         (_lock_gate5_checks, "gate-5")):
+    for check, which in ((_lock_gate3_checks, "gate-3"), (_lock_gate2_checks, "gate-2"), (_lock_gate5_checks, "gate-5")):
         if gid == which:
             rc = check(gid)
             if rc is not None:
                 return rc
-    if gid == "gate-4":
-        rc, extra = _lock_gate4_checks(gid, argv)
-        if rc is not None:
-            return rc
+    for check, which in ((_lock_gate1_checks, "gate-1"), (_lock_gate4_checks, "gate-4")):
+        if gid == which:
+            rc, extra = check(gid, argv)
+            if rc is not None:
+                return rc
 
     # artifact_hashes below is computed from the WORKING TREE, but the lock commit further
     # down stages only the lock file itself. If any protected (or other) file is dirty, the
@@ -604,11 +622,16 @@ def cmd_lock(gid, lock, argv):
     # Union in anything this gate must protect that its scaffolded `protects:` predates.
     # Absent directories contribute no files and no hashes: the line appears in the lock file and
     # protects an empty set, which is the correct description of that project.
-    protects = list(dict.fromkeys([*lock["protects"], *REQUIRED_PROTECTS.get(gid, [])]))
+    protects = [p for p in dict.fromkeys([*lock["protects"], *REQUIRED_PROTECTS.get(gid, [])])
+                if p not in RETIRED_PROTECTS.get(gid, {})]
     added = [p for p in protects if p not in lock["protects"]]
     if added:
         print(f"Adding to {gid} protects: {', '.join(added)} "
               f"(required by this plugin version; this workbench was scaffolded before it).")
+    for p in lock["protects"]:
+        if p in RETIRED_PROTECTS.get(gid, {}):
+            print(f"Dropping from {gid} protects: {p} (this plugin version no longer hashes it: "
+                  f"{RETIRED_PROTECTS[gid][p]}).")
 
     hashes = [f"  {f}: {sha(f)}" for p in protects for f in files_under(p)]
     if not hashes:
@@ -696,6 +719,8 @@ def cmd_reopen(gid, lock, argv):
     body = re.sub(r"^status: locked$", "status: open", body, count=1, flags=re.M)
     body = re.sub(r"^locked_at: .*$\n", "", body, count=1, flags=re.M)
     body = re.sub(r"^locked_by: .*$\n", "", body, count=1, flags=re.M)
+    # Also clears what cmd_lock writes between the hashes and history (gate-4's holdout and waiver, gate-1's
+    # departures_at_lock): change both together.
     body = re.sub(r"^artifact_hashes:[\s\S]*?(?=history:)", "", body, count=1, flags=re.M)
     body = body.rstrip() + f"\n  - action: reopened\n    at: {_iso_now()}\n    reason: {yaml_str(reason)}\n"
     with open(_join(LOCKS, f"{gid}.yaml"), "w", encoding="utf-8", newline="\n") as fh:

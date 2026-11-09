@@ -32,7 +32,7 @@ Where each 2.x capability went is in [MIGRATION-3.md](MIGRATION-3.md).
 
 ```
 G0 Reference, posture, playbook, budgets; preflight
-rspec init → discover → features           ── GATE 1: feature lock (features.md, domain.md, departures.yaml)
+rspec init → discover → features           ── GATE 1: feature lock (features.md, domain.md; departures.yaml append-only)
 rspec stories → tech                        ── GATE 3: architecture lock (accepted ADRs; adr/ playbook + scaffold manifest)
 rspec audit → verify → handoff → check;
   holdout.py split, then the first commit   ── GATE 2: slice-plan lock (build-plan.md, ≤ 10 criteria a slice)
@@ -93,7 +93,7 @@ Every phase boundary is a file with a contract (`contracts/v1/`: criteria, the c
 
 The skill runs each stage with rspec's own skill and reads rspec's `progress.py` for where it stands; it never does a stage's work. The workbench holds the spec in rspec's single-repo layout (`docs/`).
 
-- **Gate 1** (after `rspec:features`, the user approves the list) locks `features.md`, `domain.md` and `departures.yaml`. The rebuild's rspec goal is always `production`.
+- **Gate 1** (after `rspec:features`, the user approves the list) locks `features.md` and `domain.md`. `departures.yaml` is not hashed but append-only from then on: the lock records each departure present (it refuses while one is `proposed`, lacks `decided_by` or has an ID that is not `D-<nnn>`), `validate.py` and Gate 5 fail when one of those is removed or changed (and no departure explains a difference until it is restored), and a departure decided later is appended. The rebuild's rspec goal is always `production`.
 - **Before `rspec:tech`**, `python3 scripts/playbook.py vendor` copies the playbook and its scaffold manifest to `adr/`, and its stack line becomes rspec's stack preference.
 - **Gate 3** (after the ADR approval, rspec handoff step 1) locks `docs/decisions/` and `adr/`; it refuses an ADR still `Proposed` and a workbench with no valid scaffold manifest, so the stack every code repo is created from cannot change under the project.
 - **Gate 2** (after `rspec:audit` and `rspec:verify`, and the build plan) locks `build-plan.md`: vertical slices, each shippable and testable on its own, at most about 10 criteria each.

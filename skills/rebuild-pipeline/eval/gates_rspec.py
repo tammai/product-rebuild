@@ -138,12 +138,17 @@ if ONLY in (None, "order"):
     check("gate-1 refuses before rspec's features are approved", r.returncode == 1 and "features-approved" in r.stderr,
           r.stdout + r.stderr)
     rspec_json(wb, "features-approved")
+    scaffolded = lock_text(wb, "gate-1")
+    # An rc.1 scaffold listed the registry under gate-1's protects; the lock must drop it there too.
+    rc1 = scaffolded.replace("  - docs/domain.md\n", "  - docs/domain.md\n  - docs/departures.yaml\n")
+    w(wb, "locks/gate-1.yaml", rc1)
     commit(wb)
     r = gate(wb, "lock", "gate-1", "--by", "Eval")
     lock1 = lock_text(wb, "gate-1")
-    check("gate-1 locks features.md, domain.md and departures.yaml",
-          r.returncode == 0 and all(f"  docs/{f}: " in lock1 for f in ("features.md", "domain.md", "departures.yaml")),
-          r.stdout + r.stderr + lock1)
+    check("gate-1 locks features.md and domain.md, not departures.yaml (append-only, not hashed), saying it dropped it",
+          r.returncode == 0 and all(f"  docs/{f}: " in lock1 for f in ("features.md", "domain.md"))
+          and "departures.yaml" not in scaffolded + lock1 and "departures.yaml" in rc1 and "docs/departures.yaml" in r.stdout,
+          r.stdout + r.stderr + scaffolded + lock1)
     r = gate(wb, "lock", "gate-2")
     check("gate-2 refuses while gate-3 (now before it) is open", r.returncode == 1 and "gate-3" in r.stderr, r.stderr)
     w(wb, "docs/decisions/0001-stack.md", "# Stack\n\n- Status: Proposed\n")

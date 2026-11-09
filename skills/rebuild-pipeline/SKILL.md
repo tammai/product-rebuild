@@ -215,7 +215,11 @@ or spec-gap open. Then:
   `differs: <what> (class: …)`. Never fill it in yourself, under autopilot or not.
 - **Departures:** every accepted difference is one entry in `docs/departures.yaml`, read by every check;
   `equiv.py accept … --by` and `flows.py unlock --acceptance --weakens --criteria … --by` write them, and only
-  the user decides one. While gate-1 hashes that file, adding one after the gate-1 lock needs a gate-1 reopen.
+  the user decides one. The registry is append-only from the gate-1 lock, not hashed: gate-1 refuses to lock
+  while any entry is proposed, lacks `decided_by` or has an ID that is not `D-<nnn>`, and otherwise records every
+  entry. Never edit or remove a recorded entry (validate.py and gate-5 refuse it, and no departure explains
+  anything until it is restored); add a new departure instead. A gate-1 lock whose `artifact_hashes` lists
+  `docs/departures.yaml` (taken before this rule) refuses additions: reopen and lock gate-1 again first.
 The boundary passes when the open and hidden suites are green or explained, no high finding is open,
 bug-hunter has run and the sample is recorded.
 

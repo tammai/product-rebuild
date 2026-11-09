@@ -392,15 +392,74 @@ if ONLY in (None, "departures"):
     r = run([sys.executable, "-c", probe], wb)
     check("gate-5 refuses on a red trace no departure explains, naming only that one",
           r.returncode == 1 and "other" in r.stderr and "invoices-total" not in r.stderr.split("explains")[-1], r.stderr)
-    for gid in ("gate-1",):
+    decided_only = read(wb, "docs", "departures.yaml")
+    w(wb, "docs/departures.yaml", "{bad: map}\n")
+    v = script(wb, "validate.py")
+    check("an unreadable registry fails validation, before gate-1 records anything",
+          v.returncode == 1 and "could not be read" in v.stdout + v.stderr, v.stdout[-900:] + v.stderr)
+    # Gate 1 records only what can stay as it is: deciding a proposed or undecided entry later would read as an
+    # edit, and an ID that is not C5's D-<nnn> cannot be written into the lock and read back safely.
+    for label, entry, named in (("a departure is proposed", "- id: D-009\n  kind: simplification\n  summary: idea\n"
+                                                             "  status: proposed\n", "D-009"),
+                                ("a departure has no decided_by", "- id: D-010\n  kind: simplification\n  summary: x\n",
+                                 "D-010"),
+                                ("a departure's decided_by is blank", '- id: D-012\n  kind: simplification\n  summary: x\n'
+                                                                      '  decided_by: "  "\n', "D-012"),
+                                ("a departure's ID is not D-<nnn>", '- id: "D 011: x"\n  kind: simplification\n  summary: x\n'
+                                                                    '  decided_by: "Tam Mai"\n', "D 011")):
+        w(wb, "docs/departures.yaml", decided_only + entry)
         commit(wb)
-        rr = script(wb, "gate.py", "lock", gid, "--by", "Eval")
+        rr = script(wb, "gate.py", "lock", "gate-1", "--by", "Eval")
+        check(f"gate-1 refuses to lock while {label}, naming it",
+              rr.returncode == 1 and named in rr.stderr, rr.stdout + rr.stderr)
+    w(wb, "docs/departures.yaml", decided_only)
+    commit(wb)
+    rr = script(wb, "gate.py", "lock", "gate-1", "--by", "Eval")
+    lock1 = read(wb, "locks", "gate-1.yaml")
+    check("gate-1 records each departure present at its lock with a hash, and does not hash the registry",
+          rr.returncode == 0 and all(re.search(rf"(?m)^  {d}: [0-9a-f]{{64}}$", lock1) for d in ("D-001", "D-002", "D-003"))
+          and "docs/departures.yaml:" not in lock1, rr.stdout + rr.stderr + lock1)
     before = read(wb, "docs", "departures.yaml")
     r = script(wb, "flows.py", "unlock", "--acceptance", "--weakens", "--criteria", "F-ISS-03.AC1", "--by", "Tam Mai",
                "--reason", "another")
-    check("while gate-1 hashes departures.yaml, adding a departure after its lock is refused, nothing written",
-          rr.returncode == 0 and r.returncode == 1 and "gate-1" in r.stderr and read(wb, "docs", "departures.yaml") == before,
-          rr.stdout + rr.stderr + r.stdout + r.stderr)
+    dep = read(wb, "docs", "departures.yaml")
+    v = script(wb, "validate.py")
+    check("after gate-1, a decided departure is appended after the recorded ones and validates",
+          r.returncode == 0 and dep.startswith(before.rstrip("\n")) and "- id: D-004" in dep[len(before.rstrip()):]
+          and "recorded at the gate-1 lock" not in v.stdout + v.stderr, r.stdout + r.stderr + dep + v.stdout[-900:])
+    probe_x = (f"import sys; sys.path.insert(0, 'scripts'); import departures; "
+               f"print(departures.explained_by('{hidden}', 'http', '/key', 'WRONG'))")
+    intact = run([sys.executable, "-c", probe_x], wb).stdout.strip()
+    w(wb, "docs/departures.yaml", dep.replace("summary: keys differ", "summary: keys differ in any way", 1))
+    v = script(wb, "validate.py")
+    check("editing a departure gate-1 recorded fails validation, naming it as changed",
+          v.returncode == 1 and "D-001 recorded at the gate-1 lock was changed" in v.stdout + v.stderr, v.stdout[-900:] + v.stderr)
+    x = run([sys.executable, "-c", probe_x], wb)
+    check("while a recorded departure is changed, no departure explains a difference (every reader fails closed)",
+          intact == "D-001" and x.stdout.strip() == "None", intact + " / " + x.stdout + x.stderr)
+    w(wb, "docs/departures.yaml", dep + "- id: D-099\n  1: x\n  kind: simplification\n  summary: x\n  decided_by: x\n")
+    v = script(wb, "validate.py")
+    check("an entry that cannot be hashed fails validation without a traceback",
+          v.returncode == 1 and "Traceback" not in v.stdout + v.stderr and "could not be read" in v.stdout + v.stderr,
+          v.stdout[-900:] + v.stderr)
+    w(wb, "docs/departures.yaml", re.sub(r"(?ms)^- id: D-002\n.*?(?=^- id: |\Z)", "", dep))
+    v = script(wb, "validate.py")
+    check("removing a departure gate-1 recorded fails validation, naming it as removed",
+          v.returncode == 1 and "D-002 recorded at the gate-1 lock was removed" in v.stdout + v.stderr, v.stdout[-900:] + v.stderr)
+    probe5 = "import sys; sys.path.insert(0, 'scripts'); import gate; print(gate._gate5_problems())"
+    g5 = run([sys.executable, "-c", probe5], wb)
+    r = script(wb, "flows.py", "unlock", "--acceptance", "--weakens", "--criteria", "F-ISS-03.AC1", "--by", "Tam Mai",
+               "--reason", "on a broken record")
+    check("with a recorded departure removed, gate-5 lists it and adding another is refused",
+          "D-002" in g5.stdout and r.returncode == 1 and "D-002" in r.stderr, g5.stdout + g5.stderr + r.stdout + r.stderr)
+    w(wb, "docs/departures.yaml", dep)
+    lock_now = read(wb, "locks", "gate-1.yaml")
+    w(wb, "locks/gate-1.yaml", lock_now.replace("artifact_hashes:\n", "artifact_hashes:\n  docs/departures.yaml: " + "0" * 64 + "\n", 1))
+    r = script(wb, "flows.py", "unlock", "--acceptance", "--weakens", "--criteria", "F-ISS-03.AC1", "--by", "Tam Mai",
+               "--reason", "under an rc.1 lock")
+    check("under a gate-1 lock that still hashes the registry (rc.1), adding a departure is refused, naming the reopen",
+          r.returncode == 1 and "reopen" in r.stderr and read(wb, "docs", "departures.yaml") == dep, r.stdout + r.stderr)
+    w(wb, "locks/gate-1.yaml", lock_now)
 
 if ONLY in (None, "remine"):
     print("\n# the upstream re-mine: due every 30 days, done through rspec (docs/MIGRATION-3.md)")

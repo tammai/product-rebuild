@@ -109,9 +109,10 @@ def make_project(name):
     w(wb, "docs/verify/runs.jsonl", "".join(json.dumps({"criterion": t["criterion"], "result": "fail",
                                                         "detail": f"/key: got \"x\", expected \"{SECRET}\""}) + "\n"
                                             for t in tests))
-    for rel in ("docs/features.md", "docs/domain.md", "docs/departures.yaml", "docs/audit/summary.md",
+    for rel in ("docs/features.md", "docs/domain.md", "docs/audit/summary.md",
                 "docs/verify/summary.md", "docs/openapi.json", "docs/schemas/issue.json"):
         w(wb, rel, "{}\n")
+    w(wb, "docs/departures.yaml", "[]\n")  # gate-1 reads the registry and refuses one that is not a list
     w(wb, "docs/decisions/0001-stack.md", "# Stack\n\n- Status: Accepted\n")
     src = open(os.path.join(wb, "sources.yaml"), encoding="utf-8").read()
     w(wb, "sources.yaml", re.sub(r"^(  posture:).*$", r'\1 "strict"', src, count=1, flags=re.M))

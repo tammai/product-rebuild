@@ -18,10 +18,13 @@ criteria.lock.json, never a failure of a live one. Round 1 of the 3.0 review fou
 "keys use 2-4 letters" also explaining an HTTP 500 on that criterion. An equivalence trace is explained by the rule
 `equiv-trace:<name>`, which `equiv.py accept` writes.
 
-ADDING ONE AFTER GATE 1. Gate 1 hashes departures.yaml (05 P2), so a departure appended after the gate-1 lock
-would break that lock. Until the user decides whether the registry stays under that hash (an open spec question,
-2026-11-09), append() refuses then, with nothing written. That rule lives only in gate1_allows_append(): change
-it there.
+ADDING ONE AFTER GATE 1. Gate 1 does not hash this file: the registry is append-only from its lock on (05 P2, the
+user's decision of 2026-11-09). The lock records each departure present then, ID and a hash of the parsed entry
+(record()), and record_problems() names one since removed, edited or duplicated; validate.py and gate-5 fail on
+those, and decided() raises so no reader explains a difference meanwhile. Hashing the whole file, as Gate 1 first
+did, refused every departure G6 accepted after it. A gate-1 lock whose artifact_hashes still lists the file would
+break on an append; that, and a registry whose record is already broken, are the only refusals, and they live in
+gate1_allows_append(): change them there.
 
 Standard library plus the vendored yamlio, like every script here that reads YAML.
 """
@@ -39,6 +42,7 @@ import yamlio  # noqa: E402
 PATH = os.path.join("docs", "departures.yaml")
 KINDS = ("simplification", "deliberate-change", "reference-defect-not-copied", "environment", "branding")
 UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\Z")
+ID = re.compile(r"^D-[0-9]{3,}\Z")
 ISO = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?\Z")
 
 
@@ -57,11 +61,28 @@ def load(root="."):
         return []
     if not isinstance(data, list):
         raise ValueError(f"{PATH} is not a list of departures")
-    return [d for d in data if isinstance(d, dict)]
+    entries = [d for d in data if isinstance(d, dict)]
+    # digest() serialises entries with sorted keys; a non-text key (YAML `1: x`) would raise TypeError there.
+    odd = [str(d.get("id")) for d in entries if any(not isinstance(k, str) for k in d)]
+    if odd:
+        raise ValueError(f"departure {', '.join(odd)} has a field name that is not text")
+    return entries
 
 
 def decided(root="."):
-    return [d for d in load(root) if d.get("decided_by") and d.get("status", "accepted") != "proposed"]
+    """Every decided entry. Raises while a departure gate-1 recorded is removed or changed: gate_guard does not
+    block edits to the registry, so every reader (holdout.py, route.py, gate-5) fails closed here rather than
+    letting a widened entry explain a difference."""
+    entries = load(root)
+    problems = record_problems(root)
+    if problems:
+        raise ValueError("; ".join(problems))
+    return [d for d in entries if _is_decided(d)]
+
+
+def _is_decided(d):
+    return isinstance(d.get("decided_by"), str) and d["decided_by"].strip() != "" and \
+        d.get("status", "accepted") != "proposed"
 
 
 def proposed(root="."):
@@ -140,14 +161,76 @@ def for_trace(name, root="."):
     return None
 
 
+def digest(entry):
+    """sha256 of one parsed entry: a reflow or CRLF checkout leaves it alone, an edited field does not."""
+    import hashlib
+    import json
+    return hashlib.sha256(json.dumps(entry, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def record(root="."):
+    """{id: digest} for every departure, for gate-1 to write at its lock. Raises ValueError on an unreadable
+    registry, an ID that is not C5's D-<nnn> or is repeated, or an undecided entry (proposed, or no or a blank
+    decided_by):
+    deciding a recorded entry later would read as an edit. The ID pattern also keeps each one a plain YAML key
+    that recorded()'s line regex reads back; departures.schema.json holds the same pattern."""
+    entries = load(root)
+    ids = [str(d.get("id")) for d in entries]
+    bad = [i for i in ids if not ID.match(i)]
+    if bad:
+        raise ValueError(f"{PATH} has departure ID {', '.join(bad)}, not D-<nnn> (contracts C5)")
+    dup = sorted({i for i in ids if ids.count(i) > 1})
+    if dup:
+        raise ValueError(f"{PATH} repeats the ID {', '.join(dup)}; give each departure its own ID")
+    waiting = [i for i, d in zip(ids, entries) if not _is_decided(d)]
+    if waiting:
+        raise ValueError(f"departure {', '.join(waiting)} is not decided (proposed, or no decided_by): the user "
+                         f"decides it before Gate 1 (C5)")
+    return {i: digest(d) for i, d in zip(ids, entries)}
+
+
+def recorded(root="."):
+    """{id: digest} from a locked gate-1's `departures_at_lock:`, or {} when gate-1 is not locked."""
+    lock = os.path.join(root, "locks", "gate-1.yaml")
+    if not os.path.exists(lock):
+        return {}
+    text = _text(lock)
+    if not re.search(r"^status: locked$", text, re.M):
+        return {}
+    block = re.search(r"^departures_at_lock:\n((?:  .*\n?)*)", text, re.M)
+    return dict(re.findall(r"^  (\S+): ([0-9a-f]{64})$", block.group(1), re.M)) if block else {}
+
+
+def record_problems(root="."):
+    """One line per departure gate-1 recorded that is no longer there exactly once and unchanged. An unreadable
+    registry is a problem, never an empty one, whether or not gate-1 recorded anything."""
+    rec = recorded(root)
+    try:
+        entries = load(root)
+    except Exception as e:
+        return [f"{PATH} could not be read ({e}), so the departures gate-1 recorded cannot be checked"]
+    out = []
+    for did, want in rec.items():
+        same = [d for d in entries if str(d.get("id")) == did]
+        if not same:
+            out.append(f"departure {did} recorded at the gate-1 lock was removed (the registry is append-only)")
+        elif len(same) > 1 or digest(same[0]) != want:
+            out.append(f"departure {did} recorded at the gate-1 lock was changed (the registry is append-only; "
+                       f"add a new departure instead)")
+    return out
+
+
 def gate1_allows_append(root="."):
     """(allowed, why). The one place that decides whether a departure may be added now (see the module doc)."""
     lock = os.path.join(root, "locks", "gate-1.yaml")
     if os.path.exists(lock) and re.search(r"^status: locked$", _text(lock), re.M) and \
-            re.search(r"^  - docs/departures\.yaml$", _text(lock), re.M):
-        return False, ("gate-1 is locked and hashes docs/departures.yaml, so adding a departure would break that lock. "
-                       "Reopen gate-1 with the user (python3 scripts/gate.py reopen gate-1 --reason \"...\"), add it, and "
-                       "lock again; whether later departures need this is an open decision for the user.")
+            re.search(r"^  docs/departures\.yaml: ", _text(lock), re.M):
+        return False, ("gate-1 was locked by a release that hashed docs/departures.yaml, so adding a departure would "
+                       "break that lock. Reopen gate-1 with the user (python3 scripts/gate.py reopen gate-1 --reason "
+                       "\"...\") and lock it again: the new lock records the departures instead of hashing the file.")
+    problems = record_problems(root)
+    if problems:
+        return False, "; ".join(problems) + ". Restore the registry before adding to it."
     return True, ""
 
 
@@ -191,7 +274,7 @@ def append(kind, summary, decided_by, criteria=(), features=(), match=(), root="
 
 def write_atomic(p, text):
     """Write `text` to `p` through a temp file renamed over it, so a crash mid-write never leaves the registry
-    Gate 1 hashes truncated. holdout.py carries a copy (it runs alone); change both together."""
+    truncated. holdout.py carries a copy (it runs alone); change both together."""
     os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
     tmp = f"{p}.tmp-{os.getpid()}"
     with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
