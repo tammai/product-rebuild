@@ -1,5 +1,5 @@
 # 2026-11-08-l-shared-contracts-v1
-Status: active
+Status: done
 Process: 3
 Change: docs/sdlc/changes/2026-11-08-l-shared-contracts-v1.md   (this feature's record for people)
 Track: L   (sized up because: written spec with seven contracts (C1-C7) plus distribution; footprint: 40 files)
@@ -54,6 +54,7 @@ inline, one part
 - 2026-11-08 Stage 2: pass — T-1 fixed test-first; all ACs green; test step fails only on baseline evals
 - 2026-11-08 Stage 3: pass — review r2 PASS; T-1 fixed with a test
 - 2026-11-08 after ship commit d00ba7a: added TestRemainingMessages/TestRunHttpMessages so every error message in contracts.py has a test (spec Acceptance); it found one gap, a '? key' line not naming complex keys, fixed in contracts.py (_Block.mapping). Not re-reviewed: a 2-line change, its test seen failing then passing. verify: only baseline evals fail.
+- 2026-11-09 closed: merged to main as PR #1 (0a67539); the brief forbade push, so ship.py never ran; record closed with state.py set Status done
 
 ## Deviations
 - 2026-11-08 Public Surface What: contracts.py's module functions (check_id, check_criteria, check_story, check_lock, check_bundle, check_http_test, run_http, check_departures, check_finding, finding_route, check_cost, sum_cost, parse_yaml, schema_errors, criterion_text_sha256, header_for, vendor_check, run_fixtures, seal, main) and the eval's helpers (append, check, tampered, strip_header_and_reseal) are top-level names, listed only as 'command contracts.py' in the plan. Why: the plan named the CLI; the test file imports these functions to test each rule directly. Effect: none on consumers, who call the CLI; the functions are importable for the unit tests.

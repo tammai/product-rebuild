@@ -1,5 +1,5 @@
 # 2026-11-08-l-product-rebuild-3
-Status: active
+Status: done
 Process: 3
 Change: docs/sdlc/changes/2026-11-08-l-product-rebuild-3.md   (this feature's record for people)
 Track: L   (sized up because: —; footprint: 16 files)
@@ -87,6 +87,7 @@ parts in fresh sessions: each backlog part is its own coordinator task
 - 2026-11-09 Stage 2: pass
 - 2026-11-09 Stage 2: pass
 - 2026-11-09 Stage 3: pass — Review closed: redesign round + focused check fixes + H-4; baseline waived (4 known evals); ship.py printed nothing, manual Ship commit
+- 2026-11-09 closed: released as v3.0.0 (51c9828, PR #2); the brief forbade push, so ship.py never ran; record closed with state.py set Status done
 
 ## Deviations
 - 2026-11-08 surface What: script-internal functions allowed, bash_reaches, check, denied, denied_roots, guard, init_repo, is_lane, main, marked, posture_of, run, set_reference, tool_reaches, w (hooks/scripts/reference_guard.py and the evals) read as new exports. Why: they are functions inside a hook and eval scripts, imported by nothing. Effect: none; Public Surface unchanged.
