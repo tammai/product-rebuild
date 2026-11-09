@@ -10,6 +10,10 @@ Usage:
   python3 scripts/autopilot.py log --unit "..." --outcome done|failed|skipped [--note "..."]
   python3 scripts/autopilot.py disengage --reason <r> [--next "..."]
   python3 scripts/autopilot.py status
+  python3 scripts/autopilot.py park --what <decision> [--slice Sn] [--blocks gate-4,boundary:S2] --note "..."
+  python3 scripts/autopilot.py unpark --what <decision> [--slice Sn]
+  python3 scripts/autopilot.py blocked gate-<n>|boundary:<Sn>|lanes:<Sn>
+  python3 scripts/autopilot.py <command> --help
 
 Autopilot never touches a gate. It runs the mechanical stretches BETWEEN gates and halts
 at each one; locking stays a human act (SKILL.md Step 5).
@@ -567,9 +571,9 @@ def cmd_preflight(args, state):
     else:
         blockers.append("gate.py status failed: Command failed: python3 scripts/gate.py status")
 
-    # 1b. The G0 preflight (preflight.json). An unattended run's first act at G1 is to
-    #     dispatch miners at every lane in parallel, and a wrong `pinned_commit` makes every
-    #     lane-D citation they write wrong — silently, because a finding's hash is of the
+    # 1b. The G0 preflight (preflight.json). An unattended run's first act after G0 is
+    #     rspec's discovery, and a wrong `pinned_commit` makes every `[code]` citation it
+    #     writes wrong — silently, because a finding's hash is of the
     #     finding, not of the thing it describes. That is the one failure an unattended run
     #     cannot notice and cannot undo cheaply: by the time a human reads it, a gate has
     #     hashed it. So Not-ready is a blocker here and not a note.
@@ -596,7 +600,7 @@ def cmd_preflight(args, state):
             verdict = _get(pf, "verdict")
             if verdict == "Not-ready":
                 bl = _get(pf, "blockers")
-                blockers.append("G0 preflight reads Not-ready — G1 must not dispatch miners:\n" +
+                blockers.append("G0 preflight reads Not-ready — rspec's discovery must not start:\n" +
                                 "\n".join(f"      - {_js_str(b)}" for b in (bl if isinstance(bl, list) else [])) +
                                 "\n      Fix the cause and re-run `python3 scripts/preflight.py`. PREFLIGHT.md has the detail.")
             elif verdict == "Ready-with-gaps" and (_get(lanes, "D") == "degraded" and _get(lanes, "B") == "blocked"
@@ -841,10 +845,105 @@ def cmd_status(args, state):
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Parked decisions (05 P10). Some decisions are never automatic: Gate 1's approval when a used feature
+# would be dropped, a departure, the human sample, a production deploy, Gate 5. An unattended run parks
+# them, and a parked one blocks only what depends on it, so the rest of the slice goes on: a parked human
+# sample holds that slice's boundary and Gate 5, never the next slice's lanes. `blocked <target>` is what a
+# run asks before starting a step (targets: gate-<n>, boundary:<Sn>, lanes:<Sn>). JSON, not the YAML subset
+# above: it holds a list, and only this script reads it.
+# ---------------------------------------------------------------------------
+PARKED = os.path.join("plan", "parked.json")
+
+
+def parked_blocks(item):
+    """The targets a parked decision holds."""
+    what, sid = item.get("what"), item.get("slice")
+    blocks = {"human-sample": [f"boundary:{sid}", "gate-5"] if sid else ["gate-5"],
+              "departure": ([f"boundary:{sid}"] if sid else []) + ["gate-5"],
+              "feature-drop": ["gate-1"], "deploy": ["gate-5"], "gate-5": ["gate-5"]}.get(what, [])
+    return list(dict.fromkeys(blocks + list(item.get("blocks") or [])))
+
+
+def _parked():
+    try:
+        return json.loads(read_text(PARKED)) if os.path.exists(PARKED) else []
+    except ValueError:
+        return []
+
+
+def cmd_park(args, state):
+    what = _arg_after(args, "--what")
+    if not what:
+        print('Usage: autopilot.py park --what human-sample|departure|feature-drop|deploy|gate-5 [--slice Sn] '
+              '[--blocks gate-4,boundary:S2] --note "..."', file=sys.stderr)
+        return 1
+    item = {"what": what, "slice": _arg_after(args, "--slice"), "note": _arg_after(args, "--note") or "",
+            "blocks": [b for b in (_arg_after(args, "--blocks") or "").split(",") if b], "at": _iso_now()}
+    if not parked_blocks(item):
+        print(f"{what} is not one of P10's decisions; name what it holds with --blocks.", file=sys.stderr)
+        return 1
+    items = [i for i in _parked() if not (i.get("what") == what and i.get("slice") == item["slice"])] + [item]
+    _write_text(PARKED, json.dumps(items, indent=2) + "\n")
+    print(f"parked {what}{' for ' + item['slice'] if item['slice'] else ''}: holds {', '.join(parked_blocks(item))}")
+    return 0
+
+
+def cmd_unpark(args, state):
+    what, sid = _arg_after(args, "--what"), _arg_after(args, "--slice")
+    items = _parked()
+    keep = [i for i in items if not (i.get("what") == what and i.get("slice") == sid)]
+    _write_text(PARKED, json.dumps(keep, indent=2) + "\n")
+    print(f"unparked {len(items) - len(keep)} item(s)")
+    return 0
+
+
+def cmd_blocked(args, state):
+    target = args[1] if len(args) > 1 else None
+    if not target:
+        print("Usage: autopilot.py blocked gate-<n>|boundary:<Sn>|lanes:<Sn>", file=sys.stderr)
+        return 1
+    holding = [i for i in _parked() if target in parked_blocks(i)]
+    for i in holding:
+        print(f"blocked by parked {i['what']}{' for ' + i['slice'] if i.get('slice') else ''}: {i.get('note')}")
+    if not holding:
+        print(f"{target}: not blocked by a parked decision")
+    return 1 if holding else 0
+
+
 COMMANDS = {
     "check": cmd_check, "preflight": cmd_preflight, "engage": cmd_engage,
     "log": cmd_log, "disengage": cmd_disengage, "status": cmd_status,
+    "park": cmd_park, "unpark": cmd_unpark, "blocked": cmd_blocked,
 }
+
+
+# The flags each command reads, every one taking a value. A flag outside this list is refused, not ignored:
+# `engage --help` once engaged autopilot, and a typo such as `--thresold 50` engages at the default threshold.
+# Change it together with the handler that reads the flag.
+FLAGS = {
+    "check": ("--threshold", "--context-tokens"), "preflight": ("--threshold", "--context-tokens"),
+    "status": ("--threshold", "--context-tokens"), "engage": ("--threshold", "--context-tokens", "--phase"),
+    "log": ("--unit", "--outcome", "--note"), "disengage": ("--reason", "--next"),
+    "park": ("--what", "--slice", "--blocks", "--note"), "unpark": ("--what", "--slice"), "blocked": (),
+}
+# From the module docstring, so the two never disagree; `python -OO` strips docstrings, hence the fallback.
+USAGE = ("Usage:\n" + __doc__.split("Usage:\n", 1)[1].split("\n\n", 1)[0] if __doc__
+         else "Usage: python3 scripts/autopilot.py preflight|check|engage|log|disengage|status|park|unpark|blocked")
+HELP = ("--help", "-h")
+
+
+def _unknown_flags(cmd, rest):
+    """The first argument that looks like a flag `cmd` does not take, or None. A known flag's value is skipped."""
+    i = 0
+    while i < len(rest):
+        if rest[i] in FLAGS[cmd]:
+            i += 2
+            continue
+        if rest[i].startswith("-"):
+            return rest[i]
+        i += 1
+    return None
 
 
 def main(argv=None):
@@ -856,16 +955,20 @@ def main(argv=None):
         except Exception:
             pass
     args = list(sys.argv[1:] if argv is None else argv)
+    cmd = args[0] if args and args[0] else "status"
+    handler = COMMANDS.get(cmd)
+    # Help is asked for in a flag's place only: `log --note -h` logs the note "-h". It needs no workbench.
+    bad = _unknown_flags(cmd, args[1:]) if handler else None
+    if cmd in HELP or bad in HELP:
+        print(USAGE)
+        return 0
     if not os.path.exists(os.path.join("locks", "pipeline.yaml")):
         print("No locks/pipeline.yaml here — run from the workbench root.", file=sys.stderr)
         return 1
-    state = read_state()
-    cmd = args[0] if args and args[0] else "status"
-    handler = COMMANDS.get(cmd)
-    if handler is None:
-        print("Usage: autopilot.py preflight | check | engage | log | disengage | status", file=sys.stderr)
+    if handler is None or bad:
+        print((f"Unknown flag {bad} for {cmd}.\n" if bad else "") + USAGE, file=sys.stderr)
         return 1
-    return handler(args, state)
+    return handler(args, state=read_state())
 
 
 if __name__ == "__main__":

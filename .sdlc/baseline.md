@@ -13,10 +13,8 @@ Recorded: 2026-11-08 at commit 5820b38, running each command in `.sdlc/config.js
 | Package | Test (file › name) | Failure, one line | Since |
 |---|---|---|---|
 | (root) | eval/lane_guards.py › a lane worktree counts through its main repo | FAIL on this machine (Windows) | 5820b38 |
-| (root) | eval/lane_plan.py › lane-worker.md cadence text | FAIL: lane-worker.md still says "the cadence: rerun only failures" | 5820b38 |
 | (root) | eval/run_supervision.py › a dead driver is named with its phase; watch exits 2 on a dead driver | FAIL (both, confirmed on 5820b38) | 5820b38 |
 | (root) | eval/windows_and_upgrade.py › gate-guard blocks an edit under a CRLF lock file | FAIL | 5820b38 |
-| (root) | eval/rules_recall.py (no args) | exits 1 with usage: it needs lane-R output paths; `--self-test` passes | 5820b38 |
 
 ## Lint and type errors
 

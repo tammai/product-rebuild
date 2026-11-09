@@ -1,7 +1,9 @@
 # G6 — Parity loop (automated)
 
-Run after each slice (`python3 scripts/boundary.py <Sn>` runs it with the rest of the boundary). The upstream
-re-mine in step 3 is on a 30-day schedule, not every slice.
+Run after each slice: `python3 scripts/boundary.py <Sn>` runs G6 cheapest first (SKILL.md 4f: open suite,
+hidden suite, equivalence, coverage and the slice review, bug-hunter, the human sample). This file is the
+detail of the AC suite, the coverage report and the slice review. The upstream re-mine in step 3 is on a
+30-day schedule, not every slice.
 
 1. **AC suite**: run the tests; "is the feature done" is a test result, not a meeting.
 
@@ -39,16 +41,16 @@ re-mine in step 3 is on a 30-day schedule, not every slice.
      predate the fix, so decide out loud whether the change needs a wider run.
    - **unverified** — a record is missing or unreadable, or a tree was dirty when stamped.
      Which code ran cannot be said; fix the stamping before the next rerun.
-2. **Parity diff**: `python3 scripts/parity.py` from the workbench root — coverage vs `matrix/`:
-   covered / partial / missing per feature, plus scope-creep detection (built but not
-   in matrix). Report lands in `parity/<date>.md`.
+2. **Parity diff**: `python3 scripts/parity.py` from the workbench root — coverage of rspec's
+   `docs/features.md` by this rebuild's progress: covered / partial / missing per feature, the
+   slices of `docs/build-plan.md`, and a Drop counted as descoped. Report lands in `parity/<date>.md`.
+   Without rspec's feature list it exits 1 and `boundary.py` prints the step as `not run`.
 3. **Upstream re-mine, when it is due**: `boundary.py` prints `DUE` or `not due` against the date in
-   `parity/last-remine` (30 days). Skip it when it says not due; when it says DUE, re-run lane A (changelog)
-   against the reference's latest release, then `python3 scripts/boundary.py remine-done` and commit the file.
-   Before this the step ran at every slice with no date, which was one miner run per slice against a reference
-   that ships monthly. Content-hashing surfaces only real changes. New upstream features enter the
-   matrix as backlog candidates flagged for the next slice boundary — they NEVER bypass
-   gates or reorder the current slice.
+   `parity/last-remine` (30 days). Skip it when it says not due; when it says DUE, re-mine through rspec: delete
+   `docs/audit/reference.md`, rerun `rspec:features`' coverage pass (it rebuilds the reference list from the docs
+   and the last 12 months of changelog), triage what it adds with `rspec:features triage`, then `python3
+   scripts/boundary.py remine-done` and commit the file. New upstream features enter rspec's feature list as
+   Later candidates for the next slice boundary — they NEVER bypass gates or reorder the current slice.
 
    **Skip this step entirely when `sources.yaml` has `reference.upstream: frozen`** — a
    legacy app being replaced has stopped shipping, so there is nothing to track. Say so in
@@ -74,9 +76,8 @@ an upstream feature into the backlog or ignore it with reason; reorder the tail 
 
 ## The slice review — advisory, generated, and not a sixth gate
 
-**What it adds that this phase does not.** `parity.py` answers *how much of the reference do
-we cover* — a coverage diff against the matrix. Two questions it does not answer, and nothing
-else did either:
+**What it adds that this phase does not.** `parity.py` answers *how much of rspec's feature
+list have we built*. Two questions it does not answer, and nothing else did either:
 
 - **Does the whole product still run?** Every per-slice deploy criterion asserts only that
   slice's own features, so a regression in an earlier slice had nowhere to surface. The review
@@ -87,15 +88,12 @@ else did either:
   slices are orderable *right now* because their dependencies have shipped. That last one is the
   input to the reorder conversation this boundary exists for.
 
-**Its coverage figure differs from `parity.py`'s, on purpose.** The review counts only
-explicit `plan/progress.yaml` entries; parity fills gaps with `matrix/features.yaml`'s
-`status:`. Both are right for their own question — parity's is about the reference, the
-review's is about the rebuild — and the review prints the gap rather than letting two reports
-quietly disagree. A matrix full of mined `covered` reads as a finished rebuild before a line of
-code exists, which is exactly why a *standing* report cannot inherit that denominator.
+**Both count only explicit `plan/progress.yaml` entries**, and both leave a descoped feature (or an
+rspec Drop) out of the denominator, so the two figures agree; the review also prints how many in-scope
+features have no entry yet.
 
 **Generated, never written.** Every figure comes off disk. A slice review an agent composes is a
-summary of what that agent believes it did — the failure `verifier`, `rubric-judge` and
+summary of what that agent believes it did — the failure fresh reviewers and
 g5-build.md's "a verification script names only what it RAN" all exist to prevent, and a slice
 review is precisely the artifact that outlives the session that produced it. Judgement goes in
 the conversation on top of the file, not inside it.
@@ -139,7 +137,7 @@ got better. Parity was silently redefined and the report still says green.
 
 What is freely allowed, so the rule stays narrow enough to keep: recording new flows, adding
 new assertions, fixing a selector that never matched anything, and deleting a flow for a
-feature that was dropped from the matrix. What needs the logged decision: weakening or removing
+feature rspec's feature list dropped. What needs the logged decision: weakening or removing
 an assertion that has ever been green against the legacy app.
 
 **The mechanism, from 0.14.0.** A PreToolUse guard blocks Write/Edit on any flow file under
@@ -187,10 +185,18 @@ python3 scripts/parity.py                           # reads that XML into the Eq
 ```
 
 **A trace is authored, then recorded.** `equiv` drives the legacy system; it does not invent the
-traffic. You write `parity/equiv/<feature-id>/<name>.request.yaml` out of the feature's UX flows
-and its Rule Cards — method, path, body, the `tables:` the request touches, and the `ignore:`
+traffic. You write `parity/equiv/<feature-id>/<name>.request.yaml` out of the feature's criteria
+in `docs/features/` — method, path, body, the `tables:` the request touches, and the `ignore:`
 list — and `record` executes it against the legacy system and writes the `*.trace.yaml` beside
 it: status, response body, and the adapter's row snapshots.
+
+**A signed-in request names its account, never its token.** Traces are committed. Write `account: <NAME>`
+under `request:` and set `ACCEPT_ACCOUNT_<NAME>` to the header line (`Authorization: Bearer …`), as for the
+recorded HTTP tests; `record` and `replay` add the header from it. A credential header written in the request
+file is recorded as the account whose variable holds it; one no variable holds, or any account's credential
+anywhere in the trace (a response that echoes it, a snapshot), is refused and nothing is written for it. A
+signed request's `path` starts with one `/`. Replay refuses a rebuild URL that is the legacy system's or the
+reference's.
 
 **`ignore:` is declared per trace and never inferred.** Fields the rebuild is *allowed* to differ
 on — surrogate ids, timestamps, hashes, whatever the Gate 4 contract renamed — are listed. Any
@@ -247,26 +253,24 @@ notes:    { S1: "one-line asterisk carried into the report" }
 feature_notes: { F-API-007: "ruled out by <who>, <date>: <why>" }
 ```
 
-`parity.py` overlays it onto `matrix/features.yaml` and `plan/slices.yaml` — an entry here
-wins, anything absent falls back to the locked `status:`.
+`parity.py` and `slice_review.py` overlay it onto rspec's `docs/features.md` and `docs/build-plan.md`:
+an entry here wins; a feature with none is `planned` (a Drop is `descoped`), a slice with none `pending`.
 
-Do **not** edit the `status:` field inside those two files. They are hashed whole by gate-1
-and gate-2, so writing bookkeeping into them costs a formal reopen per slice and rewrites the
-hash that dependent submodule pins consume. Gates protect decisions — the taxonomy and the
-slice boundaries — not progress. (A workbench scaffolded before this file existed still works:
-`parity.py` warns and falls back to locked statuses.)
+Do **not** record progress in rspec's files. They are hashed whole by gate-1 and gate-2, so writing
+bookkeeping into them costs a formal reopen per slice and rewrites the hash that dependent submodule
+pins consume. Gates protect decisions — the feature list and the slice boundaries — not progress.
 
 Two behaviors worth knowing:
 
 - **`deployed` counts as shipped** for scope-creep detection, alongside `done`. Use it when a
-  slice ships with a `done_means` clause knowingly unmet, so the creep check still runs instead
+  slice ships with a `Done when` clause knowingly unmet, so the creep check still runs instead
   of going inert. Reserve `done` for a slice that meets its criteria outright.
 - **`descoped` is a user ruling, not a status the build reaches.** Use it only when the user
   decides this rebuild will not build a feature. It takes the feature out of the coverage
   denominator in both `parity.py` and `slice_review.py`, and lists it under "Descoped" with its
   `feature_notes:` line. `validate.py` fails a descoped feature that has no note: a feature
-  that leaves every figure needs its reason on the record. Record it here, not in the matrix:
-  `matrix/features.yaml` describes the reference, which still has the feature.
+  that leaves every figure needs its reason on the record. A feature dropped at Gate 1 is a Drop in
+  `docs/features.md` with its departure, and needs no entry here.
 - **Hand-written sections survive a re-run.** The script owns the coverage line and the Missing
   / Partial / Upstream-candidates / Descoped / Slice-progress sections; any other `## ` section — the AC
   suite result, the re-mine writeup — is preserved, and re-running on the same date is

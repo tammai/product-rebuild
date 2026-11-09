@@ -5,7 +5,7 @@ Usage:
   python3 scripts/equiv.py status
   python3 scripts/equiv.py record <feature-id>          # drive the LEGACY instance, write traces
   python3 scripts/equiv.py replay <feature-id>|--all    # replay against the REBUILD, write JUnit
-  python3 scripts/equiv.py accept <trace> --reason "..." # log a decision about a red trace
+  python3 scripts/equiv.py accept <trace> --reason "..." --by <name>  # a departure for a red trace
   python3 scripts/equiv.py unlock --reason "..."  |  relock
 
 Needs yamlio.py (and the vendored PyYAML under _vendor/). Unlike preflight.py this cannot run
@@ -52,6 +52,14 @@ The JS semantics reproduced on purpose are: Object.keys order (integer-like keys
 JSON.stringify (compact, JS number formatting, `undefined` omitted), `String(undefined)`,
 `Array.prototype.sort()` on strings (UTF-16 order) and `.some`/`.trim` on JS white space.
 `fetch` becomes urllib; the differences that survive are listed at do_request.
+
+NO CREDENTIAL IN A TRACE
+
+Traces are committed, so a credential header in one is a secret in git: a smoke run's signed-in trace held the
+member token. A request names its account instead, `account: <NAME>` as contracts v1's HTTP replay does, and the
+header comes from `ACCEPT_ACCOUNT_<NAME>` (one `Name: value` line) at record and at replay. A credential header
+written literally in a request file is recorded as the account whose variable holds it; one no variable holds,
+or a response that contains an account's credential, is refused, because neither can be written safely.
 """
 
 import gzip
@@ -447,18 +455,29 @@ def _read_sources():
         v = re.split(_WS + "+#", js_trim(m.group(1)))[0]
         return re.sub(r"^[\"']|[\"']\Z", "", v) or ""
 
-    return {"kind": get("kind"), "name": get("name")}
+    return {"kind": get("kind"), "name": get("name"), "posture": get("posture")}
+
+
+def _posture():
+    """reference.posture as validate.py and the reference guard resolve it (empty: own-code for kind own-code, else
+    observe; unknown: strict). Change them together."""
+    src = _read_sources()
+    p = src["posture"]
+    if not p:
+        return "own-code" if src["kind"] == "own-code" else "observe"
+    return p if p in ("strict", "observe", "own-code") else "strict"
 
 
 def _gate_reasons():
     reasons = []
-    kind = _read_sources()["kind"]
-    if kind != "own-code":
-        reasons.append(f"sources.yaml has reference.kind: {kind or '(empty)'} — this lane needs `own-code`. "
-                       "Replaying recorded traffic against a product you do not operate is neither legal nor "
-                       "practical, and under clean-room posture reading the reference's responses is the thing "
-                       "the posture forbids. A third-party rebuild uses the AC suite and the parity report; "
-                       "parity.py says the lane does not apply rather than showing an empty column.")
+    # 3.0.0 (05 P3): equivalence runs under posture observe or own-code, against a reference run locally
+    # (preflight below). Under strict the spec side only observes, and replaying recorded traffic against
+    # the reference is more than the posture allows.
+    posture = _posture()
+    if posture == "strict":
+        reasons.append("sources.yaml's reference.posture is strict — this lane needs `observe` or `own-code` (05 P3). "
+                       "Under strict the spec side only observes the reference, and replaying recorded traffic "
+                       "against it goes further than that. The open and hidden suites and the parity report still run.")
     if not os.path.exists("preflight.json"):
         reasons.append("no preflight.json — run `python3 scripts/preflight.py` (G0's last action). This lane "
                        "replays against the legacy system, so \"the reference runs\" has to be a checked fact, "
@@ -591,6 +610,13 @@ def do_request(base_url, req):
     if base.scheme not in ("http", "https") or not base.netloc:
         raise Exception("Invalid URL")
     url = urllib.parse.quote(urllib.parse.urljoin(js_str(base_url), js_str(path)), safe=_URL_SAFE)
+    # urljoin drops tabs and newlines and lets `//host` or an absolute URL replace the base's host, so a path can
+    # send a signed request elsewhere. Compared on what urllib will connect to; raised outside "fetch failed" so
+    # the reason is kept.
+    probe = urllib.request.Request(url)
+    if (probe.type.lower(), probe.host.lower()) != (base.scheme.lower(), base.netloc.lower()):
+        raise Exception(f"its path takes the request off the base URL's host ({base.netloc} -> {probe.host or '(none)'}); "
+                        f"refused")
 
     method = _uget(req, "method")
     method = js_str(method) if js_truthy(method) and method is not UNDEF else "GET"
@@ -640,6 +666,169 @@ def do_request(base_url, req):
     except Exception:
         body = text
     return {"status": status, "body": body}
+
+
+# Headers that sign a caller in. Any header an ACCEPT_ACCOUNT_<NAME> line uses counts too, which covers the
+# account header a proxy or BFF adds under its own name.
+CREDENTIAL_HEADERS = ("authorization", "proxy-authorization", "cookie", "x-api-key", "x-auth-token", "x-access-token")
+ACCOUNT_PREFIX = "ACCEPT_ACCOUNT_"
+ACCOUNT_NAME = re.compile(r"[A-Z][A-Z0-9_]*")  # contracts.py's rule for `account`
+# Shorter secret pieces are matched only as a whole string: as substrings they would match ordinary text.
+MIN_SECRET_SUBSTRING = 6
+
+
+def _account(name):
+    """(header, value) from ACCEPT_ACCOUNT_<name>. Parsed as contracts.py's run-http parses it (partition on the
+    first ':', both sides stripped); copied, not imported, because contracts.py is the plugin's and this script
+    runs alone in a workbench. If you change one, change both. Raises with contracts.py's wording."""
+    var = ACCOUNT_PREFIX + name
+    if var not in os.environ:
+        raise Exception(f"{var} is not set; this request is signed in and is never sent without it")
+    h, sep, val = os.environ[var].partition(":")
+    if not sep or not h.strip():
+        raise Exception(f"{var} must be a header line 'Name: value'")
+    return h.strip(), val.strip()
+
+
+def _accounts():
+    """{NAME: (header, value)} for every ACCEPT_ACCOUNT_<NAME>. Raises on one it cannot read: its credential could
+    not be scanned for, and a scan that skips its input passes what it never looked at."""
+    out = {}
+    for k in os.environ:
+        if not k.upper().startswith(ACCOUNT_PREFIX):
+            continue
+        name = k[len(ACCOUNT_PREFIX):]
+        if not ACCOUNT_NAME.fullmatch(name):
+            raise Exception(f"{k}: the name after {ACCOUNT_PREFIX} must be upper-case ({ACCOUNT_PREFIX}<NAME>)")
+        out[name] = _account(name)
+    return out
+
+
+def _secrets():
+    """{NAME: [the strings that are that account's credential]}: the header value, the token after an auth
+    scheme, each cookie's value. A cookie's name is not secret, so a response naming the cookie still records."""
+    out = {}
+    for name, (h, val) in _accounts().items():
+        pieces = set()
+        if h.lower() in ("authorization", "proxy-authorization"):
+            pieces.add(val.partition(" ")[2].strip())
+        if h.lower() == "cookie":
+            pieces.update(c.partition("=")[2].strip().strip('"') for c in val.split(";"))
+        # A short piece (`lang=en`'s "en") is ordinary text, not a secret; the whole value always counts.
+        out[name] = sorted({val} | {x for x in pieces if len(x) >= MIN_SECRET_SUBSTRING} - {""})
+    return out
+
+
+def _strings(v):
+    if isinstance(v, str):
+        yield v
+    elif isinstance(v, (int, float)) and not isinstance(v, bool):
+        yield js_num_str(v)  # an all-digit key comes back from JSON as a number
+    elif isinstance(v, dict):
+        for k, x in v.items():
+            yield js_str(k)
+            yield from _strings(x)
+    elif isinstance(v, list):
+        for x in v:
+            yield from _strings(x)
+
+
+def _leak(doc, secrets):
+    """(top-level key, account NAME) of the first credential found in any string of `doc`, keys included, or None.
+    Compared with the decoded strings, never the serialised text, where escaping hides a quote or a backslash."""
+    for key, v in doc.items():
+        for text in _strings(v):
+            for name, parts in secrets.items():
+                if any(x == text or (len(x) >= MIN_SECRET_SUBSTRING and x in text) for x in parts):
+                    return key, name
+    return None
+
+
+def _scrub(text, secrets):
+    """`text` with every account credential, raw or JSON-escaped, replaced by its variable's name."""
+    for name, parts in secrets.items():
+        for x in sorted(parts, key=len, reverse=True):
+            for form in {x, json.dumps(x)[1:-1]}:
+                if len(form) >= MIN_SECRET_SUBSTRING:
+                    text = text.replace(form, f"<{ACCOUNT_PREFIX}{name}>")
+                else:
+                    text = re.sub(rf"(?<![\w-]){re.escape(form)}(?![\w-])", f"<{ACCOUNT_PREFIX}{name}>", text)
+    return text
+
+
+def _credential_headers(request, accounts):
+    """The header names in `request` that carry a credential. Raises when `headers` is not a map, since a list of
+    headers would be written to the trace unread."""
+    hdrs = request.get("headers") if isinstance(request, dict) else None
+    if hdrs is None or hdrs == []:
+        return []
+    if not isinstance(hdrs, dict):
+        raise Exception("its `headers` is not a map of header names to values")
+    names = set(CREDENTIAL_HEADERS) | {h.lower() for h, _ in accounts.values()}
+    return [k for k in hdrs if js_str(k).strip().lower() in names]
+
+
+def _for_trace(request):
+    """The request as a trace stores it: a credential header becomes `account: <NAME>`, for the account whose
+    variable holds exactly that header; a request with neither is returned as it is, so a token-free trace stays
+    byte-identical. Raises with the reason for a credential no ACCEPT_ACCOUNT_<NAME> holds."""
+    if not isinstance(request, dict):
+        return request
+    accounts = _accounts()
+    found = _credential_headers(request, accounts)
+    name = request.get("account")
+    if not found and not name:
+        return request
+    hdrs = request["headers"] if found else {}
+    for k in found:
+        match = next((n for n, (h, val) in accounts.items()
+                      if h.lower() == js_str(k).strip().lower() and val == js_str(hdrs[k]).strip()), None)
+        if not match:
+            raise Exception(f"its {js_str(k).strip()} header is a credential no {ACCOUNT_PREFIX}<NAME> holds. Set "
+                            f"{ACCOUNT_PREFIX}<NAME> to that header line and write `account: <NAME>` in the request "
+                            f"file in place of the header")
+        if name and name != match:
+            raise Exception(f"it names account {js_str(name)} but its {js_str(k).strip()} header is {match}'s")
+        name = match
+    stored = {k: v for k, v in request.items() if k not in ("headers", "account")}
+    kept = {k: v for k, v in (request.get("headers") or {}).items() if k not in found} \
+        if isinstance(request.get("headers"), dict) else {}
+    if kept:
+        stored["headers"] = kept
+    stored["account"] = name
+    return stored
+
+
+def _signed(request):
+    """The request as sent: `account: <NAME>` replaced by the header ACCEPT_ACCOUNT_<NAME> holds now. A signed
+    request's path must be relative to the base URL (contracts v1's rule): urljoin lets an absolute or `//host`
+    path replace the host, and the operator's token would go there."""
+    if not isinstance(request, dict) or not request.get("account"):
+        return request
+    name = request["account"]
+    if not isinstance(name, str) or not ACCOUNT_NAME.fullmatch(name):
+        raise Exception(f"account must be an upper-case name ({ACCOUNT_PREFIX}<NAME>), not {js_str(name)}")
+    path = request.get("path")
+    path = "/" if path is None else js_str(path)
+    if not path.startswith("/") or path.startswith("//"):
+        raise Exception(f"a signed request's path must be relative to the base URL, starting with one /, not {path}")
+    h, val = _account(name)
+    hdrs = request.get("headers")
+    return {**{k: v for k, v in request.items() if k != "account"},
+            "headers": {**(hdrs if isinstance(hdrs, dict) else {}), h: val}}
+
+
+def _warn_credential(trace_path, feature_id):
+    """Say so when a trace written before the account field holds a credential header: it is a secret in git."""
+    try:
+        t = yamlio.load(_read_text(trace_path)) or {}
+        found = _credential_headers(t.get("request") if isinstance(t, dict) else None, _accounts())
+    except Exception:
+        return
+    if found:
+        print(f"WARNING {trace_path} holds a credential header ({', '.join(js_str(k) for k in found)}) and is committed. "
+              f"Re-record it with `account: <NAME>`: python3 scripts/equiv.py record {feature_id} --force, then rotate "
+              f"that credential.", file=sys.stderr)
 
 
 def read_unlock(root="."):
@@ -773,7 +962,7 @@ def main(argv=None):
             return 0
         traces = _trace_files(None)
         u = read_unlock()
-        print("Equivalence lane: applies (own-code, reference runs).")
+        print(f"Equivalence lane: applies (posture {_posture()}, reference runs).")
         print(f"  {len(traces)} trace(s) recorded under {EQUIV_DIR}/")
         by_feature = {}
         for t in traces:
@@ -806,8 +995,8 @@ def main(argv=None):
         reqs = _request_files(feature_id)
         if not reqs:
             print(f"No *.request.yaml under {_join(EQUIV_DIR, feature_id)}/.\n\n"
-                  "A trace is recorded FROM a request you author, out of the feature's UX flows and its "
-                  "Rule Cards — this script drives the legacy system, it does not invent the traffic. One "
+                  "A trace is recorded FROM a request you author, out of the feature's criteria in "
+                  "docs/features/ — this script drives the legacy system, it does not invent the traffic. One "
                   "file per behavior worth proving:\n\n"
                   f"  {_join(EQUIV_DIR, feature_id, 'issue-invoice.request.yaml')}\n\n"
                   f"    feature: {feature_id}\n"
@@ -831,8 +1020,14 @@ def main(argv=None):
             print(f'Unknown adapter "{js_str(adapter_name)}". Shipped: {", ".join(ADAPTERS.keys())}, or `none`.', file=sys.stderr)
             return 1
 
+        try:
+            secrets = _secrets()
+        except Exception as e:
+            print(f"Not recorded: {_first_line(e)}. Its credential could not be scanned for, so nothing is recorded "
+                  f"until it is fixed or unset.", file=sys.stderr)
+            return 1
         os.makedirs(_join(EQUIV_DIR, feature_id), exist_ok=True)
-        written = 0
+        written = refused = 0
         for rf in reqs:
             spec = yamlio.load(_read_text(rf))
             spec = spec if js_truthy(spec) else {}
@@ -840,6 +1035,19 @@ def main(argv=None):
             out = _join(EQUIV_DIR, feature_id, f"{name}.trace.yaml")
             if os.path.exists(out) and not has("--force"):
                 print(f"skip   {out} already exists (re-recording would overwrite evidence — --force to insist)")
+                _warn_credential(out, feature_id)
+                continue
+            request = js_prop(spec, "request")
+            try:
+                stored = _for_trace(request if js_truthy(request) else {})
+                leak = _leak({"request": stored}, secrets)
+                if leak:
+                    raise Exception(f"its request holds {ACCOUNT_PREFIX}{leak[1]}'s credential somewhere other than a "
+                                    f"credential header (its path, body, or a header not known to carry one)")
+                sent = _signed(stored)
+            except Exception as e:
+                print(f"Not recorded: {name}: {_scrub(_first_line(e), secrets)}. Nothing written for it.", file=sys.stderr)
+                refused += 1
                 continue
             tables = js_prop(spec, "tables")
             tables = tables if js_truthy(tables) else []
@@ -866,9 +1074,8 @@ def main(argv=None):
                     print(f"Cannot snapshot tables for {name}: {why}.", file=sys.stderr)
                     return 1
                 rows_before = snapshot("before")
-            request = js_prop(spec, "request")
             try:
-                res = do_request(legacy["baseUrl"], request if js_truthy(request) else {})
+                res = do_request(legacy["baseUrl"], sent)
             except Exception as e:
                 print(f"Request failed against the LEGACY system for {name}: {_first_line(e)}", file=sys.stderr)
                 print("Nothing recorded. The legacy system has to be up and reachable to record against it.", file=sys.stderr)
@@ -886,7 +1093,7 @@ def main(argv=None):
                 "recorded_at": now,
                 "recorded_by": by,
                 "adapter": adapter_name if adapter and len(tables) else "none",
-                "request": request if js_truthy(request) else {},
+                "request": stored,
                 "expect": {"status": res["status"], "body": res["body"]},
                 "ignore": ignore if js_truthy(ignore) else [],
                 "tables": tables,
@@ -894,13 +1101,21 @@ def main(argv=None):
             if rows_before is not None:
                 doc["rows_before"] = rows_before
                 doc["rows_after"] = rows_after
+            leak = _leak(doc, secrets)
+            if leak:
+                where = {"expect": "response", "rows_before": "table snapshot", "rows_after": "table snapshot"}.get(leak[0], leak[0])
+                print(f"Not recorded: {name}: its {where} holds {ACCOUNT_PREFIX}{leak[1]}'s credential, and a trace is "
+                      f"committed. The request did run against the legacy system, so its data may have changed. "
+                      f"Record a request whose {where} does not hold it. Nothing written for it.", file=sys.stderr)
+                refused += 1
+                continue
             _write(out, to_yaml(doc))
             print(f"recorded {out}  (HTTP {res['status']}{f', {len(tables)} table(s) snapshotted' if len(tables) else ''})")
             written += 1
         print(f"\n{written} trace(s) recorded for {feature_id}.")
         print("Commit them now. A committed trace is protected by the hook; an uncommitted one "
               "is still being recorded and is free to edit.")
-        return 0
+        return 1 if refused else 0
 
     # ---- replay -------------------------------------------------------------
     if cmd == "replay":
@@ -915,10 +1130,27 @@ def main(argv=None):
             print(f"No rebuild base URL. config.yaml names {js_str(rebuild['baseUrlEnv']) if js_truthy(rebuild['baseUrlEnv']) else '(nothing)'}"
                   f"{', which is unset in this shell' if js_truthy(rebuild['baseUrlEnv']) else ''}.", file=sys.stderr)
             return 1
+        # Replay is a G6 step: against the legacy system or the reference it compares the old system with itself.
+        import holdout
+        legacy_url = _resolve_side(cfg, "legacy")["baseUrl"]
+        why = holdout.reference_target(rebuild["baseUrl"], js_str(rebuild["baseUrlEnv"]) if js_truthy(rebuild["baseUrlEnv"])
+                                       else "the rebuild base URL")
+        if not why and holdout.same_server(rebuild["baseUrl"], legacy_url):
+            why = (f"the rebuild base URL {rebuild['baseUrl']} is the legacy system's ({legacy_url}): replaying there "
+                   f"compares the legacy system with itself. Point it at the rebuild.")
+        if why:
+            print(f"equiv replay: REFUSED. {why}", file=sys.stderr)
+            return 1
         traces = _trace_files(feature_id)
         if not traces:
             print(f"No *.trace.yaml under {_join(EQUIV_DIR, feature_id) if feature_id else EQUIV_DIR}/ — "
                   "record before you replay.", file=sys.stderr)
+            return 1
+        try:
+            secrets = _secrets()
+        except Exception as e:
+            print(f"equiv replay: REFUSED. {_first_line(e)}. Its credential could not be scrubbed from the report.",
+                  file=sys.stderr)
             return 1
         adapter_name = js_prop(cfg, "adapter")
         adapter_name = adapter_name if js_truthy(adapter_name) else "none"
@@ -949,11 +1181,12 @@ def main(argv=None):
                     # The rebuild's rows are compared against the LEGACY's post-request snapshot: the
                     # question is what the request left behind, not what the database happened to hold.
                 request = js_prop(t, "request")
-                res = do_request(rebuild["baseUrl"], request if js_truthy(request) else {})
+                res = do_request(rebuild["baseUrl"], _signed(request if js_truthy(request) else {}))
                 if adapter and len(tables) and js_truthy(js_prop(t, "rows_after")):
                     rows_after = adapter.capture(tables, rebuild["db"])
             except Exception as e:
-                errored = _first_line(e)
+                errored = _scrub(_first_line(e), secrets)
+            _warn_credential(tf, js_str(feature))
 
             if errored:
                 cases.append({"name": name, "classname": classname,
@@ -971,8 +1204,9 @@ def main(argv=None):
                                           ["$" + p[len("$.body"):] if p.startswith("$.body") else p for p in ignore]))
 
             if diffs:
-                detail = "\n".join(f"  {d['path']}\n    legacy:  {_stringify_text(d['legacy'])}\n    rebuild: {_stringify_text(d['rebuild'])}"
-                                   for d in diffs[:20])
+                # The rebuild's side is its response, which can echo the token, and this lands in committed JUnit.
+                detail = _scrub("\n".join(f"  {d['path']}\n    legacy:  {_stringify_text(d['legacy'])}\n    rebuild: {_stringify_text(d['rebuild'])}"
+                                           for d in diffs[:20]), secrets)
                 cases.append({"name": name, "classname": classname, "failure":
                               f"{len(diffs)} unignored difference(s) between the legacy system and the rebuild:\n{detail}"
                               + (f"\n  …and {len(diffs) - 20} more" if len(diffs) > 20 else "")})
@@ -1013,14 +1247,23 @@ def main(argv=None):
     if cmd == "accept":
         trace = arg(1)
         reason = arg_after("--reason")
-        if not trace or trace.startswith("--") or not reason:
-            print('Usage: equiv accept "<trace name>" --reason "..."', file=sys.stderr)
+        if not trace or trace.startswith("--") or not reason or not has("--by"):
+            print('Usage: equiv accept "<trace name>" --reason "..." --by "<who decided>"', file=sys.stderr)
             print("The trace name is the `name` attribute in the JUnit output — what `replay` printed.", file=sys.stderr)
-            print("A reason is required: this is the record that a difference between the old system", file=sys.stderr)
+            print("A reason and a name are required: this is the record that a difference between the old system", file=sys.stderr)
             print('and the rebuild is intended. "the test is red" is not a reason; it is the situation.', file=sys.stderr)
             return 1
-        log_decision(f"- **{now}** · accepted by {by}\n  - accepted: `{trace}`\n  - {reason}\n")
-        print(f"Logged to {DECISION_LOG}: `{trace}` is an accepted difference.")
+        # 3.0.0 (05 P7): an accepted difference is a departure in docs/departures.yaml, the one registry every
+        # check reads, not a line in parity/equiv/DECISIONS.md. The rule `equiv-trace:<name>` ties it to the trace.
+        try:
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            import departures
+            did = departures.append("deliberate-change", reason, by,
+                                    match=[{"runner": "http", "rule": f"equiv-trace:{trace}"}])
+        except (ImportError, ValueError) as e:
+            print(f"Not accepted: the departure could not be written: {e}", file=sys.stderr)
+            return 1
+        print(f"Departure {did} in docs/departures.yaml: `{trace}` is an accepted difference.")
         print("gate-5 will no longer refuse to lock on it. It stays red in the report, which is "
               "correct — the difference is real and now it is also explained.")
         return 0

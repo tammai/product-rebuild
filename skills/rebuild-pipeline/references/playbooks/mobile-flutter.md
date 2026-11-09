@@ -38,11 +38,11 @@ decide-before:
 
 > **How this file is used in `rebuild-pipeline`:** one entry in the playbook registry
 > (`references/playbooks/`), selected per project by `sources.yaml`'s
-> `architecture.playbook`. It supplies G4a's standing answers for the concerns its
+> `architecture.playbook`. It supplies the standing answers for the concerns its
 > `concerns:` map points at sections of; a concern mapped `N/A` has no default and is
 > decided the pipeline's original way — mirror-or-diverge against the reference only. An
-> ADR is required to **diverge** from a default, not to adopt one. G4a vendors this file
-> into the workbench at `adr/playbook.md`, where Gate 3 hashes it: renumbering a section
+> ADR is required to **diverge** from a default, not to adopt one. `playbook.py vendor` copies
+> this file into the workbench at `adr/playbook.md`, where Gate 3 hashes it: renumbering a section
 > after a lock re-points accepted ADRs at different content, so edit the `concerns:` map
 > and the section bodies together or not at all.
 >
@@ -69,7 +69,7 @@ decide-before:
 ### Default: Riverpod + go_router + Drift + generated dio client · Alternate state layer: BLoC
 
 > Default architecture reference for rebuilding a mobile client whose backend stays where
-> it is. The API is an input, not a decision: it was mined at G1 and frozen at Gate 4. What
+> it is. The API is an input, not a decision: rspec specified it and Gate 4 froze it. What
 > this playbook decides is everything on the device — how the app is decomposed, where
 > state lives, what persists, and how a build reaches a user.
 
@@ -165,7 +165,7 @@ lib/
     <feature>/
       presentation/  domain/  data/
 api/
-  openapi.yaml -> ../workbench/contracts/openapi/…   # the frozen contract, by symlink or copy
+  openapi.json -> ../workbench/docs/openapi.json      # the frozen contract, by symlink or copy
   generated/                                         # generated client, committed
 test/  integration_test/
 ```
@@ -356,7 +356,7 @@ Hard rules, whichever is chosen:
   an `if (!loggedIn) Navigator.push` scattered in screens.
 - Deep links are route table entries. **For a rebuild this is parity surface**: every URL
   scheme, universal link and push-notification payload the previous app resolved must
-  appear in the matrix at G2 and in this table, or existing users' links break silently on
+  appear in rspec's feature list and in this table, or existing users' links break silently on
   upgrade. Nobody reports a dead deep link; they just stop using it. Android App Links
   additionally depend on the signing certificate — see §22's preconditions.
 - No nested `Navigator` unless a shell route genuinely needs a second stack (a tab that
@@ -390,11 +390,10 @@ tree) — the alternate swaps the state layer, not the object graph.
 
 ## 7. The API Client: Generated From the Frozen Contract
 
-**The contract is `contracts/openapi/*.yaml` in the workbench, locked at Gate 4. It
-describes an API this project does not own.** For a client-only rebuild the contract was
-*transcribed* from the existing backend (see `g4b-contracts.md`) — it is ground truth, not
-a design. `contracts/openapi/requested.yaml`, if it exists, is a request to another team and
-is **not** an input to codegen.
+**The contract is `docs/openapi.json` in the workbench, locked at Gate 4. It describes an
+API this project does not own.** For a client-only rebuild the contract was *transcribed* from
+the existing backend — it is ground truth, not a design. A request for an addition to that API
+goes to the team that owns it and is **not** an input to codegen.
 
 - **Generate, never hand-write.** `openapi-generator` (dart-dio) or
   `swagger_dart_code_generator` into `api/generated/`, committed, CI-diffed (§3).
@@ -440,7 +439,7 @@ is **not** an input to codegen.
   is the moment to get this right: user-scoped rows surviving a logout is the bug class
   that leaks one user's data to the next on a shared device. §22 rule 4 extends this to a
   post-migration login by a *different* user.
-- **Biometric re-auth, if the previous app had it, is parity surface** — matrix it at G2.
+- **Biometric re-auth, if the previous app had it, is parity surface** — list it in rspec's features.
   Its absence is silent to everyone except the users who relied on it.
 
 ---
@@ -463,12 +462,10 @@ with a stated migration exit.
   step and a migration test per step. An app that crashes on launch after an upgrade cannot
   be fixed by a hotfix unless §21's OTA decision provided one — otherwise the user has to
   reinstall, and reinstalling loses their data.
-- **`contracts/data-model/` describes THIS store**, not the server's schema. It is the
+- **The rebuild's data model describes THIS store**, not the server's schema. It is the
   local shape: what is cached, what is user-authored-but-unsent, what is derived. The
-  server's schema is `findings/ground-truth/reference-erd.<name>-api.mermaid`, mined and
-  descriptive; the previous client's local store is
-  `reference-erd.<name>-local.mermaid` and is the actual starting draft. Keep all three
-  apart — that is why `data-modeling` is `N/A` in this playbook's concerns map: the local
+  server's schema is descriptive evidence in rspec's research; the previous client's local
+  store is the actual starting draft. Keep all three apart — that is why `data-modeling` is `N/A` in this playbook's concerns map: the local
   shape is a per-product decision, not something a playbook can default.
 
 **Offline policy is per feature, declared, never emergent.** Pick one of three per feature
@@ -609,7 +606,7 @@ platform) errors.
   cannot be rolled back the way a server can.
 - **Migration telemetry is not optional** (§22 rule 6) and belongs in the same dashboard as
   the rollout.
-- Screen/flow analytics parity: events the previous app emitted are matrix surface at G2 if
+- Screen/flow analytics parity: events the previous app emitted are in rspec's feature list if
   anyone downstream depends on them (they usually do, and nobody remembers until a
   dashboard goes flat).
 
@@ -640,8 +637,8 @@ platform) errors.
   app and green *there* first — `g5-build.md`'s per-slice step 0 refuses to start the slice
   otherwise. The frozen reference therefore stays installable for the life of the project
   (`g6-parity.md`): under this playbook it is the recording target, not only the arbiter.
-- **One selector namespace, both apps.** The legacy app's `testID` values are mined as a
-  lane-D finding (`g1-mining.md`, client-only section); this build assigns the *identical*
+- **One selector namespace, both apps.** The legacy app's `testID` values are recorded by
+  rspec's discovery and verify (the recorded Maestro tests use them); this build assigns the *identical*
   string to the Flutter `Semantics` `identifier` for the same element. Where a legacy element
   has no `testID`, add one there if the old app still builds; otherwise the flow has to match
   another way and that flow is reference-less. Do not quietly fall back to matching visible
@@ -680,7 +677,7 @@ answer is **ARB files + `gen-l10n` + `intl`**, with `MaterialLocalizations` wire
 - **Every user-visible string is parity surface**, and so are plural and gender rules,
   date/number/currency formatting, and RTL layout if any supported locale needs it. A
   rebuild that ships one locale for a product that had four has cut scope, not simplified.
-- **The catalog is migrated, not retyped.** The old app's catalogs are lane-D evidence;
+- **The catalog is migrated, not retyped.** The old app's catalogs are reference evidence;
   convert them to ARB mechanically and diff the key sets, or you will discover missing
   strings one screen at a time in QA.
 - **Locale resolution and per-user locale override** are decisions: device locale only, or a
@@ -717,7 +714,7 @@ device are different and worse.
   descriptions and manifest entries are needed: an iOS `Info.plist` missing a usage string
   crashes on first use of that API, and Android's runtime-permission list must match the
   manifest. `permission_handler` is the standing answer for the request flow. Enumerate the
-  previous app's permission set as lane-D evidence — it also feeds §20.
+  previous app's permission set as reference evidence — it also feeds §20.
 - **WebView-hosted screens are a boundary, not a widget.** RN apps routinely wrap payment
   flows, help centres and legacy screens. Decide: whether the dio session is shared into
   `webview_flutter`'s cookie store (and if so, how logout clears it — §8), who owns redirect
@@ -740,7 +737,7 @@ the one most likely to be discovered late.** Flutter's supported floor is **iOS 
 **Android API 24**. An app supporting iOS 12–14 or API 21–23 has users who **cannot receive
 this update at all**.
 
-- **Measure the cut before Gate 3 closes.** The install base by OS version is a lane-B/G1
+- **Measure the cut before Gate 3 closes.** The install base by OS version is a discovery
   input; the answer is a percentage of real users, not an opinion.
 - **Those users are not "on the old version for a while" — they are frozen permanently.**
   The previous app's release must stay published and, if its backend contract ever moves,
@@ -784,7 +781,7 @@ and a rebuild cannot inherit the previous app's answers because it changes the e
   server-side signal: a remote-config flag for a feature gone bad, and a
   minimum-supported-version response the app checks on launch. **For a client-only rebuild
   these are usually the one thing the frozen API does not already provide** — surface that at
-  G4b as a required contract addition (`requested.yaml`) rather than discovering it during
+  Gate 4 as a request to the API's owners rather than discovering it during
   the first bad release. Forced upgrade is also bounded by §19: it cannot reach users below
   the platform floor.
 - **The migration needs its own kill switch** (§22). It is the code path that most needs one
@@ -839,7 +836,7 @@ Hard rules:
 
 1. **Enumerate the (app version × store) matrix, not just the stores, and pick a floor.** The
    install base runs many old versions with different schemas and different libraries. The
-   inventory is lane-D evidence plus a real device; a migration designed from memory loses the
+   inventory is reference evidence plus a real device; a migration designed from memory loses the
    one thing nobody remembered.
 2. **Read the legacy stores where you can; export where you cannot.** Only Keychain/Keystore
    and Realm genuinely need native or RN-side work (above). Verify on a device **restored from
@@ -940,7 +937,7 @@ Hard rules:
 
 Everything in the "Default" column is a `mirror-default` an ADR does not have to argue for.
 Everything in the "Alternate" column is a `diverge-from-default` that does — with the
-NFR/product-shape fact, the rejected default, and the prior ADR it depends on, per G4a's
+NFR/product-shape fact, the rejected default, and the prior ADR it depends on, per rspec's ADR template's
 depth requirement.
 
 ---
@@ -959,7 +956,7 @@ depth requirement.
    literal in `lib/` (§3).
 4. `core/` skeleton: design tokens, `Failure`, Dio + `QueuedInterceptor` order, Drift database
    in application support, l10n scaffolding, logging facade.
-5. Wire the generated client from the workbench's locked `contracts/openapi/`, **pin the
+5. Wire the generated client from the workbench's locked `docs/openapi.json`, **pin the
    generator**, commit `api/generated/`, and add the regenerate-and-diff CI step (§3).
 6. `analysis_options.yaml` with the §4.3 boundary rules, **both** lint commands in CI, and a
    deliberate violation committed once to prove they actually fail.
@@ -970,7 +967,7 @@ depth requirement.
 9. **Maestro CLI wherever the AC suite will run, and the selector map before the first
    flow** (§15). Install Maestro on the dev machines and the CI runners — Android runs
    headless, iOS needs a Mac runner, so confirm which machine that is now. Then take the
-   legacy app's `testID` inventory from lane D (`findings/ground-truth/`) and write, per
+   legacy app's `testID` inventory from rspec's discovery (`docs/screens.md`) and write, per
    screen in scope, which Flutter widget will carry each identifier. Do this *before* the
    first flow is recorded: the map is what lets a recorded flow replay unchanged, and
    deriving it afterwards means editing recorded flows, which is the one edit §15's

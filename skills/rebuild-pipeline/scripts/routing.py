@@ -2,18 +2,16 @@
 """routing.py — resolves which MODEL each pipeline subagent runs on. Run from the workbench root.
 
 Usage:
-  python3 scripts/routing.py                     # all eight roles, as JSON
-  python3 scripts/routing.py --role miner        # one role
+  python3 scripts/routing.py                     # all three roles, as JSON
+  python3 scripts/routing.py --role build-lane   # one role
   python3 scripts/routing.py --agents <dir>      # read effort pins from real agent frontmatter
 
 WHY THIS EXISTS
 
-subagent-briefs.md carried the routing rule as prose — "extraction → low tier; merge/spec →
-mid; ADR drafting → high" — and the judge brief said "route it to a high tier". Neither had a
-mechanism behind it, and the four agent files carried no `model:` at all, so every dispatch
-inherited whatever model the orchestrator session happened to be running. The G1 fan-out, the
-rubric score at every gate, and every module spec all ran on one model, usually opus, and the
-prose rule describing otherwise was true of nothing.
+Routing was once a rule in prose with no mechanism behind it, and agent files carried no `model:`
+at all, so every dispatch inherited whatever model the orchestrator session happened to be
+running: the largest fan-out in the pipeline ran on opus, and the prose describing otherwise was
+true of nothing.
 
 Pinning `model:` in the agent frontmatter fixed the inheritance but replaced it with a
 constant: a pin is not a decision a project can make. This script is that decision. It maps
@@ -28,9 +26,10 @@ Two profiles, `balanced` (default) and `frontier`, over three tiers — worker �
 reviewer — each resolving to a model. `balanced` runs volume on sonnet and reserves opus for
 architecture, where a wrong call propagates into every slice built on it, and for sdlc's
 reviews, which sdlc runs on the top tier only; `frontier` also moves the worker tier to opus,
-for a project whose lanes keep failing review or the joint run, or whose miners keep missing
-rules. A profile is a project decision, so it lives in the
-workbench's config, not in an agent file.
+for a project whose lanes keep failing review or the joint run. A profile is a project decision,
+so it lives in the workbench's config, not in an agent file. Since 3.0.0 the spec side (mining,
+ADRs, the data model, specs) is rspec's, and rspec routes its own agents; the architect tier has
+no role here and stays only so an existing config naming it reads without a warning.
 
 What is NOT per-dispatch is the tier assignment. A router could score each task to pick a
 tier; here the roles are fixed and so are their tiers, mapped once in ROLE_TIERS by what each
@@ -43,18 +42,16 @@ only from the spawned agent file's frontmatter.
 
 This pipeline deliberately does not ship the same agent at several pins. For a FIXED role, the
 argument that set its effort is about what its mistakes cost, and that argument does not change
-when a project wants cheaper models: a miner's omissions are just as invisible on a tight
+when a project wants cheaper models: a lane's unchecked work is just as costly on a tight
 budget as on a loose one. So a profile here moves the MODEL and leaves effort where each role's
 own reasoning put it. Where the chosen profile's tier effort disagrees with a role's pin, that
 shows up in `warnings` rather than silently, and buying the saving back means overriding the
-model. Disagreements are EXPECTED and not a problem to fix: under the default `balanced` the
-architect tier runs at medium while adr-drafter is pinned high, and under `frontier` the worker
-tier runs at medium while miner, rubric-judge, spec-writer and lane-worker are pinned high.
+model. Disagreements are EXPECTED and not a problem to fix: under `frontier` the worker tier
+runs at medium while lane-worker is pinned high.
 
 BUILD LANES ARE THIS PLUGIN'S AGENTS; THEIR REVIEWS ARE SDLC'S
 
-`build-lane` resolves to `lane-worker`, shipped in agents/ beside the miner and the rest, and
-pinned like every other role. A role's name and its agent file's name differ there, so
+`build-lane` resolves to `lane-worker`, shipped in agents/, and pinned like every other role. A role's name and its agent file's name differ there, so
 ROLE_TIERS carries `agent:` where they do.
 
 Since 2.0.0 a lane is an sdlc feature, and its review is sdlc's (specs/Spec Wrap sdlc instead
@@ -70,21 +67,19 @@ review replaced it.
 CONFIG
 
   <workbench>/.claude/model-routing.json
-  { "profile": "frontier", "models": { "miner": "haiku", "architect": "fable" } }
+  { "profile": "frontier", "models": { "build-lane": "sonnet", "lane-ui-review": "fable" } }
 
 `profile` picks a ladder; `models` overrides on top of it and accepts either a TIER key
-(worker · architect · reviewer) or a ROLE key (miner · rubric-judge · spec-writer · data-model-drafter ·
-adr-drafter · build-lane · lane-review · lane-ui-review), with a role key winning over the tier it belongs to. Per-role exists because the
-most likely real override in this pipeline is a single role: G1 dispatches miners many at a
-time and nothing else in the pipeline fans out like it. Fable is in no profile; it is reachable
-only as an override (a tier or role key set to "fable").
+(worker · architect · reviewer) or a ROLE key (build-lane · lane-review · lane-ui-review), with a
+role key winning over the tier it belongs to. Fable is in no profile; it is reachable only as an
+override (a tier or role key set to "fable").
 
 There are no aliases for the pre-0.22.0 names. An old profile (`opus-centric`, `lean`) or tier
 key (`quick`, `standard`, `deep`) is an unknown value like any other: default plus a warning.
 
 Every malformed input — bad JSON, unknown profile, unknown key, unknown model — degrades to
 the default and is listed in `warnings`. This file can never block a dispatch, for the same
-reason a bad rubric score can never block a lock: a stalled pipeline is a worse failure than a
+reason the guards fail open outside a pipeline session: a stalled pipeline is a worse failure than a
 wrong-but-visible default. RELAY NON-EMPTY WARNINGS TO THE USER — a config the user believes
 is active but is not is worse than no config at all.
 """
@@ -130,30 +125,10 @@ TIERS = list(PROFILES[DEFAULT_PROFILE].keys())
 # Each role's tier, and WHY that rung — the rationale belongs next to the mapping, because the
 # mapping is the only place it is load-bearing.
 ROLE_TIERS = {
-    "miner": {
-        "tier": "worker",
-        "why": "extraction against a fixed finding schema, one lane and source per dispatch; the largest fan-out in the pipeline, so it runs on the volume tier. Omissions are the real error, which is why its effort pin stays high.",
-    },
-    "rubric-judge": {
-        "tier": "worker",
-        "why": "scoring against a stated rubric; the report is advisory, so a bad score costs a human read rather than a wrong artifact. Omission-hunting is what its high effort pin buys.",
-    },
-    "spec-writer": {
-        "tier": "worker",
-        "why": "a module spec's acceptance criteria are what every build lane is held to, but its inputs arrive resolved and it flags what the contracts leave open instead of deciding it. Three blind sonnet-vs-opus runs (comments, workspace, cycles) found no consistent gap in criteria quality or gaps flagged; opus found more cross-contract drift on the one from-scratch module, which a project can buy back with a spec-writer model override. Human review sits between the spec and any code.",
-    },
-    "adr-drafter": {
-        "tier": "architect",
-        "why": "architecture decisions, and a wrong structural call propagates into every slice built on it.",
-    },
-    "data-model-drafter": {
-        "tier": "architect",
-        "why": "the data model is locked by Gate 4 and every slice builds against it, so a wrong key or a missed ownership boundary is a migration after the lock. It is the same kind of call as an ADR (a structural one), and the drafter is told it may not make a structural change no ADR made. Not A/B tested against a cheaper tier: until 1.4.0 the orchestrator drafted these in its own context, on whatever model the session ran.",
-    },
     "build-lane": {
         "tier": "worker",
         "agent": "lane-worker",
-        "why": "implementation against a spec the user approved and contracts Gate 4 locked, as an sdlc feature whose verify.py proves every criterion red then green; the error it makes is the worker kind (didn't check its work), and sdlc's review, the joint run and the slice review are what catch that. A project whose slices keep failing the joint run moves to the frontier profile.",
+        "why": "implementation against rspec's criteria and contracts Gate 4 locked, as an sdlc feature whose verify.py proves every criterion red then green; the error it makes is the worker kind (didn't check its work), and sdlc's review, the joint run and the slice review are what catch that. A project whose slices keep failing the joint run moves to the frontier profile.",
     },
     "lane-review": {
         "tier": "reviewer",
@@ -172,11 +147,6 @@ ROLE_TIERS = {
 # Fallback effort pins, used only when the agent files cannot be located. Kept in sync with
 # agents/*.md frontmatter; --agents reads the real thing and makes this table irrelevant.
 PIN_FALLBACK = {
-    "miner": "high",
-    "rubric-judge": "high",
-    "spec-writer": "high",
-    "adr-drafter": "high",
-    "data-model-drafter": "high",
     "build-lane": "high",
 }
 

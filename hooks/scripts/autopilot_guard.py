@@ -90,8 +90,8 @@ def main(argv=None):
 
     snapshot_path = os.environ.get("REBUILD_RATE_LIMITS") or os.path.join(os.path.expanduser("~"), ".claude", ".rate-limits.json")
 
-    # A subagent gets a different instruction, because the remedy is not its to run. A miner or
-    # spec-writer that disengaged the parent's run would be ending a session it cannot see —
+    # A subagent gets a different instruction, because the remedy is not its to run. A lane or
+    # rspec agent that disengaged the parent's run would be ending a session it cannot see —
     # and `disengage` records a `next_action` only the orchestrator knows. So: stop, report up.
     as_subagent = bool(get(payload, "agent_id") or get(payload, "agent_type"))
 

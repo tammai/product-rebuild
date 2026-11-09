@@ -335,8 +335,8 @@ def main(argv=None):
         if verdict["why"] == "branch":
             refuse(f"Error: the active sdlc feature here was approved for branch '{verdict['declared']}' but HEAD is '{verdict['actual']}' — another lane's record, or the wrong worktree. Do not edit its Gate log; report it to the orchestrator.")
         if verdict["why"] == "amending":
-            refuse("Error: this lane raised an `amend:` question — the approved spec was found wrong, so non-trivial edits are frozen until the orchestrator re-approves it (lane_plan.py --amend). Stop and report what is wrong; do not edit around the freeze.")
-        refuse("Error: no approved lane here. A lane's sdlc record is written by the orchestrator (lane_plan.py) from the slice specs the user approved, at Build, with the approval in its Gate log. Never write or approve your own. Report it to the orchestrator, or keep the change ≤20 lines.")
+            refuse("Error: this lane raised an `amend:` question — a criterion was found wrong, so non-trivial edits are frozen until the orchestrator settles it (rspec:amend, then lane_plan.py refresh) and resolves the question. Stop and report what is wrong; do not edit around the freeze.")
+        refuse("Error: no approved lane here. A lane's sdlc record is written by the orchestrator (lane_plan.py) from rspec's criteria for the lanes the user approved, at Build, with the approval in its Gate log. Never write or approve your own. Report it to the orchestrator, or keep the change ≤20 lines.")
     return 0
 
 

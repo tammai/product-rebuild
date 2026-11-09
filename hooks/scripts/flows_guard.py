@@ -66,6 +66,17 @@ SUITES = [
                 "equivalent, it makes the evidence agree with the code, which is the one property this "
                 "lane exists to have.",
     },
+    {
+        # rspec's acceptance bundle in the workbench (05 P5 step 4): tests recorded against the
+        # reference by rspec:verify. The manifest is guarded with them: its sha256 per test is what
+        # every lane's copy is checked against.
+        "dir": "docs/acceptance", "kind": "recorded acceptance test", "script": "flows.py", "flag": " --acceptance",
+        "guards": lambda r: True,
+        "why": "rspec recorded these against the running reference; a lane's copy of them is checked "
+               "against this bundle's sha256, and the hidden suite was drawn from it.",
+        "dont": "Do NOT change a test to make a build pass: a wrong recorded test is a spec question "
+                "(rspec:amend), which re-records it against the reference.",
+    },
 ]
 
 
@@ -113,15 +124,17 @@ def main(argv=None):
     # escape hatch that does not exist, which is the one failure mode a guard must never have. So
     # when the script is absent, say so and name the upgrade in the same breath.
     script = suite["script"]
+    flag = suite.get("flag", "")  # after the subcommand: flows.py reads its first argument as the command
     has_script = os.path.exists(os.path.join(root, "scripts", script))
     if has_script:
-        escape_hatch = f"  python3 scripts/{script} unlock --reason \"...\"   # then make the change, then: python3 scripts/{script} relock\n"
+        escape_hatch = (f"  python3 scripts/{script} unlock{flag} --reason \"...\"   # then make the change, then: "
+                        f"python3 scripts/{script} relock{flag}\n")
     else:
         escape_hatch = (
             f"  This workbench has no scripts/{script} — it predates the mechanism. Copy it from\n"
             f"  the plugin's skills/rebuild-pipeline/scripts/ (or run python3 scripts/upgrade.py), and add\n"
             f"  {suite['dir']}/.unlocked.yaml to .gitignore (an active unlock must never be committed). Then:\n"
-            f"    python3 scripts/{script} unlock --reason \"...\"   # change it, then: python3 scripts/{script} relock\n"
+            f"    python3 scripts/{script} unlock{flag} --reason \"...\"   # change it, then: python3 scripts/{script} relock{flag}\n"
         )
 
     print(

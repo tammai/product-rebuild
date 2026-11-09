@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""parity.py — G6 parity report. Run from the workbench root.
-Diffs matrix feature statuses and writes parity/<date>.md, and — when the AC suite left a
-JUnit file at parity/<date>-ac.xml — the AC pass rate that suite actually produced.
+"""parity.py — G6 coverage report (05 P6 step 4). Run from the workbench root.
+Counts rspec's features (docs/features.md) by this rebuild's progress, lists rspec's slices
+(docs/build-plan.md), and writes parity/<date>.md, with — when the AC suite left a JUnit file at
+parity/<date>-ac.xml — the AC pass rate that suite actually produced.
 
-Progress lives in plan/progress.yaml, NOT in the gate-locked artifacts. Both
-matrix/features.yaml (gate-1) and plan/slices.yaml (gate-2) carry a `status:`
-field, but their locks hash the whole file — so recording slice completion there
-meant a formal gate reopen for bookkeeping, and rewrote the hash that dependent
-submodule pins consume, once per slice. Gates protect decisions; progress is not
-a decision. This script overlays progress.yaml onto the locked files: an entry
-there wins, anything absent falls back to the locked `status:`.
+Progress lives in plan/progress.yaml, NOT in the gate-locked artifacts. features.md (gate-1) and
+build-plan.md (gate-2) are hashed whole, so recording progress there would mean a formal gate
+reopen for bookkeeping, and a moved hash for every submodule pin, once per slice. Gates protect
+decisions; progress is not a decision. A feature with no progress entry is `planned`, a Drop is
+`descoped` (its departure is the recorded ruling), a slice with none is `pending`.
 
 It is a script rather than a line in a doc because the report is regenerated every slice
 boundary and must be computed from the files, not remembered (see the AC section below).
@@ -18,8 +17,8 @@ PORTING NOTES (Node original: parity.mjs). The report is a committed, human-read
 its text is reproduced exactly, including how JS prints a missing field: `${f.name}` with no
 `name:` is the word `undefined`, and a `null` is the word `null` (`js_str`). Where JS sorts an
 array of [key, object] pairs with no comparator, it sorts the strings "key,[object Object]"
-(see `_pair_sort_key`); that is kept because it decides row order. The AC, equivalence and
-basis sections each import their library guarded, as the original did, so a hand-upgraded
+(see `_pair_sort_key`); that is kept because it decides row order. The AC and equivalence
+sections each import their library guarded, as the original did, so a hand-upgraded
 workbench missing one loses that section with a warning rather than the whole report. The helpers
 below are copied from acsuite.py rather than imported for the same reason: the
 import is allowed to fail and the report must still render.
@@ -31,6 +30,7 @@ import re
 import sys
 from datetime import datetime
 
+import sequence
 import yamlio
 
 # CRLF to LF on every text read. With git's core.autocrlf=true (the Windows default) the working
@@ -109,10 +109,6 @@ def js_str(x):
     return "[object Object]"
 
 
-def js_join(seq, sep):
-    return sep.join("" if e is None or e is UNDEF else js_str(e) for e in seq)
-
-
 def truthy(x):
     if x is UNDEF or x is None or x is False or x == "":
         return False
@@ -172,12 +168,6 @@ def _key(x):
         return ("id", id(x))
 
 
-def _array(x, what):
-    if not isinstance(x, list):
-        raise TypeError(f"{what}.map is not a function")
-    return x
-
-
 def _nonnull(v, fallback):
     return fallback if v is None else v
 
@@ -192,9 +182,12 @@ def main(argv=None):
     def warn(msg):
         print(msg, file=sys.stderr)
 
-    if not os.path.exists("matrix/features.yaml"):
-        warn("No matrix/features.yaml here — run from the workbench root.")
-        return 1
+    # Design rule 6: a report that cannot read rspec's list says so and fails, rather than
+    # writing a 0% coverage report boundary.py would relay as step 4's result.
+    for need, who in ((sequence.FEATURES, "rspec:features"), (sequence.BUILD_PLAN, "rspec:handoff")):
+        if not os.path.exists(need):
+            warn(f"not run: no {need} here ({who} writes it; run from the workbench root).")
+            return 1
     parse = yamlio.load
 
     def read_yaml(p, fallback):
@@ -218,32 +211,22 @@ def main(argv=None):
         base["status"] = orv(_lookup(prog, _get(item, "id")), _get(item, "status"), fallback)
         return base
 
-    features = [with_status(f, feature_progress, "planned")
-                for f in _array(orv(read_yaml("matrix/features.yaml", []), []), "features")]
-    slices = [with_status(s, slice_progress, "pending")
-              for s in _array(orv(read_yaml("plan/slices.yaml", []), []), "slices")]
+    features = [with_status(f, feature_progress, "descoped" if f["priority"] == "Drop" else "planned")
+                for f in sequence.plan_features()]
+    slices = [with_status(s, slice_progress, "pending") for s in sequence.plan_slices()]
 
-    # Slice ORDER lives in plan/sequence.yaml, not in this array. plan/slices.yaml is hashed whole
-    # by gate-2, so its array order could only be revised by a formal reopen — which is why the
-    # sequence became an overlay (see sequence.py's header). Reading it here keeps the "Slice
-    # progress" section in the order actually being executed rather than the order Gate 2 first
-    # wrote. Imported guarded, like erd.py and playbook.py: a workbench that predates the overlay
-    # has no such file and no such script, and must keep reporting exactly as it did.
-    try:
-        import sequence as sequence_lib
-    except ImportError:  # pre-0.15.0 workbench
-        sequence_lib = None
-    if sequence_lib:
-        seq = sequence_lib.read_sequence()
-        if seq["present"]:
-            rank = {}
-            for i, sid in enumerate(seq["order"]):
-                rank[_key(sid)] = i
-            # Anything absent from the overlay sorts last rather than vanishing: a non-permutation is
-            # validate.py's failure to report, and silently dropping a slice from the report is the
-            # one behaviour that would hide it. (Stable, like Array.prototype.sort; the JS
-            # comparator's Infinity - Infinity is NaN, which sorts as "equal".)
-            slices = sorted(slices, key=lambda s: rank.get(_key(_get(s, "id")), float("inf")))
+    # Slice ORDER lives in plan/sequence.yaml, not in build-plan.md, which gate-2 hashes whole (see
+    # sequence.py's header). Reading it keeps "Slice progress" in the order actually being executed.
+    seq = sequence.read_sequence()
+    if seq["present"]:
+        rank = {}
+        for i, sid in enumerate(seq["order"]):
+            rank[_key(sid)] = i
+        # Anything absent from the overlay sorts last rather than vanishing: silently dropping a
+        # slice from the report is the one behaviour that would hide a non-permutation. (Stable,
+        # like Array.prototype.sort; the JS comparator's Infinity - Infinity is NaN, which sorts as
+        # "equal".)
+        slices = sorted(slices, key=lambda s: rank.get(_key(_get(s, "id")), float("inf")))
 
     def by(st):
         return [f for f in features if f["status"] == st]
@@ -268,31 +251,7 @@ def main(argv=None):
                 done_slice_features.setdefault(_key(e), e)
     suspicious = [f for f in features if _key(_get(f, "id")) in done_slice_features and f["status"] == "planned"]
     if not os.path.exists("plan/progress.yaml"):
-        warn("note: no plan/progress.yaml — reporting locked statuses only, so a built slice will read as planned.")
-
-    # THE OVERLAY'S SHARP EDGE: a shipped slice whose features carry no progress entry.
-    #
-    # `slices:` and `features:` are populated independently, and filling in only the first is the
-    # natural thing to do — it is what a slice close needs. But then every feature in that slice falls
-    # through to matrix/features.yaml's `status:`, which is GATE-1 MINING OUTPUT: how well the
-    # REFERENCE product covered each feature, not how far this rebuild has got. Those two vocabularies
-    # share the words `covered`, `partial` and `missing`, so nothing looks wrong.
-    #
-    # Observed: a ten-slice project reported 23% coverage, with features it had built and verified
-    # listed as `missing` because the reference lacked them. The number was wrong in BOTH directions
-    # at once — mined `covered` for unbuilt features inflated it, mined `missing` for built ones
-    # deflated it — which is why it cannot be spotted by sanity-checking the total.
-    unrecorded = [i for i in done_slice_features.values() if not truthy(_lookup(feature_progress, i))]
-    overlay_warning = ""
-    if unrecorded:
-        sample = js_join(unrecorded[:5], ", ") + (", …" if len(unrecorded) > 5 else "")
-        overlay_warning = (f"\n> **{len(unrecorded)} feature(s) in a shipped slice have no `plan/progress.yaml` entry**, so the "
-                           "figures below fall back to `matrix/features.yaml` — which records how well the REFERENCE "
-                           "covered each feature (gate-1 mining), not this rebuild's progress. Record them under "
-                           f"`features:` before reading these numbers as coverage: {sample}\n")
-        warn(f"warning: {len(unrecorded)} feature(s) in a shipped slice have no progress entry "
-             f"({sample}).\n  Their status falls back to matrix/features.yaml, which is MINING output — how "
-             "well the reference covered each feature, not how far this rebuild has got. The report says so too.")
+        warn("note: no plan/progress.yaml — every feature reads as planned and every slice as pending.")
 
     # The LOCAL date, like every dated file in parity/ — see local_date() in acsuite.py. acsuite is
     # imported guarded further down, so the same lines are inlined here rather than borrowed:
@@ -332,8 +291,8 @@ def main(argv=None):
     # another day's numbers would put a pass rate under a heading that did not produce it.
     # ---------------------------------------------------------------------------
     AC_JUNIT = f"parity/{date}-ac.xml"
-    # The reader itself lives in acsuite.py, shared with slice_review.py. Imported guarded, like
-    # erd.py and playbook.py: a hand-upgraded workbench that copied this file without it loses
+    # The reader itself lives in acsuite.py, shared with slice_review.py. Imported guarded: a
+    # hand-upgraded workbench that copied this file without it loses
     # the AC section with a warning rather than dying on an unresolved import. Losing the section
     # is safe here precisely because AC_TITLE then stays out of OWNED below, so a previously
     # generated one is preserved instead of erased.
@@ -380,66 +339,6 @@ def main(argv=None):
                       f"{ac['failed']} failed.{skipped} Source: `{AC_JUNIT}`.{failed}\n")
 
     # ---------------------------------------------------------------------------
-    # Rules table — per-Rule-Card pass/fail, from the same JUnit run as the AC rate above.
-    #
-    # The question coverage could never answer. Coverage counts FEATURES: how much of the
-    # reference this rebuild has built. A feature can be fully built, marked covered, and
-    # subtly wrong — the invoice total rounds before tax instead of after, the state machine
-    # allows a transition the reference forbade. Those are Rule Cards (lane R, G1), and until
-    # an AC cited one there was nothing to report against.
-    #
-    # Rendered only when findings/rules/ is non-empty: a project that never ran lane R gets no
-    # empty table, for the same reason parity says which parity mechanisms apply rather than
-    # showing blank columns.
-    # ---------------------------------------------------------------------------
-    RULES_TITLE = "Rules (lane R)"
-    rules_section = ""
-    if ac_lib and hasattr(ac_lib, "read_rule_cards"):
-        cards = ac_lib.read_rule_cards(".", parse)
-        if cards:
-            if not ac or ac.get("unreadable"):
-                what = f"`{AC_JUNIT}` could not be read" if ac and ac.get("unreadable") else f"no `{AC_JUNIT}` for today"
-                rules_section = (f"\n## {RULES_TITLE}\n\n{len(cards)} Rule Card(s) on disk, but "
-                                 f"{what} — "
-                                 "no rule can be reported green or red. Do not read this as a pass.\n")
-            else:
-                g_ = ac_lib.group_by_rule((counted or ac)["cases"], [c["id"] for c in cards])
-                by_rule, untested, green, red, skipped_only = g_["byRule"], g_["untested"], g_["green"], g_["red"], g_["skippedOnly"]
-                by_domain = {}
-                for c in cards:
-                    by_domain.setdefault(c["domain"], []).append(c)
-                rows = []
-                # [...map.entries()].sort(): String([domain, [card, card]]) is "domain,[object Object],...".
-                for domain in sorted(by_domain, key=lambda d: _u16(d + "," + ",".join(["[object Object]"] * len(by_domain[d])))):
-                    lst = by_domain[domain]
-                    g = sum(1 for c in lst if c["id"] in green)
-                    r = sum(1 for c in lst if c["id"] in red)
-                    u = sum(1 for c in lst if c["id"] in untested)
-                    rows.append(f"| {domain} | {g} of {len(lst)} | {r} | {u} |")
-                detail = []
-                if red:
-                    detail.extend(["", "Red:"])
-                    for rid in red:
-                        g = by_rule[rid]
-                        card = next((c for c in cards if c["id"] == rid), None)
-                        kind = card["kind"] if card and truthy(card.get("kind")) else "?"
-                        dom = card["domain"] if card and truthy(card.get("domain")) else "?"
-                        detail.append(f"- {rid} ({js_str(kind)}, {dom}) — {g['failed']} of {g['total']} test(s) failing")
-                if skipped_only:
-                    detail.extend(["", "Skipped only (neither green nor red — a skipped AC is not a passing one): "
-                                   + ", ".join(skipped_only)])
-                if untested:
-                    detail.extend(["", f"**Untested: {len(untested)}** — {', '.join(untested)}.",
-                                   "A rule is joined to the suite by its id appearing in a test NAME (g5-build.md step 1). "
-                                   "A rule with no test and a rule whose test forgot to name it are indistinguishable here, "
-                                   "and both mean the same thing: nothing on disk demonstrates the rule holds."])
-                rules_section = (f"\n## {RULES_TITLE}\n\n"
-                                 f"{len(green)} of {len(cards)} Rule Cards green, {len(red)} red, "
-                                 f"{len(untested)} untested. Source: `{AC_JUNIT}`.\n\n"
-                                 "| Domain | Green | Red | Untested |\n|---|---|---|---|\n" + "\n".join(rows) + "\n"
-                                 + "\n".join(detail) + "\n")
-
-    # ---------------------------------------------------------------------------
     # Equivalence (lane E8) — does the rebuild produce what the OLD system produced?
     #
     # The AC suite asks whether the rebuild does what the spec says. Coverage asks how much of the
@@ -452,9 +351,8 @@ def main(argv=None):
     # JUnit because the JUnit contains only what ran. Reporting "6/6 green" over a directory holding
     # eight traces is the exact overclaim this section exists to prevent.
     #
-    # WHEN THE LANE DOES NOT APPLY, SAY SO. A third-party reference cannot have an equivalence lane
-    # — there is no legal or practical way to replay traffic against a product you do not operate.
-    # An absent section and an empty column read identically to someone scanning the report, and
+    # WHEN THE LANE DOES NOT APPLY, SAY SO. Under posture `strict` the spec side only observes the
+    # reference, and replaying recorded traffic against it goes further than that (05 P3). An absent section and an empty column read identically to someone scanning the report, and
     # only one of them means "this was checked and there is nothing".
     # ---------------------------------------------------------------------------
     EQUIV_TITLE = "Equivalence (vs the legacy system)"
@@ -462,28 +360,28 @@ def main(argv=None):
     if ac_lib and hasattr(ac_lib, "read_equiv_traces"):
         t = _read_text("sources.yaml") if os.path.exists("sources.yaml") else ""
         b = re.search(r"(?:(?<=[\n\r  ])|\A)reference:\n((?:(?:[ \t]+[^\n\r  ]*)?\n)*)", t)
-        km = re.search(r"(?:(?<=[\n\r  ])|\A)" + _WS + r"+kind:" + _WS + r"*([^\n\r  ]*)(?=[\n\r  ]|\Z)",
-                       b.group(1)) if b else None
-        ref_kind = ""
-        if km:
-            ref_kind = re.sub(r"^[\"']|[\"']\Z", "", re.split(_WS + "+#", js_trim(km.group(1)))[0]) or ""
+        def ref_field(key):
+            m = re.search(r"(?:(?<=[\n\r  ])|\A)" + _WS + r"+" + key + r":" + _WS + r"*([^\n\r  ]*)(?=[\n\r  ]|\Z)",
+                          b.group(1)) if b else None
+            return re.sub(r"^[\"']|[\"']\Z", "", re.split(_WS + "+#", js_trim(m.group(1)))[0]) if m else ""
+        # Resolved as equiv.py's _posture, validate.py and the reference guard do; change them together.
+        posture = ref_field("posture") or ("own-code" if ref_field("kind") == "own-code" else "observe")
+        posture = posture if posture in ("strict", "observe", "own-code") else "strict"
         traces = ac_lib.read_equiv_traces(".")
         EQUIV_JUNIT = f"parity/{date}-equiv.xml"
         eq = ac_lib.read_ac_suite(EQUIV_JUNIT)
 
-        if ref_kind != "own-code" and not traces:
-            equiv_section = (f"\n## {EQUIV_TITLE}\n\nDoes not apply: `reference.kind` is "
-                             f"`{ref_kind or '(unset)'}`, not `own-code`. Replaying recorded traffic against a product "
-                             "you do not operate is neither legal nor practical, so parity for this project rests on the "
-                             "AC suite and the coverage figures above. This line exists so an absent section is not read "
-                             "as an unchecked one.\n")
+        if posture == "strict" and not traces:
+            equiv_section = (f"\n## {EQUIV_TITLE}\n\nDoes not apply: `reference.posture` is `strict`, under which the "
+                             "spec side only observes the reference; replaying recorded traffic against it needs `observe` "
+                             "or `own-code` (05 P3). Parity for this project rests on the open and hidden suites and the "
+                             "coverage figures above. This line exists so an absent section is not read as an unchecked one.\n")
         elif traces:
             by_feature = {}
             for tr in traces:
                 by_feature.setdefault(tr["feature"], {"recorded": [], "replayed": 0, "green": 0, "red": []})["recorded"].append(tr["name"])
             replayed_total = green_total = 0
             red_cases = []
-            rule_lines = []
             if eq and not eq.get("unreadable"):
                 for c in eq["cases"]:
                     # classname carries "<feature-id> <rule-id>…" — equiv.py writes it that way precisely
@@ -501,15 +399,6 @@ def main(argv=None):
                             g["red"].append(c["caseName"] or c["name"])
                     if c["state"] != "passed":
                         red_cases.append(c)
-                # Per Rule Card, where a trace cites one — the same grouping the AC rules table uses.
-                cards = ac_lib.read_rule_cards(".", parse)
-                if cards:
-                    g_ = ac_lib.group_by_rule(eq["cases"], [c["id"] for c in cards])
-                    if len(g_["byRule"]):
-                        rule_lines.extend(["", f"Per Rule Card: {len(g_['green'])} green, {len(g_['red'])} red, "
-                                           f"{len(cards) - len(g_['byRule'])} card(s) cited by no trace."])
-                        if g_["red"]:
-                            rule_lines.append(f"Red rules: {', '.join(g_['red'])}.")
             rows = []
             for f in sorted(by_feature, key=_pair_sort_key):
                 g = by_feature[f]
@@ -538,45 +427,7 @@ def main(argv=None):
                                "refuses while the newest run has a failure no decision names."])
             equiv_section = (f"\n## {EQUIV_TITLE}\n\n{header}\n\n"
                              "| Feature | Recorded | Replayed | Green | Red |\n|---|---|---|---|---|\n" + "\n".join(rows) + "\n"
-                             + "\n".join(rule_lines) + "\n".join(detail) + "\n")
-
-    # ---------------------------------------------------------------------------
-    # Weakest parity claims: features whose evidence is ALL `inferred`.
-    #
-    # `basis` (findings/**.yaml, evidence entries) records where a fact came from — transcribed
-    # from source at the pinned commit, observed at runtime, or inferred from docs/changelogs/API
-    # responses. A feature standing entirely on inferred evidence is one nobody read out of the
-    # source and nobody watched happen; the parity number counts it exactly like the rest, which
-    # is precisely why it is worth naming separately.
-    #
-    # The join from a feature to its findings is best-effort and the report says so — see
-    # basis.py's feature_basis(). A feature that joins to nothing is reported as unjoined rather
-    # than as clean, because a zero produced by a failed join is indistinguishable from a zero
-    # produced by good evidence.
-    # ---------------------------------------------------------------------------
-    basis_section = ""
-    try:
-        import basis as basis_lib
-        res = basis_lib.feature_basis()(features)
-        inferred_only, unjoined = res["inferred_only"], res["unjoined"]
-        if inferred_only or (unjoined and len(unjoined) < len(features)):
-            lines = []
-            if inferred_only:
-                lines.append(f"Inferred-only features: {len(inferred_only)} — every piece of evidence behind "
-                             f"{'this feature' if len(inferred_only) == 1 else 'these features'} is `basis: inferred` "
-                             "(docs, changelogs, API responses, reasoning). Nothing was transcribed from source and "
-                             "nothing was observed running. These are the weakest parity claims in this report.")
-                lines.extend(["", *[f"- {js_str(_get(f, 'id'))} {js_str(_get(f, 'name'))}" for f in inferred_only]])
-            if unjoined:
-                lines.extend(["", f"{len(unjoined)} feature(s) could not be joined to any finding, so their "
-                              "basis is unknown rather than sound — this line exists so the count above is read with "
-                              "its denominator."])
-            basis_section = "\n## Evidence basis\n\n" + "\n".join(lines) + "\n"
-    except Exception:
-        # basis.py absent in a hand-upgraded workbench — validate.py reports that. A failure while
-        # joining (a malformed findings file) is swallowed too, as the Node report did: the
-        # section is a warning about weak evidence and must not stop the report that carries the rest.
-        pass
+                             + "\n".join(detail) + "\n")
 
     # A G6 run is part generated, part hand-written: the AC suite result and the
     # upstream re-mine are authored by a human or the orchestrator. Re-running on the
@@ -589,9 +440,7 @@ def main(argv=None):
         "Descoped (by recorded decision)",
         "Slice progress",
         *([AC_TITLE] if ac_section else []),
-        *([RULES_TITLE] if rules_section else []),
         *([EQUIV_TITLE] if equiv_section else []),
-        *(["Evidence basis"] if basis_section else []),
     ]
     path = f"parity/{date}.md"
     preserved = ""
@@ -613,7 +462,7 @@ def main(argv=None):
                 "\n"
                 f"Coverage: {len(buckets['covered'])}/{in_scope} covered ({pct}%), {len(buckets['partial'])} partial, "
                 f"{len(buckets['missing'])} missing, {len(buckets['planned'])} planned{descoped_note}.\n"
-                f"{overlay_warning}{ac_section}{rules_section}{equiv_section}{basis_section}\n"
+                f"{ac_section}{equiv_section}\n"
                 "## Missing (in a done slice but not covered — investigate)\n"
                 f"{list_md(suspicious)}\n"
                 "\n"
@@ -635,10 +484,8 @@ def main(argv=None):
                    + (f" ({len(counted['rerunPasses'])} on rerun — {counted['label']})" if counted["rerunPasses"] else "") + ".")
     elif ac and not ac.get("unreadable"):
         ac_note = f" AC {ac['passed']}/{ac['total']} passed."
-    rm = re.search(r"^(\d+) of (\d+) Rule Cards green", rules_section, re.ASCII | re.MULTILINE)
-    rule_note = f" Rules {rm.group(1)}/{rm.group(2)} green." if rm else ""
     em = re.search(r"^(\d+) trace\(s\) recorded, (\d+) replayed, (\d+) green", equiv_section, re.ASCII | re.MULTILINE)
-    print(f"Wrote {path} — coverage {pct}%.{ac_note}{rule_note}"
+    print(f"Wrote {path} — coverage {pct}%.{ac_note}"
           f"{f' Equivalence {em.group(3)}/{em.group(1)} green.' if em else ''}"
           f"{' Hand-written sections preserved.' if preserved else ''}")
     return 0

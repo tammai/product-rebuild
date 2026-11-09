@@ -1,9 +1,18 @@
 #!/usr/bin/env python3
-"""playbook.py — architecture-playbook checks shared by validate.py and gate.py.
-Library, not an entry point.
+"""playbook.py — the architecture playbook a rebuild's code repos are created from.
 
-Standard library only by necessity: gate.py runs with nothing but its sibling scripts present,
-same constraint as erd.py. So the formats this file reads are parsed by line, not by yamlio, and
+Usage (from the workbench root):
+  python3 scripts/playbook.py vendor [--plugin <plugin root>]
+
+`vendor` copies the playbook sources.yaml selects (or the org default) to adr/playbook.md and its scaffold
+manifest to adr/playbook.scaffold.json, where gate-3 locks them with rspec's ADRs and scaffold-repo reads them.
+The rest is a library shared by validate.py, gate.py and scaffold-repo's scaffold.py: what Gate 3 accepts is
+exactly what G5 can scaffold. Since 3.0.0 the ADRs are rspec's (docs/decisions/) and the playbook reaches
+rspec:tech as a stack preference; adr/ holds only the vendored playbook and its manifest, so the stack a code
+repo is created from cannot change under a project when the plugin upgrades.
+
+Standard library only by necessity: gate.py runs with nothing but its sibling scripts present.
+So the formats this file reads are parsed by line, not by yamlio, and
 both line-parsed formats are ones this pipeline defines rather than inherits:
 
   1. `architecture:` in sources.yaml — two scalar keys, one nesting level.
@@ -33,11 +42,9 @@ import sys
 # Splitting a CRLF file on "\n" leaves a `\r` on every line, and a `.` does not match it in the
 # Node twin (it is a line terminator there), so a `(.*)$` pattern failed on every *value* line
 # while the block *header* still matched — the mechanism then reported "no playbook selected"
-# rather than "unparsable", and every check silently switched off. A review reproduced a
-# gate-3 lock carrying a fabricated `§999` citation that way, from a CRLF `sources.yaml`
+# rather than "unparsable", and every check silently switched off, from a CRLF `sources.yaml`
 # whose LF twin refused correctly. Normalize once at every read instead of trusting each
-# pattern to be CRLF-safe: `read_adrs` happened to use `re.M` and was fine, which is exactly
-# what made the inconsistency invisible.
+# pattern to be CRLF-safe.
 def _strip_cr(s):
     return re.sub(r"\r\n?", "\n", s)
 
@@ -72,31 +79,28 @@ def _js_str(v):
     return str(v)
 
 
-# Where G4a vendors the selected playbook. Inside gate-3's `protects:` (`adr/`) on purpose.
+# Where `vendor` copies the selected playbook. Inside gate-3's `protects:` (`adr/`) on purpose.
 VENDORED_PLAYBOOK = "adr/playbook.md"
 
-# Where G4a vendors the playbook's scaffold manifest, beside it and for the same reason: a
+# Where `vendor` copies the playbook's scaffold manifest, beside it and for the same reason: a
 # lock that hashes the ADRs but not the stack they chose would let the scaffold drift from
 # what Gate 3 approved. With `architecture.playbook: none` there is no registry manifest, so
 # the project writes its own at SCAFFOLD_LOCAL — same format, same checks, same lock.
 VENDORED_SCAFFOLD = "adr/playbook.scaffold.json"
 SCAFFOLD_LOCAL = "adr/scaffold.json"
 
-# Registry path inside the plugin, for messages only — the workbench never reads it.
+# Registry path inside the plugin; `vendor` copies from it, nothing else in the workbench reads it.
 REGISTRY_DIR = "skills/rebuild-pipeline/references/playbooks"
 
-# The playbook a project gets when `sources.yaml` names none. This is not a convenience
-# default: `g4a-architecture.md` step 0.1 and `docs/PLAYBOOK.md` both say an absent or empty
-# `architecture.playbook` resolves here and step 0.3 then vendors it, so treating the blank
-# scaffolded value as "no playbook, run no checks" left the *most common* configuration
-# unenforced while three documents claimed otherwise.
+# The playbook a project gets when `sources.yaml` names none. Not a convenience default: treating
+# the blank scaffolded value as "no playbook, run no checks" once left the *most common*
+# configuration unenforced while the docs claimed otherwise.
 DEFAULT_PLAYBOOK = "web-modular-monolith"
 
 
 def is_pre_playbook_workbench(root="."):
     """True for workbenches scaffolded before the playbook registry existed. They get warnings
-    where a new workbench gets errors. Same signal and same reasoning as
-    `erd.is_legacy_workbench`: `locks/pipeline.yaml`'s schema_version, because `protects:`
+    where a new workbench gets errors. The signal is `locks/pipeline.yaml`'s schema_version, because `protects:`
     already covers `adr/` in every workbench ever scaffolded and so cannot tell old from new."""
     p = _join(root, "locks", "pipeline.yaml")
     if not os.path.exists(p):
@@ -190,68 +194,6 @@ def parse_playbook_meta(raw_text):
             else:
                 meta["decide_before"][pair.group(1)] = [s.strip() for s in value.split(",") if s.strip()]
     return meta
-
-
-def playbook_sections(text):
-    """Section numbers the playbook actually declares, read from its own headings
-    (`## 4. Backend`, `### 4.2 Hard Rules for Feature Boundaries`).
-
-    This exists because the `concerns:` map answers "which section covers this concern" and is
-    NOT the list of sections that exist. Seeding the citation check from the map alone rejected
-    an ADR citing a real section no concern happens to map (§15 Testing Strategy, §19
-    Anti-patterns) and — worse — a *subsection* of a mapped one: `mobile-flutter.md` maps
-    `decomposition: "§2, §4, §20"` and has a `### 4.3` that is the natural thing for that
-    ADR to cite. Both were reported as "the wrong playbook", which is a false accusation."""
-    out = set()
-    for m in re.finditer(r"^#{2,6}\s+([0-9]+(?:\.[0-9]+)*)[.):]?(?=\s)", _strip_cr(text), re.M):
-        out.add("§" + m.group(1))
-    return out
-
-
-def cited_sections(meta):
-    """Section tokens a playbook's concerns map cites — where each concern's answer lives."""
-    out = set()
-    for v in ((meta or {}).get("concerns") or {}).values():
-        for tok in re.findall(r"§\s*[A-Za-z0-9_.]+", _js_str(v)):
-            out.add(re.sub(r"\s+", "", tok))
-    return out
-
-
-_ADR_NON_ADR = {"playbook.md", "README.md", "readme.md"}
-
-
-def _adr_field(text, name):
-    """The value of an ADR header field, on a line of its own. Accepts `concern: x`, a bulleted
-    `- concern: x` and the bold forms `- **concern:** x` and `**concern**: x`.
-
-    WHY NOT JUST `^concern:`. In a blind A/B of the ADR drafter, 4 of 8 Opus drafts wrote their header
-    as a bulleted list (`- concern: observability`) and none of the 8 Sonnet drafts did. The strict
-    pattern read those as ADRs with no concern, and `gate.py lock gate-3` refuses to lock while a mapped
-    concern has no ADR, so half of one model's drafts would have failed the gate over punctuation. The
-    drafter's agent file now says to write bare lines; this accepts the forms models write anyway."""
-    m = re.search(r"^(?:[-*]\s+)?\**" + re.escape(name) + r"\**:\**[ \t]*(.+?)[ \t]*$", text, re.M)
-    return m.group(1) if m else None
-
-
-def read_adrs(root="."):
-    """Every ADR in adr/, with the two fields the playbook mechanism reads."""
-    d = _join(root, "adr")
-    if not os.path.exists(d):
-        return []
-    out = []
-    for f in sorted(_join(d, n) for n in os.listdir(d)
-                    if n.endswith(".md") and n not in _ADR_NON_ADR):
-        if not os.path.isfile(f):
-            continue
-        text = _read_text(f)
-        concern = _adr_field(text, "concern")
-        org_default = _adr_field(text, "org-default")
-        out.append({
-            "file": f,
-            "concern": _unquote(concern.strip("`")) if concern else None,
-            "org_default": _unquote(org_default) if org_default else None,
-        })
-    return out
 
 
 # The scaffold manifest contract. scaffold-repo reads the same file through this module, so what
@@ -426,7 +368,7 @@ def check_scaffold(root=".", meta=None):
     file = _join(root, res["path"])
     if not os.path.exists(file):
         res["missing"] = True
-        tail = (" — G4a step 0.3 vendors it beside the playbook" if meta else
+        tail = (" — `python3 scripts/playbook.py vendor` copies it beside the playbook" if meta else
                 " — with no playbook, the stack ADR is accompanied by a scaffold manifest you write (references/playbooks/README.md)")
         res["problems"].append(f"{res['path']} does not exist{tail}")
         return res
@@ -442,15 +384,13 @@ def check_scaffold(root=".", meta=None):
 
 def check_playbook(root="."):
     """The whole playbook check, in one call so validate.py and gate.py report identically.
-
-    `problems` are always wrong. `undecided` is a list of concerns with no ADR — legitimate
-    until Gate 3 is about to lock, so it is returned separately and callers decide when it
-    becomes fatal. Same split as erd.check_data_model's `missing`."""
+    `problems` are always wrong; `missing_vendored` is normal until `vendor` runs."""
     cfg = read_architecture_config(root)
     vendored_path = _join(root, VENDORED_PLAYBOOK)
     explicit = cfg["playbook"]
-    # `none` is the only way to switch the mechanism off — G4a step 0b, every ADR blank-slate.
-    # A blank value is NOT that: it resolves to the org default, which is what G4a vendors.
+    # `none` is the only way to switch the mechanism off: every stack decision blank-slate, the
+    # project writing its own scaffold manifest. A blank value is NOT that: it resolves to the org
+    # default, which is what `vendor` copies.
     disabled = bool(explicit) and explicit.lower() == "none"
     res = {
         "explicit": explicit,
@@ -459,15 +399,13 @@ def check_playbook(root="."):
         "disabled": disabled,
         "target_shape": cfg["target_shape"],
         "vendored": VENDORED_PLAYBOOK if os.path.exists(vendored_path) else None,
-        "meta": None, "problems": [], "missing_vendored": False, "undecided": [],
-        "adrs": read_adrs(root), "scaffold": None,
+        "meta": None, "problems": [], "missing_vendored": False, "scaffold": None,
     }
     if disabled:
         res["scaffold"] = check_scaffold(root, None)
         return res
-    # Absence is reported separately from `problems` because it is legitimate for most of a
-    # project's life: G4a vendors the copy, and everything before G4a validates without it.
-    # Callers decide when it becomes fatal — same split as `erd.check_data_model`'s `missing`.
+    # Absence is reported separately from `problems` because it is legitimate until the stack
+    # preference step vendors the copy; gate-3 is where it becomes fatal.
     if not res["vendored"]:
         res["missing_vendored"] = True
         return res
@@ -484,8 +422,6 @@ def check_playbook(root="."):
     res["meta"] = meta
     if meta["playbook"] and meta["playbook"] != selected_name:
         res["problems"].append(f'{VENDORED_PLAYBOOK} declares playbook "{meta["playbook"]}" but sources.yaml selects "{res["selected"]}"')
-    if not meta["concerns"]:
-        res["problems"].append(f"{VENDORED_PLAYBOOK} declares no concerns: map — G4a has nothing to walk")
     res["scaffold"] = check_scaffold(root, meta)
     res["problems"].extend(res["scaffold"]["problems"])
     if cfg["target_shape"] and meta["target_shape"] and cfg["target_shape"] != meta["target_shape"]:
@@ -493,138 +429,63 @@ def check_playbook(root="."):
             f'target shape mismatch: sources.yaml says "{cfg["target_shape"]}", '
             f'playbook "{meta["playbook"]}" serves "{meta["target_shape"]}"')
 
-    # Legal citations = the sections the map points at, PLUS every section the playbook
-    # actually declares. See `playbook_sections` for why the map alone is the wrong authority.
-    legal = cited_sections(meta) | playbook_sections(vendored_text)
-
-    def section_is_known(tok):
-        # A subsection of a real section is real: `§4.2.1` is satisfied by a known `§4.2` or `§4`.
-        parts = re.sub(r"\A§", "", tok).split(".")
-        for n in range(len(parts), 0, -1):
-            if "§" + ".".join(parts[:n]) in legal:
-                return True
-        return False
-
-    decided = set()
-    for adr in res["adrs"]:
-        if not adr["concern"]:
-            res["problems"].append(f"{adr['file']}: no `concern:` field — cannot tell which playbook concern it decides")
-            continue
-        decided.add(adr["concern"])
-        if adr["concern"] not in meta["concerns"]:
-            res["problems"].append(f'{adr["file"]}: concern "{adr["concern"]}" is not in {VENDORED_PLAYBOOK}\'s concerns map')
-        if not adr["org_default"]:
-            res["problems"].append(f"{adr['file']}: no `org-default:` field (use N/A for a concern with no default)")
-            continue
-        # `n/a\b` not `n/a$`: the ADR template presents this field as
-        # "<cited section(s) …, or N/A where it has no answer>", so a drafter writing
-        # `N/A — the reference schema is the only axis` is the expected output, not a deviation.
-        # `\b` still rejects `N/Applicable`, which is not this field's vocabulary.
-        if re.match(r"n/a\b", adr["org_default"], re.I | re.A):
-            continue
-        cited = [re.sub(r"\s+", "", t) for t in re.findall(r"§\s*[A-Za-z0-9_.]+", adr["org_default"])]
-        if not cited:
-            res["problems"].append(f'{adr["file"]}: org-default "{adr["org_default"]}" cites no § section and is not N/A')
-            continue
-        for tok in cited:
-            if not section_is_known(tok):
-                res["problems"].append(
-                    f"{adr['file']}: org-default cites {tok}, which {VENDORED_PLAYBOOK} "
-                    f"has no such section for (checked against its headings and its concerns map) — "
-                    f"a stale citation, or the wrong playbook")
-    for concern in meta["concerns"]:
-        if concern not in decided:
-            res["undecided"].append(concern)
     return res
 
 
 # One-line remedy, shared so both scripts say the same thing.
 PLAYBOOK_REMEDY = (
-    f"At G4a entry, copy the playbook named by sources.yaml's architecture.playbook from the "
-    f"plugin's {REGISTRY_DIR}/ to {VENDORED_PLAYBOOK}, then draft one ADR per concern in its "
-    f"concerns: map, each declaring `concern:` and `org-default:` (see references/g4a-architecture.md).")
+    f"Before rspec:tech, run `python3 scripts/playbook.py vendor` from the workbench root: it copies the playbook "
+    f"sources.yaml's architecture.playbook selects from the plugin's {REGISTRY_DIR}/ to {VENDORED_PLAYBOOK}, with its "
+    f"scaffold manifest. With architecture.playbook: none, write {SCAFFOLD_LOCAL} yourself.")
 
 
-def excerpt(raw_text, concern):
-    """The part of a playbook one ADR drafter needs: its header facts, §1, the section(s) the
-    `concerns:` map gives for `concern`, and those of any concern it must be decided after.
+def vendor(root=".", plugin=None):
+    """Copy the selected playbook and its scaffold manifest into adr/. Returns (copied paths, problem or None).
 
-    WHY. Every `adr-drafter` dispatch used to read the whole vendored playbook (63 to 72 KB, 16 to 18K
-    tokens) to find the one to three sections its brief names, and a run's context is re-billed on every
-    turn. In the web playbook 65% of the bytes are in no concern's section map. The drafter is told
-    never to infer a section, so what it needs is exactly what the map names. This cuts the playbook at
-    those headings; the vendored file Gate 3 hashes is untouched, and a drafter that wants more can still
-    read it. Returns None when the playbook has no such concern."""
-    text = _strip_cr(raw_text)
+    The source is the plugin's registry (a bare name) or a path relative to the workbench (a playbook the user
+    wrote). The plugin root is `plugin`, else the one `.rebuild-plugin` records, which is how upgrade.py finds it
+    too: an environment variable would outlive a moved plugin silently."""
+    res = check_playbook(root)
+    if res["disabled"]:
+        return [], f"architecture.playbook is none: write {SCAFFOLD_LOCAL} yourself (references/playbooks/README.md)"
+    sel = res["selected"]
+    if "/" in sel or sel.lower().endswith(".md"):
+        src = _join(root, sel)
+    else:
+        if not plugin:
+            marker = _join(root, ".rebuild-plugin")
+            lines = ([l.strip() for l in _read_text(marker).split("\n") if l.strip() and not l.startswith("#")]
+                     if os.path.exists(marker) else [])
+            plugin = lines[0] if lines else None
+        if not plugin:
+            return [], "no plugin root: pass --plugin <root> (no .rebuild-plugin in this workbench)"
+        src = _join(plugin, REGISTRY_DIR, sel + ".md")
+    if not os.path.exists(src):
+        return [], f"no playbook at {src}"
+    text = _read_text(src)
     meta = parse_playbook_meta(text)
-    if not meta or concern not in meta["concerns"]:
-        return None
-    wanted, seen = [], set()
-
-    def add(c):
-        if c in seen:
-            return
-        seen.add(c)
-        for dep in meta["decide_before"].get(c, []):
-            add(dep)
-        wanted.append(c)
-
-    add(concern)
-    lines = text.split("\n")
-    heads = []
-    for i, ln in enumerate(lines):
-        m = re.match(r"^(#{2,6})\s+([0-9]+(?:\.[0-9]+)*)[.):]?(?=\s)", ln)
-        if m:
-            heads.append((i, len(m.group(1)), m.group(2)))
-
-    def section(num):
-        for k, (i, lvl, n) in enumerate(heads):
-            if n == num:
-                end = len(lines)
-                for (j, lvl2, _n2) in heads[k + 1:]:
-                    if lvl2 <= lvl:
-                        end = j
-                        break
-                return "\n".join(lines[i:end]).rstrip()
-        return None
-
-    out = [f"# Playbook excerpt: concern `{concern}`", "",
-           "Cut from the vendored `adr/playbook.md` by `playbook.py excerpt`. That file is what Gate 3 hashes "
-           "and what the ADR cites; read it for anything this excerpt does not cover.", "",
-           f"playbook: {meta['playbook']}", f"stack: {meta['stack']}", f"target-shape: {meta['target_shape']}"]
-    for c in wanted:
-        out.append(f"concerns.{c}: {meta['concerns'][c]}")
-    if meta["decide_before"].get(concern):
-        out.append(f"decide-before: {concern} is decided after {', '.join(meta['decide_before'][concern])}")
-    out.append("")
-    taken = []
-    for num in ["1"] + [t for c in wanted for t in re.findall(r"§\s*([0-9]+(?:\.[0-9]+)*)", meta["concerns"][c])]:
-        if num in taken:
-            continue
-        taken.append(num)
-        body = section(num)
-        if body is None:
-            out.append(f"(section §{num} is named by the concerns map but has no heading in this playbook)")
-        else:
-            out += [body, ""]
-    if all(meta["concerns"][c].strip().upper() == "N/A" for c in wanted):
-        out.append(f"This playbook gives no default for `{concern}` (`N/A`): draft it against the reference alone.")
-    return "\n".join(out).rstrip() + "\n"
+    scaffold = (meta or {}).get("scaffold")
+    if not scaffold or scaffold.lower() == "none":
+        return [], f"{src} declares no `scaffold:` manifest, so no code repo can be created from it"
+    manifest = _join(os.path.dirname(src), scaffold)
+    if not os.path.exists(manifest):
+        return [], f"{src} names scaffold {scaffold}, which does not exist at {manifest}"
+    os.makedirs(_join(root, "adr"), exist_ok=True)
+    for dst, body in ((VENDORED_PLAYBOOK, text), (VENDORED_SCAFFOLD, _read_text(manifest))):
+        with open(_join(root, dst), "w", encoding="utf-8", newline="\n") as f:
+            f.write(body)
+    return [VENDORED_PLAYBOOK, VENDORED_SCAFFOLD], None
 
 
 def _cli(argv):
-    if len(argv) >= 2 and argv[0] == "excerpt":
-        path = argv[argv.index("--playbook") + 1] if "--playbook" in argv else _join("adr", "playbook.md")
-        if not os.path.exists(path):
-            print(f"playbook.py excerpt: no playbook at {path}. Run from the workbench root, or pass --playbook.", file=sys.stderr)
+    if argv and argv[0] == "vendor":
+        copied, why = vendor(".", argv[argv.index("--plugin") + 1] if "--plugin" in argv[:-1] else None)
+        if why:
+            print(f"playbook.py vendor: {why}", file=sys.stderr)
             return 1
-        res = excerpt(_read_text(path), argv[1])
-        if res is None:
-            print(f"playbook.py excerpt: {path} has no concern named {argv[1]!r} in its concerns: map.", file=sys.stderr)
-            return 1
-        sys.stdout.write(res)
+        print(f"vendored {', '.join(copied)}; gate-3 locks adr/ with the ADRs. Commit them.")
         return 0
-    print("Usage: playbook.py excerpt <concern> [--playbook adr/playbook.md]", file=sys.stderr)
+    print("Usage: playbook.py vendor [--plugin <plugin root>]", file=sys.stderr)
     return 1
 
 

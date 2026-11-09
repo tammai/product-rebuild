@@ -348,7 +348,7 @@ def _parse_lock(lock_id):
 # is a check that gets ignored, taking the real warnings with it.
 #
 # Read from plan/progress.yaml only, which is where g6-parity.md says slice completion is
-# recorded ("never in the gate-locked plan/slices.yaml"). Parsed with the same fixed-subset
+# recorded ("never in the gate-locked docs/build-plan.md"). Parsed with the same fixed-subset
 # regex style as the rest of this file — it stays zero-dependency because it must run in a
 # workbench with no YAML parser to hand. `notes:` is keyed by slice id too, so the
 # scan is scoped to the `slices:` block rather than matching S-ids anywhere in the file.
@@ -519,18 +519,21 @@ def main(argv=None):
     # assertion change. Left on, the guard is simply off — and the next agent to hit a red build
     # can loosen an assertion with nothing noticing. Same category as a reopened gate: a decision
     # mid-flight, safe for an hour and not safe to sleep on.
-    unlock_file = os.path.join("parity", "flows", ".unlocked.yaml")
-    if os.path.exists(unlock_file):
-        text = _read_text(unlock_file)
+    # docs/acceptance/ (the recorded bundle) has the same guard and the same unlock file; flows.py's FLOWS_DIR and
+    # ACCEPTANCE_DIR name the two folders, so change this list with them.
+    for folder, flag in (("parity/flows", ""), ("docs/acceptance", " --acceptance")):
+        unlock_file = os.path.join(*folder.split("/"), ".unlocked.yaml")
+        if os.path.exists(unlock_file):
+            text = _read_text(unlock_file)
 
-        def get(k):
-            m = re.search(rf"^{k}:\s*(.*)$", text, re.M)
-            return re.sub(r'^"|"$', "", _trim(m.group(1))) if m else None
-        issues.append(f"parity/flows: AC flow assertions still UNLOCKED (since {get('at') or '?'}, "
-                      f"by {get('by') or '?'}: {get('reason') or 'no reason recorded'}) — the guard is off. "
-                      "Re-lock with `python3 scripts/flows.py relock`.")
-    elif os.path.exists(os.path.join("parity", "flows")):
-        notes.append("parity/flows: AC flow assertions protected.")
+            def get(k):
+                m = re.search(rf"^{k}:\s*(.*)$", text, re.M)
+                return re.sub(r'^"|"$', "", _trim(m.group(1))) if m else None
+            issues.append(f"{folder}: recorded assertions still UNLOCKED (since {get('at') or '?'}, "
+                          f"by {get('by') or '?'}: {get('reason') or 'no reason recorded'}) — the guard is off. "
+                          f"Re-lock with `python3 scripts/flows.py relock{flag}`.")
+        elif os.path.exists(os.path.join(*folder.split("/"))):
+            notes.append(f"{folder}: recorded assertions protected.")
 
     # --- 2c. Shipped slices with no slice review ---
     slice_statuses = _progress_slice_statuses()
@@ -545,7 +548,7 @@ def main(argv=None):
             notes.append(f"slice reviews: all {len(shipped)} shipped slice(s) have one.")
 
     # --- 2d. Oversized plan/ state files ---
-    for f in ["plan/backlog.md", "plan/progress.yaml", "plan/slices.yaml"]:
+    for f in ["plan/progress.yaml", "docs/build-plan.md", "docs/criteria.lock.json"]:
         try:
             size = os.stat(f).st_size
         except OSError:

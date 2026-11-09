@@ -11,8 +11,8 @@ stand" answerable at a slice boundary without anyone reconstructing it from scro
 WHY IT IS GENERATED AND NOT WRITTEN
 
 Everything here comes off disk: plan/progress.yaml, plan/sequence.yaml, the AC suite's JUnit
-output, matrix/features.yaml. None of it is composed. A slice review an agent writes is a
-summary of what that agent believes it did, which is the failure `verifier`, `rubric-judge`
+output, rspec's docs/build-plan.md and docs/features.md. None of it is composed. A slice review an agent writes is a
+summary of what that agent believes it did, which is the failure fresh reviewers
 and g5-build.md's "a verification script names only what it RAN" all exist to prevent — and a
 slice review is exactly the artifact that outlives the session that produced it. So the
 script states facts and cites their source; judgement goes in the conversation on top of it,
@@ -21,8 +21,8 @@ script and not a paragraph in a doc: a doc can only ask for the facts, a script 
 
 WHAT IT ADDS THAT PARITY DOES NOT
 
-parity.py answers "how much of the REFERENCE do we cover" — a coverage diff against the
-matrix. Two questions it does not answer, and nothing else did either:
+parity.py answers "how much of rspec's feature list have we built". Two questions it does not
+answer, and nothing else did either:
   - Does the whole product still run? Every per-slice deploy criterion asserts only that
     slice's features, so "did S3 break S1" had no home. Comparing this AC run against the
     previous one, by test name, gives it one.
@@ -51,13 +51,11 @@ def _read_text(p):
 REVIEW_DIR = "plan/slice-reviews"
 SHIPPED = {"done", "deployed"}
 
-# Late-added sibling modules are imported guarded, the same way validate.py handles erd.py
-# and playbook.py: a hand-upgraded workbench that copied this file without them should lose
-# one section with an explanation, not die on an unresolved import before writing anything.
-try:
-    import sequence as seq_lib  # reported in the report
-except ImportError:
-    seq_lib = None
+import sequence as seq_lib
+
+# Late-added sibling modules are imported guarded: a hand-upgraded workbench that copied this file
+# without them should lose one section with an explanation, not die on an unresolved import before
+# writing anything.
 try:
     import acsuite as ac_lib  # reported in the report
 except ImportError:
@@ -165,21 +163,27 @@ def main(argv=None):
         print("No locks/pipeline.yaml here — run from the workbench root.", file=sys.stderr)
         return 1
 
-    slices = _read_yaml("plan/slices.yaml", []) or []
-    if not isinstance(slices, list) or not slices:
-        print("plan/slices.yaml has no slices — nothing to review. This runs at a slice boundary, after G3.", file=sys.stderr)
+    slices = seq_lib.plan_slices()
+    if not slices:
+        print(f"not run: {seq_lib.BUILD_PLAN} has no slices (rspec's handoff writes it) — this runs at a slice boundary.",
+              file=sys.stderr)
         return 1
-    by_id = {s["id"]: s for s in slices if isinstance(s, dict) and _truthy(s.get("id"))}
+    # Without rspec's feature list the standing would be a share of nothing, which boundary.py would relay as
+    # step 4's result (design rule 6).
+    if not os.path.exists(seq_lib.FEATURES):
+        print(f"not run: no {seq_lib.FEATURES} here (rspec:features writes it).", file=sys.stderr)
+        return 1
+    by_id = {s["id"]: s for s in slices}
     progress = _dict(_read_yaml("plan/progress.yaml", {}) or {})
     slice_progress = _dict(progress.get("slices") or {})
     feature_progress = _dict(progress.get("features") or {})
     notes = _dict(progress.get("notes") or {})
 
     def status_of(sid):
-        return _lookup(slice_progress, sid) or _get(by_id.get(sid), "status") or "pending"
+        return _lookup(slice_progress, sid) or "pending"
 
-    order = seq_lib.read_sequence()["order"] if seq_lib else [_get(s, "id") for s in slices]
-    order_source = "plan/sequence.yaml" if seq_lib and seq_lib.read_sequence()["present"] else "plan/slices.yaml (positional)"
+    order = seq_lib.read_sequence()["order"]
+    order_source = "plan/sequence.yaml" if seq_lib.read_sequence()["present"] else f"{seq_lib.BUILD_PLAN} (positional)"
 
     wanted = argv[0] if argv else None
     shipped_in_order = [sid for sid in order if status_of(sid) in SHIPPED]
@@ -188,7 +192,7 @@ def main(argv=None):
         print("No slice has shipped yet, and none was named. Usage: python3 scripts/slice_review.py <Sn>", file=sys.stderr)
         return 1
     if slice_id not in by_id:
-        print(f"{slice_id} is not in plan/slices.yaml.", file=sys.stderr)
+        print(f"{slice_id} is not in {seq_lib.BUILD_PLAN}.", file=sys.stderr)
         return 1
     slice_ = by_id[slice_id]
     slice_status = status_of(slice_id)
@@ -211,9 +215,8 @@ def main(argv=None):
     # --- 1. does it run? -----------------------------------------------------
     # The cumulative question. Not "did this slice's tests pass" — every deploy criterion already
     # asserted that — but "is everything built so far still passing", and if not, what broke.
-    matrix = _read_yaml("matrix/features.yaml", []) or []
-    matrix = matrix if isinstance(matrix, list) else []
-    feature_ids = [i for i in (_get(f, "id") for f in matrix) if _truthy(i)]
+    spec_features = seq_lib.plan_features()
+    feature_ids = [i for i in (_get(f, "id") for f in spec_features) if _truthy(i)]
     run_headline = "NOT ESTABLISHED — see the report"
     if not ac_lib:
         md_run.append("- `scripts/acsuite.py` is missing from this workbench, so the AC suite was not read. "
@@ -410,15 +413,14 @@ def main(argv=None):
                                   "refuses to lock while any red trace has no decision naming it.")
 
     # --- 2. what shipped -----------------------------------------------------
-    feature_name = {f["id"]: (f.get("name") or "") for f in matrix if isinstance(f, dict) and _truthy(f.get("id"))}
+    feature_name = {f["id"]: f["name"] for f in spec_features}
     slice_features = _list(slice_.get("features"))
     unrecorded = [i for i in slice_features if not _truthy(_lookup(feature_progress, i))]
     md_shipped = []
     for i in slice_features:
         fp = _lookup(feature_progress, i)
         md_shipped.append(
-            f"- {_str(i)} {_str(_lookup(feature_name, i) or '(not in matrix/features.yaml)')} — **{_str(fp) if _truthy(fp) else 'no progress entry'}**" +
-            ("" if _truthy(fp) else " *(falls back to the gate-1 mining status, which is about the REFERENCE)*"))
+            f"- {_str(i)} {_str(_lookup(feature_name, i) or '(not in docs/features.md)')} — **{_str(fp) if _truthy(fp) else 'no progress entry'}**")
 
     # --- 2b. lane records --------------------------------------------------
     # Each lane is an sdlc feature whose record lane_plan.py wrote from the approved specs (2.0.0).
@@ -443,15 +445,16 @@ def main(argv=None):
                                 f"{' · ' + _str(rec['amendments']) + ' amendment(s)' if _truthy(rec.get('amendments')) else ''}"
                                 f"{' · **criteria differ from what was approved**' if st['ac_edited'] else ''}")
             if st["ac_edited"]:
-                press(f"{lane}: its acceptance criteria no longer match the approved specs",
-                      f"- **{lane}'s change file `## Acceptance criteria` no longer matches what lane_plan.py wrote** from the "
-                      f"specs approved @ workbench {_show(rec, 'workbench_commit')}. The spec gate cannot stop that edit, so "
+                press(f"{lane}: its acceptance criteria no longer match what was approved",
+                      f"- **{lane}'s change file `## Acceptance criteria` no longer matches what lane_plan.py wrote** from "
+                      f"rspec's criteria @ workbench {_show(rec, 'workbench_commit')}. The spec gate cannot stop that edit, so "
                       f"this is where it shows (sdlc's trust anchor also reports it as it happens). Diff "
-                      f"`{_show(rec, 'change')}` against those specs; a legitimate change goes through `lane_plan.py --amend`.")
+                      f"`{_show(rec, 'change')}` against the lock; a criterion changes only through a spec question and "
+                      f"`rspec:amend`, then `lane_plan.py refresh`.")
             if st["amending"]:
                 press(f"{lane}: the lane raised an `amend:` question",
                       f"- **{lane} raised an `amend:` question**, so the spec gate freezes its non-trivial edits. The lane "
-                      "found the spec wrong and is waiting on a re-approval (`lane_plan.py --amend`).")
+                      "found a criterion wrong: answer it with `rspec:amend`, then `lane_plan.py refresh`, and resolve the question.")
             elif st["status"] != "done":
                 press(f"{lane}: its sdlc feature is not shipped",
                       f"- **{lane}'s sdlc feature is `Status: {st['status']}` at Stage {st['stage']} – {st['phase']}**: sdlc has not shipped "
@@ -459,27 +462,19 @@ def main(argv=None):
 
     # --- 3. standing ---------------------------------------------------------
     #
-    # COVERAGE IS COUNTED FROM plan/progress.yaml ONLY, and that is the whole point of this block.
+    # COVERAGE IS COUNTED FROM plan/progress.yaml ONLY: "where do we stand" has one honest
+    # denominator. The number is labelled `recorded covered`, and the count of features with no
+    # entry is printed beside it, so a feature built but never recorded is visible as such.
     #
-    # parity.py computes coverage with matrix/features.yaml's `status:` filling every gap, because
-    # its job is a diff against the reference. But that field is GATE-1 MINING OUTPUT — how well the
-    # REFERENCE covered each feature — and it shares the words `covered`, `partial` and `missing`
-    # with this rebuild's progress vocabulary, so a matrix full of mined `covered` reads as a
-    # finished rebuild before a line of code exists. parity.py warns about that for features inside
-    # a shipped slice; features outside one are not covered by the warning at all.
-    #
-    # A standing report cannot inherit that ambiguity: "where do we stand" has one honest
-    # denominator. So only an explicit progress entry counts here, the number is labelled
-    # `recorded covered`, and the count of features with no entry is printed beside it so the gap
-    # between this figure and parity's is visible rather than surprising.
-    #
-    # A `descoped` entry is a recorded ruling not to build the feature, so it leaves the denominator
-    # here exactly as it does in parity.py — otherwise the two reports would disagree by the
-    # descoped count with nothing saying why.
-    recorded_covered = len([f for f in matrix if _lookup(feature_progress, _get(f, "id")) == "covered"])
-    no_entry = len([f for f in matrix if not _truthy(_lookup(feature_progress, _get(f, "id")))])
-    descoped = len([f for f in matrix if _lookup(feature_progress, _get(f, "id")) == "descoped"])
-    in_scope = len(matrix) - descoped
+    # A `descoped` entry, or an rspec Drop (its departure is the recorded ruling), leaves the
+    # denominator here exactly as it does in parity.py — otherwise the two reports would disagree
+    # by the descoped count with nothing saying why.
+    def is_descoped(f):
+        return (_lookup(feature_progress, f["id"]) or ("descoped" if f["priority"] == "Drop" else None)) == "descoped"
+    recorded_covered = len([f for f in spec_features if _lookup(feature_progress, f["id"]) == "covered"])
+    no_entry = len([f for f in spec_features if not _truthy(_lookup(feature_progress, f["id"])) and not is_descoped(f)])
+    descoped = len([f for f in spec_features if is_descoped(f)])
+    in_scope = len(spec_features) - descoped
     pct = _js_round(recorded_covered / in_scope * 100) if in_scope else 0
     shipped_slices = [i for i in order if status_of(i) in SHIPPED]
     pos = order.index(slice_id) if slice_id in order else -1
@@ -499,38 +494,32 @@ def main(argv=None):
               "- Slice is `deployed`, not `done` — a `done_means` clause is knowingly unmet. It still counts "
               "as shipped for creep detection, which is what `deployed` is for; say here which clause and "
               "whether it is coming back.")
-    if seq_lib:
-        a = seq_lib.analyse()
-        orderable = [i for i in a["ready"] if i != next_]
-        if orderable:
-            listed = " · ".join(_trim(f"{i} {name_of(i)}") for i in orderable)
-            press(f"Orderable now (deps already shipped, scheduled later): {listed}",
-                  "- **Orderable now** (dependencies already shipped, currently scheduled later): "
-                  f"{listed}. "
-                  f"Moving one is `python3 scripts/sequence.py reorder <Sn> --before {next_ or '<Sm>'} --reason \"...\"` — "
-                  "a logged decision, not a gate-2 reopen.")
-        if a["present"] and ",".join(map(_str, a["baseline"])) != ",".join(map(_str, a["order"])):
-            press(f"Order has diverged from the gate-2 baseline — see {seq_lib.DECISION_LOG}",
-                  "- Execution order has diverged from the gate-2 baseline.\n"
-                  f"  - Baseline: {' → '.join(map(_str, a['baseline']))}\n  - Now: {' → '.join(map(_str, a['order']))}\n"
-                  f"  - Every move and its reason: `{seq_lib.DECISION_LOG}`")
-        if a["stranded"]:
-            stranded = ", ".join(map(_str, a["stranded"]))
-            press(f"⚠ {stranded} still pending but positioned before shipped work",
-                  f"- ⚠ {stranded} still pending but positioned before shipped work — the plan was "
-                  "overtaken in practice. Reorder into the tail, or record why they stay put.")
-    else:
-        press("scripts/sequence.py missing — roadmap position and reorder candidates not computed",
-              "- `scripts/sequence.py` is missing, so roadmap position and reorder candidates were not "
-              "computed. Copy it from the plugin's `skills/rebuild-pipeline/scripts/`.")
+    a = seq_lib.analyse()
+    orderable = [i for i in a["ready"] if i != next_]
+    if orderable:
+        listed = " · ".join(_trim(f"{i} {name_of(i)}") for i in orderable)
+        press(f"Orderable now (deps already shipped, scheduled later): {listed}",
+              "- **Orderable now** (dependencies already shipped, currently scheduled later): "
+              f"{listed}. "
+              f"Moving one is `python3 scripts/sequence.py reorder <Sn> --before {next_ or '<Sm>'} --reason \"...\"` — "
+              "a logged decision, not a gate-2 reopen.")
+    if a["present"] and ",".join(map(_str, a["baseline"])) != ",".join(map(_str, a["order"])):
+        press(f"Order has diverged from the gate-2 baseline — see {seq_lib.DECISION_LOG}",
+              "- Execution order has diverged from the gate-2 baseline.\n"
+              f"  - Baseline: {' → '.join(map(_str, a['baseline']))}\n  - Now: {' → '.join(map(_str, a['order']))}\n"
+              f"  - Every move and its reason: `{seq_lib.DECISION_LOG}`")
+    if a["stranded"]:
+        stranded = ", ".join(map(_str, a["stranded"]))
+        press(f"⚠ {stranded} still pending but positioned before shipped work",
+              f"- ⚠ {stranded} still pending but positioned before shipped work — the plan was "
+              "overtaken in practice. Reorder into the tail, or record why they stay put.")
     done_slice_features = list(dict.fromkeys(f for i in shipped_slices for f in _list(_get(by_id.get(i), "features"))))
     unrecorded_global = [i for i in done_slice_features if not _truthy(_lookup(feature_progress, i))]
     if unrecorded_global:
         sample = ", ".join(map(_str, unrecorded_global[:5])) + (", …" if len(unrecorded_global) > 5 else "")
         press(f"⚠ {len(unrecorded_global)} feature(s) in a shipped slice have no progress entry: {sample}",
               f"- ⚠ **{len(unrecorded_global)} feature(s) in a shipped slice have no `plan/progress.yaml` "
-              "entry**, so they are not counted as covered above and parity.py falls back to their gate-1 "
-              f"mining status instead. Record them under `features:`: {sample}")
+              f"entry**, so they are not counted as covered here or in parity.py. Record them under `features:`: {sample}")
     parity_reports = (sorted((f for f in os.listdir("parity") if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\.md", f)), reverse=True)
                       if os.path.exists("parity") else [])
     if parity_reports:
@@ -609,17 +598,17 @@ def main(argv=None):
     learning = _list(slice_.get("learning_goals"))
     extras = (
         (f"\nLane records (`plan/lane-plans/{slice_id}.yaml`):\n\n" + "\n".join(lane_plan_md) + "\n" if lane_plan_md else "") +
-        (f"\n{len(unrecorded)} of them have no `plan/progress.yaml` entry. Record them under `features:` — until then they count as uncovered here and fall back to mining status in the parity report.\n" if unrecorded else "") +
+        (f"\n{len(unrecorded)} of them have no `plan/progress.yaml` entry. Record them under `features:` — until then they count as uncovered here and in the parity report.\n" if unrecorded else "") +
         (f"\nLearning goals: {' · '.join(map(_str, learning))}\n" if learning else ""))
     descoped_note = f", {descoped} descoped (not counted)" if descoped else ""
-    noentry_note = f"; {no_entry} of {len(matrix)} matrix features have none yet" if no_entry else ""
+    noentry_note = f"; {no_entry} of {len(spec_features) - descoped} features in scope have none yet" if no_entry else ""
     order_lines = "\n".join(f"{'→' if i == slice_id else ' '} {_str(i)} {name_of(i)} — {_str(status_of(i))}" for i in order)
     next_label = f"{next_} {name_of(next_)}" if next_ else "nothing pending — every slice has shipped"
     body = f"""# Slice review — {slice_id} {slice_name}
 
 Generated {date} by `scripts/slice_review.py` from `plan/progress.yaml`, `{order_source}`,
-`matrix/features.yaml` and the AC suite's JUnit output. Nothing here is composed; judgement
-goes in the conversation on top of it.
+`docs/build-plan.md`, `docs/features.md` and the AC suite's JUnit output. Nothing here is composed;
+judgement goes in the conversation on top of it.
 
 **Advisory.** This locks nothing and blocks nothing. Slice boundaries are where the plan can
 still change cheaply, which is the only reason to stop and look.
@@ -647,9 +636,6 @@ asserted, but "is everything built so far still passing".
 ```
 
 Coverage here counts **only explicit `plan/progress.yaml` entries**{noentry_note}.
-`parity.py` reports a different figure over the same matrix because it fills gaps with
-`matrix/features.yaml`'s `status:`, which is gate-1 mining output — how well the *reference*
-covered each feature. Both are correct for their own question; this one is about the rebuild.
 
 Order ({order_source}):
 
@@ -677,6 +663,13 @@ is yours — nothing here enforces it. If the plan should change, do it now, at 
 slice *order* is `python3 scripts/sequence.py reorder` (logged, cheap); what is IN a slice is still a
 gate-2 reopen (`python3 scripts/gate.py reopen gate-2 --reason "..."`).
 """
+    # The human sample (05 P6 step 6, `boundary.py sample`) is recorded in this same file by a person.
+    # This file is regenerated every boundary, so that section is carried over verbatim, never rewritten.
+    if os.path.exists(path):
+        with open(path, encoding="utf-8", errors="replace", newline="") as f:
+            kept = re.search(r"^## Human sample\b[\s\S]*\Z", re.sub(r"\r\n?", "\n", f.read()), re.M)
+        if kept:
+            body = body.rstrip("\n") + "\n\n" + kept.group(0).rstrip("\n") + "\n"
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write(body)
 

@@ -7,8 +7,121 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-11-09
+
+product-rebuild becomes an orchestrator over rspec, sdlc and bug-hunter (spec
+`docs/specs/rebuild-upgrade/05-product-rebuild.md`). This section merges the two release candidates (rc.1 and
+rc.2); where each 2.x capability went is in `docs/MIGRATION-3.md`.
+
+### Breaking
+
+- **A 2.x workbench is refused** (05 D7). New workbenches are marked `rebuild_major: 3`; the guards leave a
+  2.x workbench alone, and `upgrade.py`, scaffold-repo and the skill refuse it with a message to finish that
+  rebuild on product-rebuild 2.2.0. There is no migration.
+- **Dependencies** now include rspec (`>=0.11.0 <1`) and bug-hunter (`>=0.4.0 <1`) beside sdlc and
+  sdlc-extras (`>=3.5.0 <4`). `marketplace.json` allows dependencies from the `sdlc`, `rspec` and `bug-hunter` marketplaces.
+- **rspec owns the spec, and the gates lock its artifacts** (05 P2). The workbench holds the rspec spec in
+  rspec's single-repo layout (`docs/`). The skill runs `rspec:init` through `rspec:handoff` and `rspec:check`
+  instead of mining (the 2.x G1–G4b references are deleted, below). Gates keep
+  their names and lock in rspec's order, 1, 3, 2, 4:
+  - gate-1 locks `features.md` and `domain.md`, once rspec's stage is `features-approved`. `departures.yaml` is
+    append-only from that lock, not hashed: gate-1 records each departure present, refusing to lock while one is
+    `proposed`, lacks `decided_by` or has an ID that is not `D-<nnn>`. `validate.py` and gate-5 fail when a
+    recorded one is removed or changed, and no departure explains a difference until it is restored; departures
+    G6 accepts later are appended. Hashing the registry, as Gate 1 first did, refused every later departure; a
+    gate-1 lock whose `artifact_hashes` still lists `docs/departures.yaml` refuses additions until it is reopened
+    and locked again;
+  - gate-3 locks `docs/decisions/`, refusing an ADR still `Proposed` (the playbook checks are gone);
+  - gate-2 locks `build-plan.md`, once rspec's audit and verify have finished;
+  - gate-4 locks `openapi.json`, `schemas/`, `criteria.lock.json` and `acceptance/manifest.json` (the data-model
+    check is gone). Under posture `observe` or `own-code` it refuses while fewer than 90% of MVP criteria are at
+    level 2, unless locked with `--accept-level2 "<reason>" --by "<name>"`, which the lock records; under `strict`
+    the share is only reported.
+  `gate.py status` prints rspec's own stage, next step and pending units from rspec's `progress.py`
+  (`$RSPEC_PLUGIN_ROOT`, else the installed rspec), or `rspec: not run: <reason>`. Before `rspec:tech` the skill
+  passes the playbook's stack line as rspec's `stack` preference.
+- **Hidden tests** (05 P4, D4): `holdout.py split`, run after `rspec:check` and before the gate-4 lock, hides
+  ceil(25%) of each slice's level 2 tests (at least one per feature with three or more criteria), drawn from a
+  seed, in a git repo in the per-user data folder (`%LOCALAPPDATA%` or `$XDG_DATA_HOME`, `product-rebuild/holdouts/`,
+  or `$PRODUCT_REBUILD_DATA`), named only in that folder's `holdouts.json`, that no code repo may contain or
+  reference. The split refuses while git still holds a hidden test as an object, reachable or not.
+  Gate 4 refuses until the split matches the manifest and records seed, count and list hash. `holdout.py
+  reconcile` restores the hidden entries after an amend's re-verify (run by `lane_plan.py`, the boundary and the
+  gate-4 lock) and re-pins the record's manifest hash. `holdout.py run
+  <Sn>` runs a slice's hidden tests (HTTP through `contracts.py run-http`, Playwright through the code repo's
+  own `@playwright/test`, Maestro; cli not run) and reports per criterion with the observed behaviour only.
+- **The slice loop builds from rspec's criteria** (05 P5): `lane_plan.py step0 <Sn>` holds a slice whose
+  criteria lack a level 2 test or rspec's reason; `lane_plan.py <Sn> <lane> --features …` opens a lane whose
+  ACs cite criterion IDs, with its open recorded tests (sha256-checked) and a lock copy in the code repo for
+  sdlc's spec-backed mode, capped at `rebuild.yaml` `budgets.parallel_lanes` (default 3) per slice;
+  `lane_plan.py questions <Sn>` batches the lanes' spec questions for `rspec:amend`, and `lane_plan.py
+  refresh` re-copies after it. The 2.x `--specs` mode is deleted (below).
+- **The flow guard covers rspec's bundle**: committed files under `docs/acceptance/` change only after
+  `flows.py unlock --acceptance --reason "…"`.
+- **G6 runs cheapest first** (05 P6): `boundary.py <Sn>` runs the open suite (each failure re-run once; a pass on
+  the re-run is flaky), the hidden suite, equivalence, parity and the slice review, then asks for bug-hunter
+  (`boundary.py hunted`) and the human sample (`boundary.py sample`, 2–3 features from a seed, weighted to
+  criteria below level 2), stopping at the first step that leaves a build-defect or spec-gap open. It passes
+  only with both suites green or explained, no open high finding, bug-hunter run and the sample recorded.
+- **`route.py`** routes a slice's findings by contracts C6 into fix rounds (`plan/fix-rounds/`): an sdlc fix lane
+  per feature (`lane_plan.py --fix <round> --findings <ids>`), `rspec:amend`, the user, or the orchestrator;
+  accepted departures are dropped, unreproduced findings are not routed, and a third round is refused.
+- **One departures registry** (05 P7): `docs/departures.yaml` explains differences in holdout runs, route.py,
+  Gate 5's equivalence check and bug-hunter. `equiv.py accept … --by` and `flows.py unlock --weakens --criteria
+  … --by` write departures; `parity/equiv/DECISIONS.md` no longer counts as an accepted difference.
+  Equivalence now applies under posture `observe` or `own-code` (it needed `kind: own-code`).
+- **GP and Gate 5** (05 P8): one checklist, rspec's `docs/production-readiness.md` (gate-5 now locks it and
+  `parity/gp/nfr-evidence.md` instead of `parity/production-readiness.md`); GP's own items are proposed to rspec in
+  `docs/rspec-pr/`. `gp.py nfr|check` holds each NFR to its stated verification run on the production candidate,
+  with evidence and, for a drill, who performed it. Gate 5 refuses, reporting all at once, on an unchecked item,
+  incomplete NFR evidence, a hidden test that failed or did not run, an unexplained red trace, an open high
+  finding, a proposed departure or an MVP criterion below level 1. Gate 1 refuses a rebuild whose rspec goal is
+  not `production`.
+- **Budgets and cost** (05 P9): new workbenches get `rebuild.yaml` budgets (parallel lanes 3, recorders 4, hunters
+  per slice 6, bug-hunter tokens per slice 1,200,000 in its preview units, fix rounds 2), read by `lane_plan.py`,
+  `route.py` and the bug-hunter command `boundary.py` prints. `cost.py add` records each orchestrated run as a
+  contracts C7 line in `logs/<Sn>/cost.jsonl`, and `boundary.py` prints the slice's cost by stage.
+- **Autopilot parks what it may not decide** (05 P10): `autopilot.py park|unpark|blocked`; a parked feature drop,
+  departure, human sample, deploy or Gate 5 blocks only what depends on it.
+- **G6's coverage and regression read rspec's plan** (05 P6 step 4): `parity.py`, `slice_review.py`, `sequence.py`
+  and `gate.py status` read slices from `docs/build-plan.md` (a slice's dependencies from its stories'
+  `depends_on`) and features from `docs/features.md` (a Drop counts as descoped), with `plan/progress.yaml` and
+  `plan/sequence.yaml` as before; `boundary.py` prints step 4 as `not run: <reason>` when a report cannot run.
+- **The 2.x spec side is deleted** (05 P1, D2, D3), each capability placed first in `docs/MIGRATION-3.md`, whose
+  rows `eval/migration_3.py` runs (`--external` runs the cited rspec, sdlc and bug-hunter tests from a copy):
+  - the agents `miner`, `spec-writer`, `data-model-drafter`, `adr-drafter` and `rubric-judge`, the G1–G4b
+    references (`g1-mining`, `g2-matrix`, `g3-slicing`, `g4a-architecture`, `g4b-contracts`,
+    `architecture-default`) and the gate rubrics;
+  - **lane R (Rule Cards)**: `rules_for.py`, `rule.schema.json`, `validate.py`'s rule checks, parity's rules
+    table, and the `rules_recall.py` eval with CLAUDE.md's rule that measured lane R on it. The fixture moved to
+    `docs/rspec-pr/rules-recall/` as a recall test proposed to rspec; it ships here in 3.0.0 and the rspec PR
+    follows the release (`docs/MIGRATION-3.md` row 9);
+  - `cite_excerpts.py`, `gate_facts.py`, `evidence_bundle.py`, `erd.py`, `basis.py`, the `feature`, `finding`,
+    `rule` and `slice` schemas, `lane_plan.py --specs` (and its `--amend`), `playbook.py excerpt`, and the evals
+    and fixtures that tested them;
+  - new workbenches no longer get `findings/`, `matrix/`, `plan/specs/` or `contracts/`; `validate.py` checks only
+    the workbench's own files (rspec's spec is `rspec:check`'s).
+- **`adr/` holds the vendored playbook and its scaffold manifest only** (coordinator pr-6): `python3
+  scripts/playbook.py vendor` copies them before `rspec:tech`, gate-3 locks `adr/` beside `docs/decisions/` and
+  refuses without a valid manifest, so the stack scaffold-repo creates code repos from is locked with the ADRs.
+  A workbench scaffolded by an earlier 3.0 release candidate gets `adr/` added to gate-3 at its next lock.
+- **Routing** has three roles: `build-lane`, `lane-review`, `lane-ui-review`; rspec routes its own agents.
+- Docs: README, `docs/PLAYBOOK.md` and the pipeline picture describe the 3.0 pipeline.
+
 ### Added
 
+- **`sources.yaml` `reference.posture`**: `strict`, `observe` (the default for a third-party reference) or
+  `own-code` (the default for `kind: own-code`). G0 asks for it; `validate.py` fails on any other value and
+  warns on `own-code` for a third-party reference.
+- **Reference guard** (`hooks/scripts/reference_guard.py`): a build lane (the `lane-worker` agent, or a
+  session rooted in a lane worktree) may not Read, Grep, Glob or Bash into the reference checkout unless the
+  posture is `own-code`, nor into the hidden tests (the per-user data folder, every holdout its config names,
+  and the rc-era `<project>-holdout/` beside the workbench) under any posture, nor write into the workbench. It
+  fails closed when a workbench's marker is gone. A guard, not a sandbox: it judges the paths a call names, and
+  README lists the bypasses it does not try to close. `eval/reference_guard.py` tests it.
+- **The joint run is the orchestrator's** (g5-build.md, lane-worker.md): it stamps, starts the joint run and the
+  rerun with `run_phases.py`, and opens helper lanes; lanes write only in their own worktree, and G6 reads the
+  joint run's JUnit from the workbench's `parity/`.
 - **Shared contracts v1 in `contracts/v1/`** (decision D1): the canonical copy that rspec, sdlc and bug-hunter
   vendor byte-identical. It holds `CONTRACTS.md` (criterion format, story sections, criteria lock, acceptance
   bundle, departures registry, finding format, run log) and the JSON schemas. It also holds `contracts.py`, a
@@ -16,6 +129,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and invalid fixtures, and `MANIFEST`.
   - `contracts.py vendor-check` is the drift test every consumer runs; `eval/contracts_v1.py` runs it here.
   - `.gitattributes` keeps `contracts/v1/**` byte-exact on Windows checkouts. Each consumer needs the same line.
+- **Contracts 1.1.0: spec questions** (gate G-F). A `finding-v1` with `source: sdlc-question` and
+  `class: spec-gap` (sdlc S10) routes to `rspec` without a verifier. It carries a new `question` field,
+  `verified_by: {agent: null, result: "not run: spec question"}`, and may leave `repro` and `observed` null.
+  Every other finding still needs `verified_by.result: reproduced`, and a 1.0.0 finding stays valid. `source`
+  is now a kebab-case name (`^[a-z][a-z0-9-]*$`).
+
+- **Evals in groups**: `lane_guards.py` (adds a `runbook` group for the build-runbook guard) and
+  `run_supervision.py` run one group by name, so `docs/MIGRATION-3.md` can cite the passing ones;
+  `lanes_rspec.py archive`, `g6_eval.py remine`, `gates_rspec.py scaffold`, `coverage_rspec.py` and
+  `gate_status.py`'s preflight checks are new.
+
+### Fixed
+
+- **Contracts 1.1.1: `contracts.py` no longer fails on a non-UTF-8 console.** On a Windows console in cp1252,
+  printing `→`, `…` or `—` raised an encoding error, so `finding` reported `error: 'charmap' codec…` and exit 1
+  instead of `routed: … → rspec`. The CLI now prints `?` for a character the console can't show; output on a
+  UTF-8 console is unchanged. The spec's C4 now records the `cli/` test format as not settled in v1.
+- **Found by the pre-release smoke run on rc.1, fixed in rc.2** (each proven by an eval that reproduces it):
+  - **No credential in an equivalence trace.** `equiv.py record` wrote request headers into the committed
+    `parity/equiv/*.trace.yaml`, so a signed-in trace committed the account token. A trace now stores
+    `account: <NAME>` (contracts v1's field) in place of `Authorization`, `Proxy-Authorization`, `Cookie` or any
+    header an `ACCEPT_ACCOUNT_<NAME>` line uses, and replay re-inserts the live header from that variable (unset:
+    the trace errors, never replays unsigned). A request file may name `account:` itself. A credential no account
+    variable holds, or any account's credential anywhere in the request, response or snapshots, is refused and
+    nothing is written for it. A signed request's path must be relative, so the token cannot be sent to another
+    host. Replay scrubs credentials from its report, refuses a rebuild URL that is the legacy system's or the
+    reference's, and both commands warn about a trace written earlier that still holds a credential header.
+  - **G6 refuses to test the reference.** `ACCEPT_BASE_URL` is left at the reference by rspec verify, so with
+    the reference up the open suite tested the reference and passed. `boundary.py` and `holdout.py run` refuse,
+    saying why, when it reaches the same server as `sources.yaml` `reference.run.base_url` (any path, any
+    spelling of this machine), when `sources.yaml` cannot be read, and when either address does not parse; the
+    open suite prints the URL it targets. The boundary stops when equivalence replay refuses (a legacy or
+    reference rebuild URL, an unreadable `ACCEPT_ACCOUNT_*`); a lane that applies but is not set up is reported
+    not run and G6 goes on.
+  - **`route.py` opens no duplicate fix round.** The same findings open the next round only once the last round
+    was attempted, and the attempt is recorded rather than inferred: `lane_plan.py archive` of one of the round's
+    fix lanes, or the new `route.py <Sn> --attempted "<what was fixed>"` for a fix on the workbench side. A
+    re-run with nothing recorded says the round is still open, instead of spending the 2-round cap on a copy.
+  - **Archiving a lane keeps its change file.** `lane_plan.py archive` wrote the change and state files to one
+    name (`<feature>.md` in sdlc 3.x), so the slice review reported criteria rewritten that were not. The archive
+    now holds `change.md` and `state.md`.
+  - **`autopilot.py --help`** prints usage and changes nothing (`engage --help` engaged autopilot); an unknown
+    flag prints usage and exits 1.
+  - **`validate.py` notices a dropped hidden entry.** Re-running rspec's verify report after `holdout.py split`
+    drops the hidden entries from `docs/acceptance/manifest.json`; validate now fails, naming the criteria and
+    `python3 scripts/holdout.py reconcile`, and fails on an unreadable `plan/holdout.json`.
+
+### Known issues
+
+- **In a BFF or proxy stack, run the recorded HTTP criteria against the public surface.** The surface the user
+  reaches is the BFF or web server, not the API behind it: a lane that runs them against its own stub of the
+  API can pass while the BFF adds the account token for an unauthenticated caller. Run them against the BFF.
+  No plugin enforces this yet (which surface a criterion binds to is an open spec question for rspec and sdlc).
+
+- **`target_shape: client-only` is only partly covered in 3.0.0** (`docs/MIGRATION-3.md` row 19, the user's
+  decision of 2026-11-09). rspec's modernize track covers data migration and cutover; transcribing the existing
+  backend API into a frozen contract and inventorying what the old app left on devices have no owner or test.
+  Do those by hand for a client-only rebuild, or wait for a release that owns them.
+
+- **Departures appended after Gate 1 are not tamper-protected.** Gate 1 records the departures present at its
+  lock, and `validate.py` and gate-5 fail when one of those is removed or changed; a departure G6 accepts later
+  is appended but not recorded, so editing or removing it is not caught. Review `docs/departures.yaml`'s history
+  before Gate 5.
+
+- **The reference guard is a guard, not a sandbox.** It judges the paths a call spells, not a path computed at
+  run time, a script or interpreter that opens the file itself, a nested shell or a Windows short name (README,
+  and `docs/MIGRATION-3.md`, Known limits of the reference guard). Use posture `strict` for a sensitive
+  reference.
 
 ## [2.2.0] - 2026-11-06
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""preflight.py — prove the reference builds and runs BEFORE G1 dispatches miners.
+"""preflight.py — prove the reference builds and runs BEFORE rspec's discovery reads it.
 Run from the workbench root, as the last action of G0.
 
 Usage:
@@ -14,13 +14,13 @@ runs at the end of G0, and a preflight that depended on a full YAML parse of a h
 sources.yaml could fail at the one moment it exists for, on a file G0 has only just written.
 
 WHY THIS EXISTS. G0's exit criteria said "confirm the user can run the reference
-locally" and nothing verified it, so the miners started on a promise. Every lane-D
-finding cites `path + pinned_commit`; if the checkout on disk is at a different commit,
+locally" and nothing verified it, so discovery started on a promise. Every `[code]`
+citation in the spec cites `path + pinned_commit`; if the checkout on disk is at a different commit,
 every one of those citations is wrong, and nothing downstream can tell — the hashes are
 of the finding, not of the thing it describes.
 
 It is a script and not a checklist line because the verdict is a file other scripts read:
-autopilot and the orchestrator refuse to dispatch G1 miners until preflight.json says
+autopilot and the orchestrator refuse to start rspec's discovery until preflight.json says
 Ready or Ready-with-gaps, and a prose instruction cannot be refused by anything.
 
 ---------------------------------------------------------------------------
@@ -352,7 +352,7 @@ def main(argv=None):
         # exit criteria already make the user confirm, rather than a check this script can fake.
         add("instance", "Reference runs", "gap",
             "Mobile reference: the running instance is the old app on a device or simulator, which this script cannot probe.",
-            "Confirm with the user that the old app is installed and opens — ideally from a backup of a real install (g1-mining.md). Lanes B and C depend on it.")
+            "Confirm with the user that the old app is installed and opens — ideally from a backup of a real install. Recording tests against it (rspec:verify) depends on it.")
     elif not instance_urls:
         add("instance", "Reference runs", "gap",
             "sources.yaml `allowed:` names no http(s) instance URL to probe.",
@@ -439,7 +439,7 @@ def main(argv=None):
                                "Off-limits" if not has_off_limits else None) if m]
         add("interview", "Prior attempts and off-limits recorded", "gap",
             f"license-posture.md is missing: {', '.join(missing)}.",
-            "Ask the two G0 questions (g0-reference.md) and write the answers down. Anything off-limits also belongs in sources.yaml `denied:` — the miners read that, not the prose.")
+            "Ask the two G0 questions (g0-reference.md) and write the answers down. Anything off-limits also belongs in sources.yaml `denied:` — agents read that, not the prose.")
 
     # 7. Tooling. Metrics degrade to find/wc without scc/cloc; lane D's miners navigate with
     #    grep instead of a graph without graphify. Both are gaps, neither is fatal.
@@ -447,10 +447,10 @@ def main(argv=None):
     graphify = _on_path("graphify")
     tool_notes = [
         f"{counter} present" if counter else "neither scc nor cloc on PATH — size metrics fall back to find/wc",
-        "graphify present" if graphify else "graphify not on PATH — lane-D miners grep cold instead of querying a graph (g1-mining.md)",
+        "graphify present" if graphify else "graphify not on PATH — agents reading the reference's code grep cold instead of querying a graph",
     ]
     add("tooling", "Tooling", "pass" if counter and graphify else "gap", "; ".join(tool_notes),
-        None if counter and graphify else "Install what is missing, or accept the degraded path — neither blocks G1.")
+        None if counter and graphify else "Install what is missing, or accept the degraded path — neither blocks discovery.")
 
     # --- verdict ------------------------------------------------------------------------
     by_id = {c["id"]: c for c in checks}
@@ -509,14 +509,14 @@ def main(argv=None):
     # JS toISOString(): millisecond precision, literal Z.
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     if verdict == "Not-ready":
-        banner = ("**G1 dispatch is blocked.** `autopilot preflight` and the orchestrator's G1 step refuse to "
-                  "dispatch miners until this reads Ready or Ready-with-gaps. G0's own artifacts — "
+        banner = ("**rspec's discovery is blocked.** `autopilot preflight` and the orchestrator refuse to "
+                  "start it until this reads Ready or Ready-with-gaps. G0's own artifacts — "
                   "`sources.yaml`, `license-posture.md` — commit and push regardless; none of the causes "
                   "below changes a G0 decision.")
     elif verdict == "Ready-with-gaps":
-        banner = "**G1 may dispatch.** The gaps below are real and named; each one says what it costs."
+        banner = "**rspec's discovery may start.** The gaps below are real and named; each one says what it costs."
     else:
-        banner = "**G1 may dispatch.** No gaps."
+        banner = "**rspec's discovery may start.** No gaps."
     check_lines = []
     for c in checks:
         check_lines += [f"### {mark[c['status']]} {c['title']}", "", c["detail"]]
@@ -548,7 +548,7 @@ def main(argv=None):
         "```",
         "",
         "Executing them is opt-in because they are arbitrary commands from a third party's CI —",
-        "the same source `agents/miner.md` treats as untrusted input. Detected-not-executed is",
+        "the same source every agent brief treats as untrusted input. Detected-not-executed is",
         "recorded as a gap, never as a pass.",
         "",
     ])
@@ -567,7 +567,7 @@ def main(argv=None):
     print(f"\n  Lanes: A {lanes['A']} · B {lanes['B']} · C {lanes['C']} · D {lanes['D']}")
     print("\nWrote PREFLIGHT.md and preflight.json.")
     if verdict == "Not-ready":
-        print("G1 dispatch is blocked until this reads Ready or Ready-with-gaps.")
+        print("rspec's discovery is blocked until this reads Ready or Ready-with-gaps.")
         return 1
     return 0
 

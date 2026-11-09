@@ -25,20 +25,19 @@ decide-before:
 
 > **How this file is used in `rebuild-pipeline`:** this is one entry in the playbook
 > registry (`references/playbooks/`) and the org default — the playbook a rebuild gets when
-> `sources.yaml` names none. It supplies G4a's standing answers
-> (`references/g4a-architecture.md`) for decomposition, stack, and the cross-cutting
-> concerns its `concerns:` map above points at sections of: those start from this
-> playbook's answer, not a blank slate. `adr-drafter` treats the copy vendored into the
-> workbench at `adr/playbook.md` as a fixed input alongside the reference product's lane-D
-> evidence. An ADR is required to **diverge** from a default (with rationale and a
+> `sources.yaml` names none. Its stack line is rspec:tech's stack preference, and it supplies
+> the standing answers for decomposition, stack, and the cross-cutting concerns its
+> `concerns:` map above points at sections of: those start from this playbook's answer,
+> not a blank slate. `playbook.py vendor` copies it into the workbench at `adr/playbook.md`,
+> beside rspec's ADRs, which read it alongside the reference's own evidence. An ADR is required to **diverge** from a default (with rationale and a
 > reversal-condition); it is not required to adopt one. A concern mapped `N/A` here has no
 > default at all and is decided the pipeline's original way — mirror-or-diverge against the
 > reference only. This is a deliberate exception to this pipeline's general "never inject a
-> default" stance, scoped to architecture/stack only — taxonomy (G2), slicing (G3), and
-> contracts (G4b) are unaffected and stay per-product decisions. Sections 1-17 below are
+> default" stance, scoped to architecture/stack only — the feature list, slicing and
+> contracts are rspec's and stay per-product decisions. Sections 1-17 below are
 > otherwise unchanged from the source playbook.
 >
-> **Section numbers are the citation surface.** Every G4a ADR cites this file by section,
+> **Section numbers are the citation surface.** Every stack ADR cites this file by section,
 > and the vendored copy is hashed into Gate 3. Renumbering a section after a lock silently
 > re-points accepted ADRs at different content — edit the `concerns:` map and the section
 > bodies together, or not at all.

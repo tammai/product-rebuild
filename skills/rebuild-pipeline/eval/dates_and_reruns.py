@@ -85,8 +85,9 @@ def w(rel, text):
         f.write(text)
 
 
-w("matrix/features.yaml", "- id: F-A-001\n  name: Alpha\n  status: planned\n")
-w("plan/slices.yaml", "- id: S1\n  name: One\n  features: [F-A-001]\n")
+w("docs/features.md", "| ID | Module | Feature | Behaviour | Priority | Reason | Research ID |\n|---|---|---|---|---|---|---|\n"
+                      "| F-A-001 | A | Alpha | a | MVP | J1 | R-1 |\n")
+w("docs/build-plan.md", "# Build plan\n\n## Slice 1: One\n\n| 1 | F-A-001 Alpha |\n")
 w("plan/progress.yaml", "slices: { S1: deployed }\nfeatures: { F-A-001: covered }\n")
 
 

@@ -4,6 +4,9 @@ Usage:
   python3 scripts/flows.py status
   python3 scripts/flows.py unlock --reason "..." [--by <name>]
   python3 scripts/flows.py relock [--by <name>]
+  (each takes --acceptance to act on rspec's bundle, docs/acceptance/, instead of parity/flows/)
+  python3 scripts/flows.py unlock --acceptance --weakens --criteria F-ISS-01.AC2 --by <name> --reason "..."
+                                                   # a weaker assertion: also writes a departure (05 P7)
 
 Standard library only, and deliberately so: the PreToolUse guard imports nothing from here but
 reads the same file, and a guard that needs an install step to work is a guard that fails open
@@ -44,6 +47,10 @@ def _read_text(p):
 FLOWS_DIR = "parity/flows"
 UNLOCK_FILE = os.path.join(FLOWS_DIR, ".unlocked.yaml")
 DECISION_LOG = os.path.join(FLOWS_DIR, "DECISIONS.md")
+# From 3.0.0 the recorded suite is rspec's acceptance bundle in the workbench (05 P5 step 4), under the
+# same rule and the same guard: `--acceptance` points every command at it. hooks/scripts/flows_guard.py
+# reads the same .unlocked.yaml there; change both together.
+ACCEPTANCE_DIR = "docs/acceptance"
 
 # What JS `\s` and `.trim()` count as white space. Python's differ at both ends (JS has U+FEFF,
 # Python's str.strip has U+001C..U+001F), and this read parses a file a human may have
@@ -61,9 +68,9 @@ _DOT = "[^" + _LT + "]"
 _EOL = "(?=[" + _LT + "]|\\Z)"
 
 
-def read_unlock(root="."):
+def read_unlock(root=".", folder=FLOWS_DIR):
     """Is the assertion rule currently suspended, and why? Read by the guard and by pause-check."""
-    p = os.path.normpath(os.path.join(root, UNLOCK_FILE))
+    p = os.path.normpath(os.path.join(root, folder, ".unlocked.yaml"))
     if not os.path.exists(p):
         return None
     try:
@@ -108,6 +115,9 @@ def main(argv=None):
         return None
 
     by = arg_after("--by") or os.environ.get("USER") or "unknown"
+    folder = ACCEPTANCE_DIR if "--acceptance" in argv else FLOWS_DIR
+    log_path = os.path.join(folder, "DECISIONS.md")
+    flag = " --acceptance" if folder == ACCEPTANCE_DIR else ""
     now = _iso_now()
 
     def yaml_str(s):
@@ -118,23 +128,23 @@ def main(argv=None):
             f.write(text)
 
     def log_decision(line):
-        os.makedirs(FLOWS_DIR, exist_ok=True)
-        if not os.path.exists(DECISION_LOG):
-            write(DECISION_LOG, "# AC flow assertion decisions\n\n"
+        os.makedirs(folder, exist_ok=True)
+        if not os.path.exists(log_path):
+            write(log_path, "# AC flow assertion decisions\n\n"
                   "Every suspension of the assertion rule, and every restoration of it, in order.\n"
                   "Written by `python3 scripts/flows.py unlock|relock`. Do not edit by hand — the point of the\n"
                   "log is that it records what happened, not what someone remembers happening.\n\n")
-        write(DECISION_LOG, line, "a")
+        write(log_path, line, "a")
 
     if cmd == "status":
-        u = read_unlock()
+        u = read_unlock(".", folder)
         if u:
-            print(f"AC flow assertions: UNLOCKED since {u['at']} by {u['by']}\n  reason: {u['reason']}")
-            print("\nRe-lock as soon as the change is made: python3 scripts/flows.py relock")
+            print(f"Recorded assertions in {folder}/: UNLOCKED since {u['at']} by {u['by']}\n  reason: {u['reason']}")
+            print(f"\nRe-lock as soon as the change is made: python3 scripts/flows.py relock{flag}")
             print("Left unlocked, the guard is off and nothing notices an assertion being loosened.")
         else:
-            print("AC flow assertions: protected. Editing a committed flow under parity/flows/ is blocked.")
-            print('  To change one deliberately: python3 scripts/flows.py unlock --reason "..."')
+            print(f"Recorded assertions in {folder}/: protected. Editing a committed file there is blocked.")
+            print(f'  To change one deliberately: python3 scripts/flows.py unlock{flag} --reason "..."')
         return 0
 
     if cmd == "unlock":
@@ -144,30 +154,47 @@ def main(argv=None):
             print('Say which assertion is changing and why the old one was wrong. "tests failing" is not a reason;', file=sys.stderr)
             print("it is the situation the rule exists for.", file=sys.stderr)
             return 1
-        os.makedirs(FLOWS_DIR, exist_ok=True)
-        write(os.path.join(FLOWS_DIR, ".unlocked.yaml"),
-              "# AC flow assertions are temporarily unprotected. Written by scripts/flows.py.\n"
-              "# Re-lock with: python3 scripts/flows.py relock\n"
+        if "--weakens" in argv:
+            # 05 P7: a change that weakens a recorded assertion is an accepted difference from the reference,
+            # so it goes into the one registry, decided by a named person, before the unlock is written.
+            crits = [c for c in (arg_after("--criteria") or "").split(",") if c.strip()]
+            if not crits or not arg_after("--by"):
+                print("--weakens needs --criteria <ids> and --by <who decided>: it writes a departure (contracts C5).",
+                      file=sys.stderr)
+                return 1
+            try:
+                sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+                import departures
+                did = departures.append("deliberate-change", reason, arg_after("--by"), criteria=[c.strip() for c in crits])
+            except (ImportError, ValueError) as e:
+                print(f"Not unlocked: the departure could not be written: {e}", file=sys.stderr)
+                return 1
+            print(f"Departure {did} written to docs/departures.yaml for {', '.join(crits)}.")
+        os.makedirs(folder, exist_ok=True)
+        write(os.path.join(folder, ".unlocked.yaml"),
+              f"# Recorded assertions in {folder}/ are temporarily unprotected. Written by scripts/flows.py.\n"
+              f"# Re-lock with: python3 scripts/flows.py relock{flag}\n"
               f"at: {now}\n"
               f"by: {yaml_str(by)}\n"
               f"reason: {yaml_str(reason)}\n")
         log_decision(f"- **{now}** · unlocked by {by}\n  - {reason}\n")
-        print(f"AC flow assertions unlocked. Logged to {DECISION_LOG}.")
-        print("Make the change, then: python3 scripts/flows.py relock")
+        print(f"Recorded assertions in {folder}/ unlocked. Logged to {log_path}.")
+        print(f"Make the change, then: python3 scripts/flows.py relock{flag}")
         print("pause-check will flag this workbench as unsafe to pause until you do.")
         return 0
 
     if cmd == "relock":
-        u = read_unlock()
+        u = read_unlock(".", folder)
         if not u:
             print("Already protected — nothing to re-lock.")
             return 0
-        os.remove(os.path.join(FLOWS_DIR, ".unlocked.yaml"))
+        os.remove(os.path.join(folder, ".unlocked.yaml"))
         log_decision(f"- **{now}** · re-locked by {by} (was unlocked {u['at']})\n")
-        print(f"AC flow assertions re-locked. Logged to {DECISION_LOG}.")
+        print(f"Recorded assertions in {folder}/ re-locked. Logged to {log_path}.")
         return 0
 
-    print('Usage: flows.py status | unlock --reason "..." [--by <name>] | relock [--by <name>]', file=sys.stderr)
+    print('Usage: flows.py status | unlock --reason "..." [--by <name>] | relock [--by <name>]   '
+          '(add --acceptance for docs/acceptance/)', file=sys.stderr)
     return 1
 
 

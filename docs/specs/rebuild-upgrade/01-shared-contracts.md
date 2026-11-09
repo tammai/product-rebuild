@@ -75,7 +75,7 @@ acceptance/
   http/<criterion>.yaml        # HTTP replay
   e2e/<criterion>.spec.ts      # Playwright
   mobile/<criterion>.yaml      # Maestro
-  cli/<criterion>.yaml         # command, stdin, expected stdout/exit
+  cli/<criterion>.yaml         # command, stdin, expected stdout/exit — format not settled in v1 (known limit, user decision 2026-11-08): no consumer runs cli tests, cli criteria stay level 1, bug-hunter's cli repro is its own shape
   seed/                        # how the reference was seeded (scripts or recorded calls)
 ```
 
@@ -139,7 +139,7 @@ One JSON file per finding, written by bug-hunter (rebuild mode), sdlc qa-tester 
 | `route` | derived from `class`: build-defect, test-defect → `sdlc` · spec-gap → `rspec` · reference-defect → `human` · accepted-departure → `drop` · flaky, environment → `orchestrator` |
 | `verified_by` | the fresh-context agent that re-ran it, and the result |
 
-A finding without `verified_by: reproduced` is never routed.
+A finding without `verified_by: reproduced` is never routed, with one exception: a spec question (`source: sdlc-question`, `class: spec-gap`, written by sdlc S10) reports an ambiguity, not a behaviour, so it is routed to `rspec` without a verifier, with `verified_by: {agent: null, result: "not run: spec question"}`. `/rspec:amend` still needs human approval when the change touches an MVP criterion's `then`. (Added in contracts 1.1.0, gate G-F.)
 
 ## C7 Run log: `cost.jsonl`
 

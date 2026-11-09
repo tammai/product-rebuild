@@ -91,18 +91,17 @@ def check(name, ok, detail=""):
             print("      " + detail.replace("\n", "\n      "))
 
 
-def slice_(sid, status=None):
-    tail = f"  status: {status}\n" if status else ""
-    return (f"- id: {sid}\n  name: Slice {sid}\n  features: [F-A-00{sid[1:]}]\n"
-            f"  depends_on: []\n  learning_goals: [x]\n  done_means: the slice is usable end to end\n" + tail)
+def slice_(sid):
+    return f"## Slice {sid[1:]}: Slice {sid}\n\n| 1 | F-A-00{sid[1:]} Feature {sid[1:]} |\n\nDone when: usable end to end.\n\n"
 
 
 def feature(n):
-    return f"- id: F-A-00{n}\n  name: Feature {n}\n  domain: a\n  confidence: high\n  status: planned\n"
+    return f"| F-A-00{n} | A | Feature {n} | f | MVP | J{n} | R-{n} |\n"
 
 
-w("matrix/features.yaml", "".join(feature(n) for n in (1, 2, 3)))
-w("plan/slices.yaml", "".join(slice_(s) for s in ("S1", "S2", "S3")))
+w("docs/features.md", "| ID | Module | Feature | Behaviour | Priority | Reason | Research ID |\n|---|---|---|---|---|---|---|\n"
+  + "".join(feature(n) for n in (1, 2, 3)))
+w("docs/build-plan.md", "# Build plan\n\n" + "".join(slice_(s) for s in ("S1", "S2", "S3")))
 
 # --- 1. CRLF: gate.py status reads the lock files and the progress overlay ------------------
 # Gates 1-4 locked, so status has to count slices — the path that read "0/18 slices done".
@@ -118,17 +117,11 @@ git("checkout", "--", "locks")
 lock_text = re.sub(r"^status: .*$", "status: locked", read("locks/gate-1.yaml"), count=1, flags=re.M)
 w("locks/gate-1.yaml", crlf(lock_text))
 guard = subprocess.run([sys.executable, os.path.join(PLUGIN, "hooks", "scripts", "gate_guard.py")],
-                       input=json.dumps({"tool_input": {"file_path": os.path.join(wb, "matrix", "features.yaml")}, "cwd": wb}),
+                       input=json.dumps({"tool_input": {"file_path": os.path.join(wb, "docs", "features.md")}, "cwd": wb}),
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
 check("gate-guard blocks an edit under a CRLF lock file", guard.returncode == 2,
       f"exit {guard.returncode}: {guard.stderr}")
 git("checkout", "--", "locks")
-
-# --- 3. numbered Acceptance criteria heading ----------------------------------------------
-w("plan/specs/a.md", "---\ndomains: [a]\n---\n# A\n\n## 5. Acceptance criteria\n\n1. It works.\n")
-v = run("validate.py")
-check("validate reads `## 5. Acceptance criteria`",
-      re.search(r"no `## Acceptance criteria` section", v["out"]) is None, v["out"][-800:])
 
 # --- 4. descoped + feature_notes ----------------------------------------------------------
 w("plan/progress.yaml", "slices:\n  S1: done\nfeatures:\n  F-A-001: covered\n  F-A-003: descoped\n"
@@ -153,11 +146,11 @@ w("plan/progress.yaml", "slices:\n  S1: done\n")
 commit("eval fixtures")
 
 # --- 5. upgrade: a CRLF re-checkout of a pristine copy is current --------------------------
-w("scripts/erd.py", crlf(read("scripts/erd.py")))
+w("scripts/flows.py", crlf(read("scripts/flows.py")))
 up = run("upgrade.py", "--plugin", PLUGIN)["out"]
 check("upgrade: a CRLF copy of a vendored file is not `modified`",
-      re.search(r"LOCALLY MODIFIED[\s\S]*scripts/erd\.py", up.split("UNKNOWN")[0]) is None, up)
-git("checkout", "--", "scripts/erd.py")
+      re.search(r"LOCALLY MODIFIED[\s\S]*scripts/flows\.py", up.split("UNKNOWN")[0]) is None, up)
+git("checkout", "--", "scripts/flows.py")
 
 # --- 6. upgrade: a forced partial upgrade that breaks an import is named --------------------
 # The workbench's acsuite gains two exports its own parity.py starts using, one through each

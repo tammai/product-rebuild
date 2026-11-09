@@ -10,17 +10,16 @@ Usage:
 
 WHY THIS EXISTS
 
-G3 states the Gate 2 decision outright: "'full features' is the fixed destination, so decide
-SEQUENCE, not scope." But sequence had nowhere to live except the ARRAY ORDER of
-plan/slices.yaml, which gate-2 hashes whole. So the one thing G3 calls the decision was the
-most expensive thing in the pipeline to revise: a formal reopen, a new hash, and a moved pin
-for every code repo holding the workbench as a submodule — all to say "build S6 before S4".
-The predictable result is not that the order never changes. It is that it changes in
-someone's head and nowhere on disk.
+The slices are rspec's `docs/build-plan.md`, which gate-2 hashes whole. Had the order lived only
+there, the cheapest change in the pipeline ("build S6 before S4") would cost a formal reopen, a
+new hash, and a moved pin for every code repo holding the workbench as a submodule. The predictable
+result is not that the order never changes. It is that it changes in someone's head and nowhere
+on disk.
 
-So the file splits in two along the line plan/progress.yaml and parity/flows/ already drew:
+So the slices split in two along the line plan/progress.yaml already drew:
 
-  plan/slices.yaml  — slice BOUNDARIES (features, depends_on, done_means). Gate 2, unchanged.
+  docs/build-plan.md — slice BOUNDARIES (features, `Done when`). Gate 2. A slice depends on the
+                       slices holding the features its stories' `depends_on` name.
   plan/sequence.yaml — the SEQUENCE. Ungated, but every change carries a reason and a log
                        entry, exactly like `flows unlock` and a gate reopen.
 
@@ -32,8 +31,8 @@ Reordering is a BETWEEN-SLICES act. Everything at or before the current slice is
 does not move; only the pending tail does. That single rule is what keeps this script able to
 be strict without ever standing between anyone and progress — it refuses while a slice is
 in-progress, it refuses to move a slice that has shipped, and it refuses an order that
-violates a depends_on edge gate-2 already locked. The dependency graph is machine-checkable;
-the learning-value tradeoff G3 asks about is not, and this script does not pretend otherwise.
+violates a story dependency. The dependency graph is machine-checkable;
+the learning-value tradeoff a reorder weighs is not, and this script does not pretend otherwise.
 
 A mid-slice finding ("S6 should come before S4") does not need this script at all. It goes in
 plan/progress.yaml's `notes:` for the slice you are IN, which parity.py already carries into
@@ -70,6 +69,12 @@ def _read_text(p):
 
 SEQUENCE_FILE = "plan/sequence.yaml"
 DECISION_LOG = "plan/sequence-decisions.md"
+SPEC = "docs"  # rspec's single-repo layout at the workbench root (05 P2)
+BUILD_PLAN = SPEC + "/build-plan.md"
+FEATURES = SPEC + "/features.md"
+# rspec_lib.SLICE_RE, and lane_plan.py's copy; change all three together.
+SLICE_RE = re.compile(r"^##\s*Slice\s+(\d+)\s*:?\s*(.*)$", re.M)
+FEATURE_ID = re.compile(r"\bF-[A-Z][A-Z0-9]*-\d+\b")
 
 
 class _Result(dict):
@@ -104,10 +109,67 @@ def _slice_id(s):
     return s.get("id") if isinstance(s, dict) else None
 
 
+def _story_deps(root):
+    """{feature ID: [feature IDs]} from the `depends_on` of rspec's stories (docs/features/F-*.md)."""
+    out = {}
+    d = os.path.join(root, SPEC, "features")
+    for name in (sorted(os.listdir(d)) if os.path.isdir(d) else []):
+        m = re.match(r"(F-[A-Z][A-Z0-9]*-\d+)", name)
+        fm = (re.match(r"\A---[ \t]*\n(.*?)\n---", _read_text(os.path.join(d, name)), re.S)
+              if m and name.endswith(".md") else None)
+        if not fm:
+            continue
+        try:
+            meta = yamlio.load(fm.group(1))
+        except Exception:
+            continue  # rspec's check_spec reports a broken story; here it only loses its edges
+        deps = meta.get("depends_on") if isinstance(meta, dict) else None
+        out[m.group(1)] = [deps] if isinstance(deps, str) and deps else [x for x in _as_list(deps) if isinstance(x, str)]
+    return out
+
+
+def plan_slices(root="."):
+    """rspec's slices, in build-plan.md order: [{id: "S<n>", name, features, depends_on, done_means}].
+
+    Read as rspec's build_slices reads them. A slice depends on every other slice holding a feature
+    that one of its own features' stories depends on: rspec's handoff orders the plan by those edges,
+    so they are the ones a reorder must keep."""
+    p = os.path.join(root, BUILD_PLAN)
+    text = _read_text(p) if os.path.exists(p) else ""
+    heads = list(SLICE_RE.finditer(text))
+    slices = []
+    for i, h in enumerate(heads):
+        body = text[h.end(): heads[i + 1].start() if i + 1 < len(heads) else len(text)]
+        body = re.split(r"^##\s*Release\b", body, flags=re.M)[0]
+        done = re.search(r"^Done when:[ \t]*(.+)$", body, re.M)
+        slices.append({"id": f"S{h.group(1)}", "name": h.group(2).strip(),
+                       "features": list(dict.fromkeys(FEATURE_ID.findall(body))),
+                       "done_means": done.group(1).strip() if done else None})
+    home = {f: s["id"] for s in slices for f in s["features"]}
+    deps = _story_deps(root)
+    for s in slices:
+        s["depends_on"] = list(dict.fromkeys(home[d] for f in s["features"] for d in deps.get(f, [])
+                                             if d in home and home[d] != s["id"]))
+    return slices
+
+
+def plan_features(root="."):
+    """rspec's feature list: [{id, name, priority}] from the rows of docs/features.md, in order."""
+    p = os.path.join(root, FEATURES)
+    out = []
+    for line in (_read_text(p).split("\n") if os.path.exists(p) else []):
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in re.split(r"(?<!\\)\|", line.strip().strip("|"))]  # rspec_lib.table_cells
+        if cells and FEATURE_ID.fullmatch(cells[0]):
+            out.append({"id": cells[0], "name": cells[2] if len(cells) > 2 else "",
+                        "priority": cells[4] if len(cells) > 4 else ""})
+    return out
+
+
 def positional_order(root="."):
-    """Slice ids in plan/slices.yaml's positional order — the pre-sequence.yaml fallback."""
-    slices = _as_list(_read_yaml(os.path.join(root, "plan/slices.yaml"), []))
-    return [i for i in (_slice_id(s) for s in slices) if i]
+    """Slice ids in build-plan.md's order — the fallback before plan/sequence.yaml exists."""
+    return [s["id"] for s in plan_slices(root)]
 
 
 def read_sequence(root="."):
@@ -125,16 +187,14 @@ def read_sequence(root="."):
 
 
 def slice_statuses(root="."):
-    """Slice id -> effective status, progress.yaml overlaying the gate-2 `status:`."""
+    """Slice id -> effective status: plan/progress.yaml's `slices:` entry, else pending."""
     progress = _read_yaml(os.path.join(root, "plan/progress.yaml"), {}) or {}
     overlay = (progress.get("slices") if isinstance(progress, dict) else None) or {}
     if not isinstance(overlay, dict):
         overlay = {}
     out = {}
-    for s in _as_list(_read_yaml(os.path.join(root, "plan/slices.yaml"), [])):
-        sid = _slice_id(s)
-        if sid:
-            out[sid] = overlay.get(sid) or s.get("status") or "pending"
+    for s in plan_slices(root):
+        out[s["id"]] = overlay.get(s["id"]) or "pending"
     return out
 
 
@@ -151,7 +211,7 @@ def analyse(root="."):
     conservative reading, and `status` reports the anomaly rather than quietly allowing a move
     into a region that is already history.
     """
-    slices = _as_list(_read_yaml(os.path.join(root, "plan/slices.yaml"), []))
+    slices = plan_slices(root)
     by_id = {_slice_id(s): s for s in slices if _slice_id(s)}
     seq = read_sequence(root)
     order, baseline, source, present = seq["order"], seq["baseline"], seq["source"], seq["present"]
@@ -183,12 +243,12 @@ def analyse(root="."):
 
 
 def dependency_violation(order, by_id):
-    """First depends_on edge the given order violates, or None. depends_on is gate-2 locked."""
+    """First slice dependency the given order violates, or None."""
     pos = {sid: i for i, sid in enumerate(order)}
     for sid in order:
         for dep in _as_list((by_id.get(sid) or {}).get("depends_on")):
             if dep not in pos:
-                continue  # unknown dep — validate.py reports it against slices.yaml
+                continue  # a slice the order does not hold; `status` names the mismatch
             if pos[dep] > pos[sid]:
                 return _Result(slice=sid, dep=dep)
     return None
@@ -244,9 +304,9 @@ def main(argv=None):
         _write(SEQUENCE_FILE,
                "# Slice execution order. Written by scripts/sequence.py — do not hand-edit.\n"
                "#\n"
-               "# plan/slices.yaml holds the slice BOUNDARIES and is hashed whole by gate-2. This file holds\n"
-               "# the SEQUENCE, which G3 calls the actual Gate 2 decision, so that revising it is a logged\n"
-               "# decision rather than a formal gate reopen. Only the pending tail moves; see\n"
+               "# docs/build-plan.md holds the slice BOUNDARIES and is hashed whole by gate-2. This file holds\n"
+               "# the SEQUENCE, so that revising it is a logged decision rather than a formal gate reopen.\n"
+               "# Only the pending tail moves; see\n"
                "# plan/sequence-decisions.md for every change and its reason.\n"
                f"recorded: {recorded}\n"
                f"baseline: [{_join(baseline, ', ')}]\n"
@@ -273,15 +333,15 @@ def main(argv=None):
     # ---------------------------------------------------------------- status
     if cmd == "status":
         a = analyse()
-        # Emptiness is decided by plan/slices.yaml, not by the order: an overlay left behind after
+        # Emptiness is decided by build-plan.md, not by the order: an overlay left behind after
         # the plan was emptied would otherwise print rows for slices that no longer exist.
         if not a.slices:
-            print("No slice plan yet — plan/slices.yaml is empty or absent (normal before G3).")
+            print(f"No slice plan yet — {BUILD_PLAN} has no `## Slice` (normal before rspec's handoff).")
             if a.present:
                 print(f"{SEQUENCE_FILE} still names {_join(a.order, ', ')}. Reconcile: python3 scripts/sequence.py sync")
             return 0
         if not a.present:
-            print(f"Slice order: reading plan/slices.yaml positionally — {SEQUENCE_FILE} does not exist.")
+            print(f"Slice order: reading {BUILD_PLAN} positionally — {SEQUENCE_FILE} does not exist.")
             print("Reordering is a gate-2 reopen until it does. Create it: python3 scripts/sequence.py init\n")
         orphans = [i for i in a.order if i not in a.by_id]
         missing = [i for i in (_slice_id(s) for s in a.slices) if i not in a.order]
@@ -313,9 +373,9 @@ def main(argv=None):
             # validate.py fails on the same condition; naming it here too matters because `status` is
             # where someone looks when the order surprises them, and "(unknown slice)" is not an answer.
             if orphans:
-                print(f"  ⚠ {_join(orphans, ', ')} in the order but not in plan/slices.yaml.")
+                print(f"  ⚠ {_join(orphans, ', ')} in the order but not in {BUILD_PLAN}.")
             if missing:
-                print(f"  ⚠ {_join(missing, ', ')} in plan/slices.yaml but not in the order — never scheduled.")
+                print(f"  ⚠ {_join(missing, ', ')} in {BUILD_PLAN} but not in the order — never scheduled.")
             print("    Reconcile after a gate-2 reopen: python3 scripts/sequence.py sync")
         if os.path.exists(DECISION_LOG):
             print(f"  Decision log: {DECISION_LOG}")
@@ -325,17 +385,17 @@ def main(argv=None):
     if cmd == "init":
         positional = positional_order()
         if not positional:
-            err("plan/slices.yaml has no slices — nothing to sequence. Run this after G3 drafts the plan.")
+            err(f"{BUILD_PLAN} has no slices — nothing to sequence. Run this after rspec's handoff writes it.")
             return 1
         if os.path.exists(SEQUENCE_FILE) and not has("--force"):
             err(f"{SEQUENCE_FILE} already exists. Reorder it with `reorder`, or pass --force to "
-                "re-baseline from plan/slices.yaml (which discards the current order and the drift it records).")
+                f"re-baseline from {BUILD_PLAN} (which discards the current order and the drift it records).")
             return 1
         write_sequence(positional, positional, now)
         log_decision(f"- **{now}** · initialised by {by}\n  - baseline {_join(positional, ' → ')}\n")
         print(f"Wrote {SEQUENCE_FILE} — baseline and order both {_join(positional, ' → ')}.")
         if not gate_locked("gate-2"):
-            print("Note: gate-2 is not locked, so plan/slices.yaml can still change freely and this "
+            print(f"Note: gate-2 is not locked, so {BUILD_PLAN} can still change freely and this "
                   "baseline is provisional. Re-run with --force after the lock to record the real one.")
         print("Commit it. From here, reordering the pending tail is `python3 scripts/sequence.py reorder`, "
               "not a gate-2 reopen.")
@@ -360,7 +420,7 @@ def main(argv=None):
         added = [i for i in positional if i not in a.order]
         removed = [i for i in a.order if i not in known]
         if not added and not removed:
-            print("Already in sync with plan/slices.yaml — nothing to do.")
+            print(f"Already in sync with {BUILD_PLAN} — nothing to do.")
             return 0
         order = keep(a.order) + added
         baseline = keep(a.baseline) + added
@@ -368,8 +428,8 @@ def main(argv=None):
         lines = (
             [f"  - added {i} ({(a.by_id.get(i) or {}).get('name') or '?'}) at the end of the tail — "
              "reorder it if that is not where it belongs" for i in added]
-            + [f"  - removed {i}, no longer in plan/slices.yaml" for i in removed])
-        log_decision(f"- **{now}** · synced with plan/slices.yaml by {by}\n" + "\n".join(lines) + "\n")
+            + [f"  - removed {i}, no longer in {BUILD_PLAN}" for i in removed])
+        log_decision(f"- **{now}** · synced with {BUILD_PLAN} by {by}\n" + "\n".join(lines) + "\n")
         print(f"Synced {SEQUENCE_FILE}.\n" + "\n".join(lines))
         if added:
             print("\nNew slices land last by default. Move them with `reorder` — that one needs a --reason.")
@@ -396,7 +456,7 @@ def main(argv=None):
                 "that the plan moved and why; without it, drift is indistinguishable from the original plan.")
             return 1
         if not os.path.exists(SEQUENCE_FILE):
-            err(f"{SEQUENCE_FILE} does not exist, so order still lives in plan/slices.yaml's array — which",
+            err(f"{SEQUENCE_FILE} does not exist, so order still lives in {BUILD_PLAN}'s slice order — which",
                 "gate-2 hashes, making this a gate reopen rather than a logged decision.",
                 "Create the overlay first: python3 scripts/sequence.py init")
             return 1
@@ -451,11 +511,11 @@ def main(argv=None):
             print(f"{slice_id} is already there — nothing to do.")
             return 0
 
-        # (4) depends_on is gate-2 locked, so the graph check is free and is not negotiable here.
+        # (4) The stories' dependencies are rspec's, so the graph check is free and is not negotiable here.
         v = dependency_violation(order, a.by_id)
         if v:
             return fail(f"That order puts {v['slice']} before {v['dep']}, which it depends on.",
-                        "`depends_on` is gate-2 locked — changing it is a reopen, not a reorder.",
+                        "Story dependencies are rspec's — changing one is rspec:amend and a gate-2 reopen, not a reorder.",
                         f"Proposed: {_join(order, ' → ')}")
 
         write_sequence(a.baseline, order, now)

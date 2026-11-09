@@ -1,8 +1,9 @@
 # Architecture playbook registry
 
-One file per playbook. A project picks one at G0 (`sources.yaml` → `architecture.playbook`),
-G4a vendors it to the workbench at `adr/playbook.md`, and Gate 3 hashes that copy along with
-the ADRs. The pipeline knows nothing about any playbook's content — it reads the frontmatter.
+One file per playbook. A project picks one at G0 (`sources.yaml` → `architecture.playbook`). Before
+`rspec:tech`, `python3 scripts/playbook.py vendor` copies it to the workbench's `adr/playbook.md` with its
+scaffold manifest, its stack line becomes rspec's stack preference, and Gate 3 hashes `adr/` along with rspec's
+ADRs (`docs/decisions/`). The pipeline knows nothing about any playbook's content — it reads the frontmatter.
 
 | Playbook | Target shape | Stack | Scaffold manifest |
 |---|---|---|---|
@@ -10,8 +11,8 @@ the ADRs. The pipeline knows nothing about any playbook's content — it reads t
 | `mobile-flutter` | `client-only` | Flutter client against an existing HTTP API; Riverpod + go_router + Drift + generated dio client | `mobile-flutter/scaffold.json`: Flutter with Riverpod and `custom_lint` |
 
 `web-modular-monolith` is the default when `architecture.playbook` is empty. `none` disables
-the mechanism: every G4a ADR becomes a blank-slate decision against the reference alone, and the project
-writes its own `adr/scaffold.json` (the same format, below) beside its stack ADR. Gate 3 checks it like a
+the mechanism: every stack decision is blank-slate against the reference alone, and the project writes its
+own `adr/scaffold.json` (the same format, below). Gate 3 checks it like a
 registered playbook's and refuses to lock without a valid one.
 
 ## Writing your own
@@ -36,17 +37,17 @@ decide-before:
 ---
 ```
 
-Five rules the tooling enforces, and one it cannot:
+Five rules. The tooling enforces 3 and 4; since 3.0.0 the ADRs are rspec's, so 1 and 2 are what the Gate 3
+review reads for (the skill lists the playbook's concerns to the user there), not a check:
 
-1. **`concerns:` is the ADR list.** Every key needs an ADR before Gate 3 can lock, and every
-   ADR names its key in a `concern:` field. This is what makes "every concern decided" a
-   check instead of a sentence. Choose keys deliberately: a concern you leave out is a
-   decision nobody will be asked to make.
-2. **Section tokens are the citation vocabulary.** An ADR may only cite a `§` that appears
-   somewhere in your `concerns:` map. Keep the map and the section bodies in sync — renumbering
-   one without the other silently re-points every ADR that cited it.
+1. **`concerns:` is the ADR list.** Every key deserves an ADR before Gate 3. Choose keys deliberately: a
+   concern you leave out is a decision nobody will be asked to make.
+2. **Section tokens are the citation vocabulary.** An ADR cites a `§` that appears somewhere in your
+   `concerns:` map. Keep the map and the section bodies in sync — renumbering one without the other silently
+   re-points every ADR that cited it.
 3. **A playbook that cannot scaffold fails Gate 3.** `scaffold:` names a JSON manifest (below), vendored
-   beside the playbook at G4a and locked with it. Missing, unreadable or `none` is refused at the gate, not at G5.
+   beside the playbook by `playbook.py vendor` and locked with it. Missing, unreadable or `none` is refused at
+   the gate, not at G5.
 4. **`target-shape:` must match the project's.** Validation fails on a mismatch rather than
    letting a fullstack playbook govern a client-only rebuild.
 5. **`N/A` is a real answer, not a gap.** It says "this playbook deliberately has no standing
@@ -66,7 +67,7 @@ why the scaffold manifest is a separate JSON file and not a nested block in the 
 ## The scaffold manifest
 
 One JSON file per playbook, beside it (`<playbook>/scaffold.json`), with the files it seeds under
-`<playbook>/templates/`. `scripts/playbook.py` checks it at G4a and at Gate 3 with the same function
+`<playbook>/templates/`. `scripts/playbook.py` checks it in `validate.py` and at Gate 3 with the same function
 `scaffold-repo` reads it through, so what the gate accepts is exactly what G5 can run.
 
 ```json
