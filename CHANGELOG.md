@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Contracts 1.2.0: level 1 needs a source.** C3's level 1 now reads "sampled and SUPPORTED by its source, or
+  unsampled in an audited population whose sample has no contradiction", and a criterion tagged `[inferred]`
+  never reaches level 1 by audit (a NOT-CONTRADICTED verdict is not evidence). Level 2 is unchanged. No field or
+  format changes; a lock with an `[inferred]` criterion at level 1 no longer conforms. rspec produces this from
+  its PR #10 on; rspec, sdlc and bug-hunter re-vendor 1.2.0 in their own changes.
+
 ## [3.0.0] - 2026-11-09
 
 product-rebuild becomes an orchestrator over rspec, sdlc and bug-hunter (spec
