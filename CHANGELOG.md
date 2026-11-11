@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Contracts 1.3.0: the lock check enforces C3's level 1 rule.** `contracts.py lock` (`check_lock`) reports an
+  error for a criterion tagged `inferred` at level 1; level 0 and level 2 (with a test) stay valid. A new invalid
+  fixture, `fixtures/lock/invalid/inferred-at-level-1.json`, makes every consumer's `vendor-check` prove it.
 - **Contracts 1.2.0: level 1 needs a source.** C3's level 1 now reads "sampled and SUPPORTED by its source, or
   unsampled in an audited population whose sample has no contradiction", and a criterion tagged `[inferred]`
   never reaches level 1 by audit (a NOT-CONTRADICTED verdict is not evidence). Level 2 is unchanged. No field or

@@ -2,7 +2,6 @@
 
 ## Open
 
-- [ ] Contracts proposal: contracts.py lock reports an error for a criterion tagged inferred at level 1, making C3's 1.2.0 rule mechanical — not asked for, left out; contracts/v1/contracts.py, feature 2026-11-11-s-contracts-1-2-0 (2026-11-11)
 
 - [ ] reference_guard.py writes no log, but 06-rollout's E2E pass condition names guard logs: either log each denial (append-only, in the workbench's logs/) or change 06 to name transcript evidence — E2E-1 uses transcript evidence through its harness guard_check.py meanwhile; feature 2026-11-08-l-product-rebuild-3 (2026-11-09)
 - [ ] CR-1: protect departures appended after Gate 1 as well (record each later entry, e.g. on append, so editing or removing one fails validate.py), today only the entries present at the gate-1 lock are protected — the user shipped 3.0.0 with the spec's literal rule (05 Gate 1 row, "records the IDs present at its lock"); skills/rebuild-pipeline/scripts/departures.py, feature 2026-11-09-m-departures-append-known-gap (2026-11-09)
@@ -31,4 +30,5 @@
 
 ## Done
 
+- [x] Contracts proposal: contracts.py lock reports an error for a criterion tagged inferred at level 1, making C3's 1.2.0 rule mechanical — not asked for, left out; contracts/v1/contracts.py, feature 2026-11-11-s-contracts-1-2-0 (2026-11-11) → done in contracts 1.3.0, feature 2026-11-11-s-contracts-1-3-0 (2026-11-11)
 - [x] Fix eval/gates_rspec.py's "validate.py accepts the gate-4 lock" check: it now fails only on a FAIL or warn line for locks/gate-4.yaml, not validate.py's ok line; both baseline rows dropped — feature 2026-11-11-s-gate4-eval-check (2026-11-11)
