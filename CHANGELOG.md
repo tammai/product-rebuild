@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-11-11
+
 ### Changed
 
 - **Contracts 1.3.0: the lock check enforces C3's level 1 rule.** `contracts.py lock` (`check_lock`) reports an
