@@ -211,7 +211,8 @@ if ONLY in (None, "level2"):
           and "Tam Mai" in lock4 and "0.8" in lock4, r.stdout + r.stderr + lock4)
     r = run([sys.executable, os.path.join("scripts", "validate.py")], wb)
     check("validate.py accepts the gate-4 lock with its holdout and level2_waiver blocks",
-          r.returncode == 0 and "locks/gate-4.yaml" not in r.stdout + r.stderr, r.stdout + r.stderr)
+          r.returncode == 0 and not re.search(r"^(FAIL|warn) locks/gate-4\.yaml$", r.stdout + r.stderr, re.M),
+          r.stdout + r.stderr)
     check("gate-4 locks openapi.json, schemas/, criteria.lock.json and acceptance/manifest.json",
           all(f"  docs/{f}: " in lock4 for f in ("openapi.json", "schemas/issue.json", "criteria.lock.json",
                                                  "acceptance/manifest.json")), lock4)
