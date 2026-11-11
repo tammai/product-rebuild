@@ -15,8 +15,6 @@ Recorded: 2026-11-08 at commit 5820b38, running each command in `.sdlc/config.js
 | (root) | eval/lane_guards.py › a lane worktree counts through its main repo | FAIL on this machine (Windows) | 5820b38 |
 | (root) | eval/run_supervision.py › a dead driver is named with its phase; watch exits 2 on a dead driver | FAIL (both, confirmed on 5820b38) | 5820b38 |
 | (root) | eval/windows_and_upgrade.py › gate-guard blocks an edit under a CRLF lock file | FAIL | 5820b38 |
-| (root) | eval/gates_rspec.py › validate.py accepts the gate-4 lock with its holdout and level2_waiver blocks | FAIL: the check rejects any output naming locks/gate-4.yaml, including validate.py's own "ok" line (lines 213-214) | 44c9b9e |
-| (root) | eval/migration_3.py › 18. G4b contracts and their `$ref` checks, Gate 4: eval/gates_rspec.py level2 passes | FAIL: re-runs the gates_rspec.py check above | 44c9b9e |
 
 ## Lint and type errors
 

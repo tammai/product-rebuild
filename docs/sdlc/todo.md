@@ -2,7 +2,6 @@
 
 ## Open
 
-- [ ] Fix eval/gates_rspec.py's "validate.py accepts the gate-4 lock" check (lines 213-214): it fails on any output naming locks/gate-4.yaml, including validate.py's own "ok   locks/gate-4.yaml" line; match only an error line, then drop it and migration_3.py's item 18 from .sdlc/baseline.md — baselined with the user's OK; feature 2026-11-11-s-contracts-1-2-0 (2026-11-11)
 - [ ] Contracts proposal: contracts.py lock reports an error for a criterion tagged inferred at level 1, making C3's 1.2.0 rule mechanical — not asked for, left out; contracts/v1/contracts.py, feature 2026-11-11-s-contracts-1-2-0 (2026-11-11)
 
 - [ ] reference_guard.py writes no log, but 06-rollout's E2E pass condition names guard logs: either log each denial (append-only, in the workbench's logs/) or change 06 to name transcript evidence — E2E-1 uses transcript evidence through its harness guard_check.py meanwhile; feature 2026-11-08-l-product-rebuild-3 (2026-11-09)
@@ -31,3 +30,5 @@
 - [ ] R2-17: equiv replay re-parses each loaded trace in _warn_credential and record recomputes accounts per request — redundant work only; skills/rebuild-pipeline/scripts/equiv.py, feature 2026-11-09-m-smoke-blockers-rc2 (2026-11-09)
 
 ## Done
+
+- [x] Fix eval/gates_rspec.py's "validate.py accepts the gate-4 lock" check: it now fails only on a FAIL or warn line for locks/gate-4.yaml, not validate.py's ok line; both baseline rows dropped — feature 2026-11-11-s-gate4-eval-check (2026-11-11)
