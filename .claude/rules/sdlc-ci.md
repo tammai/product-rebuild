@@ -6,7 +6,7 @@ paths:
   - "**/*.tf"
   - "{infra,infras,deploy,k8s,helm}/**"
 ---
-<!-- Managed by the sdlc plugin v3.2.1; regenerated on upgrade. Change paths via "areas.ci" in .sdlc/config.json. -->
+<!-- Managed by the sdlc plugin v3.6.1; regenerated on upgrade. Change paths via "areas.ci" in .sdlc/config.json. -->
 # CI, build and infrastructure (sdlc policy)
 
 - Changes here need the user's go-ahead before they are committed: they affect everyone and every environment.

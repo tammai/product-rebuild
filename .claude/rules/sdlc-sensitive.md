@@ -4,7 +4,7 @@ paths:
   - "**/*{secret,credential,token,crypto}*"
   - "**/.env*"
 ---
-<!-- Managed by the sdlc plugin v3.2.1; regenerated on upgrade. Change paths via "areas.sensitive" in .sdlc/config.json. -->
+<!-- Managed by the sdlc plugin v3.6.1; regenerated on upgrade. Change paths via "areas.sensitive" in .sdlc/config.json. -->
 # Sensitive areas: auth, payments, secrets, PII (sdlc policy)
 
 - Work here is at least M track and always gets a security review after the build.
