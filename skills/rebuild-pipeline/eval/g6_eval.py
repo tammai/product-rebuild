@@ -22,6 +22,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import socketserver
 import subprocess
 import sys
@@ -673,6 +674,74 @@ if ONLY in (None, "equiv"):
           "old.trace.yaml" in r.stdout + r.stderr and "--force" in r.stdout + r.stderr and "credential" in r.stdout + r.stderr,
           r.stdout + r.stderr)
     legacy.shutdown()
+
+if ONLY in (None, "health"):
+    print("\n# a target that does not answer is not run, not failed (AC-003, AC-004)")
+    proj, wb = project("health")
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    dead = f"http://127.0.0.1:{sock.getsockname()[1]}"
+    sock.close()
+    r = script(wb, "boundary.py", "S1", env={"ACCEPT_BASE_URL": dead})
+    out = r.stdout + r.stderr
+    check("boundary stops before the open suite when the target does not answer, writing no finding",
+          r.returncode == 2 and "not run" in out and dead in out and "== 1. open suite" not in out
+          and not glob.glob(os.path.join(wb, "parity", "findings", "S1", "*.json")), out)
+
+    def dying():
+        """A build that answers GET / and dies on its first test request, as Docker did mid-sweep on 2026-11-13."""
+        class Die(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path == "/":
+                    self.send_response(200)
+                    self.send_header("Content-Length", "2")
+                    self.end_headers()
+                    self.wfile.write(b"{}")
+                    return
+                self.server.socket.close()  # later connects are refused, and this request gets no answer
+
+            def log_message(self, *a):
+                pass
+        srv = socketserver.TCPServer(("127.0.0.1", 0), Die)
+
+        def serve():
+            try:
+                while True:
+                    srv.handle_request()
+            except (OSError, ValueError):
+                pass
+        threading.Thread(target=serve, daemon=True).start()
+        return f"http://127.0.0.1:{srv.server_address[1]}"
+
+    r = script(wb, "boundary.py", "S1", env={"ACCEPT_BASE_URL": dying()})
+    out = r.stdout + r.stderr
+    check("a build that dies mid-suite: that test and the later ones are not run, the boundary stops, no finding",
+          r.returncode == 2 and "stopped answering" in out and "skipped" in out and "== 2. hidden suite" not in out
+          and not glob.glob(os.path.join(wb, "parity", "findings", "S1", "*.json")), out)
+    check("…and it names the test the build died at, so a repeat there reads as a crash to route",
+          re.search(r"stopped answering at F-ISS-0\d\.AC\d", out) is not None, out)
+
+    class Gateway(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(502)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, *a):
+            pass
+    gw = socketserver.TCPServer(("127.0.0.1", 0), Gateway)
+    threading.Thread(target=gw.serve_forever, daemon=True).start()
+    r = script(wb, "boundary.py", "S1", env={"ACCEPT_BASE_URL": f"http://127.0.0.1:{gw.server_address[1]}"})
+    gw.shutdown()
+    check("a proxy answering 502 for a dead app is a build that does not answer, not one to judge",
+          r.returncode == 2 and "not run" in r.stdout and "== 1. open suite" not in r.stdout
+          and not glob.glob(os.path.join(wb, "parity", "findings", "S1", "*.json")), r.stdout + r.stderr)
+    r = script(wb, "holdout.py", "run", "S1", env={"ACCEPT_BASE_URL": dying()})
+    p = os.path.join(wb, "parity", "holdout", "S1.json")
+    res = json.loads(read(p))["results"] if os.path.exists(p) else []
+    check("holdout run: a hidden test whose build died is not run, never a fail",
+          bool(res) and all(x["result"] == "not run" and x["observed"].startswith("the build stopped answering")
+                            for x in res), r.stdout + r.stderr + str(res))
 
 server.shutdown()
 shutil.rmtree(base, ignore_errors=True)

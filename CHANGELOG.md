@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-11-15
+
+Cuts G5's cost. The CRM rebuild measured 763M tokens before its first slice, 71% of it in rspec verify. Its 184
+slices at 6 bug-hunters and 1.2M fresh tokens each could have cost about 220M fresh tokens more.
+
+### Added
+
+- **bug-hunter budget by slice risk tier.** `rebuild.yaml` budgets gain `hunters_per_slice_low` (2),
+  `bughunter_tokens_per_slice_low` (400000) and `low_tier_slices` (`[]`). `boundary.py` step 5 gives a slice on
+  the list the low budget and every other slice the high one. The list may be inline or a block list, and `S02` or
+  `2` both mean S2. A missing or broken tag never cuts checking: when the list can't be read, or the low budget
+  isn't two whole numbers above 0, the slice gets the high budget, and the tier line says why.
+- **Target health guard.** `boundary.py` checks that `ACCEPT_BASE_URL` answers, after its safety checks, before any
+  test and again before equivalence, and stops with `not run` when it doesn't. A gateway's 502, 503 or 504 counts
+  as no answer. After any failed HTTP or Playwright run, the open suite and `holdout.py run` ask the build again.
+  When it no longer answers (refused, reset or timed out), that test is named, and it and every later test that
+  needs the build are `not run`, never `fail`. JUnit results are still reported, and a hidden test that changed
+  since Gate 4 is still flagged. The boundary then stops without a finding (`holdout.py run` records the outage as
+  its report's `down` field). On 2026-11-13, when Docker died, 181 such runs were logged as failures and had to be
+  run again.
+
+### Changed
+
+- **Step 0 names criteria, not features.** `lane_plan.py step0` prints `rspec:verify --only <criterion IDs>`, so a
+  slice re-records only the criteria it lacks, not each feature whole. This needs rspec 0.13.0, so the dependency
+  is now `rspec >=0.13.0`.
+- **Orchestrator guidance.** At Gate 2, run `rspec:verify --scope mvp`: each slice's step 0 records its Later
+  criteria. Each slice runs in a fresh session, and the boundary runs in a fresh agent. Agents stay short: one per
+  feature, a fresh agent after two failed attempts, and briefs that point at files (`references/subagent-briefs.md`).
+
+### Upgrading a 3.1.0 workbench
+
+1. Update rspec to 0.13.0, which the plugin dependency now requires. Step 0's `rspec:verify --only <criterion
+   IDs>` needs it, because an older rspec's `--only` takes feature IDs only.
+2. `python3 scripts/upgrade.py --apply`, which copies the new `boundary.py`, `holdout.py`, `lane_plan.py` and
+   `route.py`.
+3. Optional: add the three keys to `rebuild.yaml` under `budgets:`:
+   - `hunters_per_slice_low: 2`
+   - `bughunter_tokens_per_slice_low: 400000`
+   - `low_tier_slices: [S2, S7, …]`, listing the slices the user agreed are low risk.
+
+   Without these keys every slice keeps today's budget.
+4. Nothing needs re-running. Gate locks don't hash `rebuild.yaml`, and the earlier gates' evidence is unchanged.
+
 ## [3.1.0] - 2026-11-11
 
 ### Changed

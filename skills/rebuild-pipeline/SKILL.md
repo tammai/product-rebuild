@@ -142,7 +142,7 @@ per-phase by design to keep context lean:
 | G0 (scaffolded, no `preflight.json` or Not-ready) | `references/g0-reference.md` | Finish the interview, fill `sources.yaml`, `python3 scripts/preflight.py` until Ready / Ready-with-gaps |
 | Toward gate-1 (G0 done) | nothing here: rspec's skills | `rspec:init` in the workbench (rspec's single-repo layout, `docs/`; goal `production`, which a rebuild always is: Gate 1 refuses any other), `rspec:discover`, `rspec:features` (the user approves the list) → Gate 1 |
 | Toward gate-3 | the playbook `sources.yaml` names (its stack line) | `rspec:stories`; `python3 scripts/playbook.py vendor` and the stack preference (4d); `rspec:tech`; the ADR approval, which is `rspec:handoff` step 1 → Gate 3 (refuses without the vendored manifest) |
-| Toward gate-2 | nothing here: rspec's skills | `rspec:audit`, `rspec:verify` (skipped when `reference.run.kind` is `none`), the rest of `rspec:handoff` (the build plan, ≤ 10 criteria per slice), `rspec:check` (writes `docs/criteria.lock.json`), then `python3 scripts/holdout.py split` (draws the hidden tests into a repo in the per-user data folder, named only in its `holdouts.json`; never name that path in a brief) and only then commit the workbench: `docs/acceptance/` stays git-ignored until the split, because a commit before it puts the hidden tests in the history every lane holds as a submodule (the split refuses when one is there) → Gate 2 (refuses before the split) |
+| Toward gate-2 | nothing here: rspec's skills | `rspec:audit`, `rspec:verify --scope mvp` (MVP criteria only: each Later criterion is recorded at the step 0 of the slice that builds it; `--scope full` only when the user asks; skipped when `reference.run.kind` is `none`), the rest of `rspec:handoff` (the build plan, ≤ 10 criteria per slice), `rspec:check` (writes `docs/criteria.lock.json`), then `python3 scripts/holdout.py split` (draws the hidden tests into a repo in the per-user data folder, named only in its `holdouts.json`; never name that path in a brief) and only then commit the workbench: `docs/acceptance/` stays git-ignored until the split, because a commit before it puts the hidden tests in the history every lane holds as a submodule (the split refuses when one is there) → Gate 2 (refuses before the split) |
 | Toward gate-4 | nothing here: rspec's skills | review the contracts and tests → Gate 4 (records the split; MVP level 2 ≥ 90% unless `strict`, or the user's signed reason) |
 | G5 | `references/g5-build.md` (plus `references/g5-first-slice.md` for the first slice's repo checklist, an inbound-webhook slice, and the S1 runbook) | The slice loop (4e): step 0, lanes, spec questions; the between-slices sequence at the end of it |
 | G6 | 4f below (and `references/g6-parity.md` for the parity report and slice review) | `boundary.py <Sn>`, cheapest step first; `route.py`; the human sample |
@@ -150,7 +150,11 @@ per-phase by design to keep context lean:
 
 **Budgets and cost (05 P9).** G0 shows the user `rebuild.yaml`'s budgets once (parallel lanes, recorders,
 hunters per slice, bug-hunter tokens per slice, fix rounds) and they edit it there; the scripts that spend each
-one read it. After every subagent or plugin run you orchestrate (rspec stages, lanes, reviews), record it:
+one read it. bug-hunter has two budgets: the high one for every slice, the low one (`hunters_per_slice_low`,
+`bughunter_tokens_per_slice_low`) for the slices the user names in `low_tier_slices`. At Gate 2, propose that list
+from the build plan, leaving out every slice that touches access control, sign-in or tokens, money or tenant
+lifecycle, the public API, data moving in or out or past role visibility, or untrusted input. The user decides
+it, borderline slices included. A slice not on the list gets the high budget. After every subagent or plugin run you orchestrate (rspec stages, lanes, reviews), record it:
 `python3 scripts/cost.py add [--slice <Sn>] --stage <stage> --plugin <p> --agent <a> --tier <t> --wall-s <n>
 --turns <n> --tokens-in <n|null> --tokens-out <n|null> --result <r>`, with the numbers the host reported (never
 guessed). bug-hunter writes its own through the `--cost-log` boundary.py names. `boundary.py` prints the slice's
@@ -178,9 +182,15 @@ there: rspec's stack ADR weighs it as a preference against `deploy`. Never overw
 the playbook's concerns and decide-before order to the user at Gate 3: rspec's ADRs should cover them.
 
 **4e — The slice loop from rspec's criteria (05 P5).** Slices are rspec's (`docs/build-plan.md`, Gate 2), so
-there are no slice specs to write. Per slice, from the workbench root:
+there are no slice specs to write. **Each slice runs in a fresh session.** Everything a slice needs is on disk
+(the lock, the lane plans, the fix rounds, the boundary's state), and an orchestrator session that ran three days
+at about 215k context paid for that context again on every turn. After a slice's boundary passes, tell the user to
+run `/clear` and then `/rebuild`, which resumes from the files. Run `boundary.py` and route its findings in a
+fresh agent briefed with paths, not in a session that built the lanes. Briefs point at files and never paste them.
+Per slice, from the workbench root:
 1. **Step 0:** `python3 scripts/lane_plan.py step0 <Sn>`. Every criterion needs a level 2 test or rspec's
-   reason for level 1; for the ones it names, run `rspec:verify --only <features>` and check again.
+   reason for level 1; for the ones it names, run the `rspec:verify --only <criterion IDs>` it prints (just those
+   criteria, Later ones included) and check again.
    `lane_plan.py` opens no lane of a slice that fails it.
 2. **Lanes:** `python3 scripts/lane_plan.py <Sn> <lane> --worktree <path> --features <F-…,F-…>
    --approved-by "<name>"`. It writes the lane's sdlc feature with ACs citing the criterion IDs (sdlc's
@@ -201,7 +211,12 @@ behaviour only, so it is safe to pass to a lane.
 
 **4f — G6 at each slice boundary (05 P6, P7).** From the workbench root, with `ACCEPT_BASE_URL` at the slice
 build (rspec verify leaves it at the reference; `boundary.py` and `holdout.py run` refuse the address in
-`sources.yaml` `reference.run.base_url`): `python3 scripts/boundary.py <Sn>`. It runs the open suite (each failure re-run once; a pass on the
+`sources.yaml` `reference.run.base_url`): `python3 scripts/boundary.py <Sn>`. If nothing answers at
+`ACCEPT_BASE_URL` (a gateway's 502, 503 or 504 counts as no answer), it stops before any test runs. If the build
+stops answering mid-run, the open suite and `holdout.py run` name the test it died at and report it, plus every
+later test that needs the build, as `not run`, never as a failure. Results read from JUnit are still reported. The
+boundary then stops: start the build and run it again. If it dies at the same test again, that test crashes the
+build: route it as a build-defect yourself. It runs the open suite (each failure re-run once; a pass on the
 re-run is flaky, not a finding), the hidden suite, equivalence (posture `observe` or `own-code`), parity and
 the slice review, then bug-hunter and the human sample, and stops at the first step that leaves a build-defect
 or spec-gap open. Then:

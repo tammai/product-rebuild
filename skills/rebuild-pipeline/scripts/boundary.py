@@ -221,20 +221,21 @@ def _junit_states():
 
 
 def _open_suite(sid, contracts, cpy, closed):
-    """(green, lines): the slice's open recorded tests. HTTP ones run here, each failure re-run once; the other
-    runners' results come from the joint run's JUnit in the workbench."""
+    """(green, lines, down): the slice's open recorded tests. HTTP ones run here, each failure re-run once; the
+    other runners' results come from the joint run's JUnit in the workbench. down says why the build stopped
+    answering mid-suite (holdout.LIVE_RUNNERS' rule: later HTTP tests are skipped, JUnit ones still reported)."""
     import holdout
     import route
     missing = [p for p in (os.path.join("docs", "criteria.lock.json"), holdout.MANIFEST) if not os.path.exists(p)]
     if missing:
-        return False, [f"  not run: no {' or '.join(missing)} (rspec's check writes them before Gate 4)"]
+        return False, [f"  not run: no {' or '.join(missing)} (rspec's check writes them before Gate 4)"], None
     feats = set(holdout.slices().get(sid) or [])
     rows = _lock_rows()
     tests = [t for t in (holdout.load_json(holdout.MANIFEST).get("tests") or [])
              if t.get("visibility", "open") == "open" and (rows.get(t["criterion"]) or {}).get("feature") in feats]
     if not tests:
-        return True, ["  no open recorded tests in this slice"]
-    green, lines = True, []
+        return True, ["  no open recorded tests in this slice"], None
+    green, lines, down = True, [], None
     junit = _junit_states() if any(t.get("runner") != "http" for t in tests) else {}
     folder = os.path.join("parity", "findings", sid)
     for t in tests:
@@ -270,7 +271,19 @@ def _open_suite(sid, contracts, cpy, closed):
             green = False
             lines.append(f"  {cid}: not run: contracts.py not found through .rebuild-plugin")
             continue
+        if down:
+            green = False
+            lines.append(f"  {cid}: not run: skipped, {down}")
+            continue
         ok, msg = _http(cpy, path)
+        if ok is not True:
+            why = holdout.answers(os.environ["ACCEPT_BASE_URL"])
+            if why:
+                # Named, as in holdout.py: dying at the same test after a restart means the test crashes the build.
+                down = f"{holdout.DOWN} at {cid}: {why}"
+                green = False
+                lines.append(f"  {cid}: not run: {down}")
+                continue
         if ok is None:
             green = False
             lines.append(f"  {cid}: not run: {msg}")
@@ -278,6 +291,13 @@ def _open_suite(sid, contracts, cpy, closed):
         if ok:
             continue
         ok2, msg2 = _http(cpy, path)
+        if ok2 is not True:
+            why = holdout.answers(os.environ["ACCEPT_BASE_URL"])
+            if why:
+                down = f"{holdout.DOWN} at {cid}, on its re-run: {why}"
+                green = False
+                lines.append(f"  {cid}: not run: {down}")
+                continue
         if ok2:
             lines.append(f"  {cid}: failed, then passed on its one re-run: flaky, not a finding")
             continue
@@ -293,7 +313,7 @@ def _open_suite(sid, contracts, cpy, closed):
         green = False
         fid, new = _write_finding(folder, "g6-open", cid, msg2, path, contracts, closed)
         lines.append(f"  {cid}: fails twice ({msg2}) -> {'new' if new else 'open'} finding {fid}")
-    return green, lines
+    return green, lines, down
 
 
 def _http(cpy, path):
@@ -315,17 +335,18 @@ def _http(cpy, path):
 def _hidden_suite(sid, contracts, repos, closed):
     import holdout
     if not os.path.exists(holdout.RECORD):
-        return False, ["  not run: no holdout split (plan/holdout.json)"]
+        return False, ["  not run: no holdout split (plan/holdout.json)"], None
     pw = [r for r in repos if os.path.exists(os.path.join(r, "node_modules", "@playwright", "test", "cli.js"))]
     r = _run("holdout.py", "run", sid, *(["--repo", (pw or repos)[0]] if repos else []))
     p = os.path.join("parity", "holdout", f"{sid}.json")
     if not os.path.exists(p):
-        return False, [f"  not run: holdout.py wrote no report ({(r.stdout + r.stderr).strip()[-300:]})"]
+        return False, [f"  not run: holdout.py wrote no report ({(r.stdout + r.stderr).strip()[-300:]})"], None
     entries = {}
     for t in holdout.load_json(holdout.MANIFEST).get("tests") or []:
         entries.setdefault(t.get("criterion"), t)
-    green, lines = True, []
-    for x in json.loads(_read(p)).get("results") or []:
+    report = json.loads(_read(p))
+    green, lines, down = True, [], report.get("down")
+    for x in report.get("results") or []:
         if x["result"] in ("pass", "explained"):
             lines.append(f"  {x['criterion']}: {x['result']}")
             continue
@@ -339,14 +360,54 @@ def _hidden_suite(sid, contracts, repos, closed):
             lines.append(f"  {x['criterion']}: fail ({x['observed']}) -> {'new' if new else 'open'} finding {fid} (kept in the holdout repo)")
         else:
             lines.append(f"  {x['criterion']}: not run: {x['observed']}")
-    return green, lines
+    return green, lines, down
+
+
+# The budgets-block regex is copied in route.round_cap and lane_plan.lane_cap, which read single numbers only:
+# change all three together.
+def _budgets_block():
+    p = "rebuild.yaml"
+    block = re.search(r"^budgets:[ \t]*\n((?:(?:[ \t]+.*)?\n)*)", _read(p) + "\n", re.M) if os.path.exists(p) else None
+    return block.group(1) if block else ""
 
 
 def _budget(key):
-    p = "rebuild.yaml"
-    block = re.search(r"^budgets:[ \t]*\n((?:(?:[ \t]+.*)?\n)*)", _read(p) + "\n", re.M) if os.path.exists(p) else None
-    m = block and re.search(rf"^[ \t]+{key}:[ \t]*(\S+)", block.group(1), re.M)
+    m = re.search(rf"^[ \t]+{key}:[ \t]*([^#\s]+)", _budgets_block(), re.M)
     return m.group(1) if m else None
+
+
+def _low_slices():
+    """(slice IDs in low_tier_slices, None) or (empty, why the list could not be read). Takes `[S2, S7]` or a block
+    list, and S02 or 2 for S2."""
+    m = re.search(r"^([ \t]+)low_tier_slices:[ \t]*([^#\n]*)((?:\n\1[ \t]*[-#][^\n]*)*)", _budgets_block(), re.M)
+    if not m:
+        return set(), None
+    items = m.group(2).strip().strip("[]").split(",") + re.findall(r"^[ \t]*-[ \t]*([^#\n]*)", m.group(3), re.M)
+    out = set()
+    for item in (i.strip().strip("'\"") for i in items):
+        n = re.fullmatch(r"[Ss]?(\d+)", item)
+        if item and not n:
+            return set(), f"low_tier_slices holds {item!r}, which is not a slice ID"
+        if n:
+            out.add(f"S{int(n.group(1))}")
+    return out, None
+
+
+def _hunt_budget(sid):
+    """(hunters, tokens, tier line) for the slice's bug-hunter run. Only a slice named in low_tier_slices gets the low
+    budget; any other slice, every slice of a 3.1.0 rebuild.yaml without the keys, and a list or low budget that
+    cannot be read keep the high one, so a missing or broken tag never cuts checking (the user's rule, 3.2.0)."""
+    high = (_budget("hunters_per_slice"), _budget("bughunter_tokens_per_slice"))
+    low, bad = _low_slices()
+    if bad:
+        return high[0], high[1], f"tier: high, because {bad} (fix rebuild.yaml)"
+    if sid not in low:
+        return high[0], high[1], "tier: high"
+    hunters, tokens = ((_budget(k) or "").strip("'\"") for k in ("hunters_per_slice_low", "bughunter_tokens_per_slice_low"))
+    if not all(re.fullmatch(r"[0-9]+", v) and int(v) > 0 for v in (hunters, tokens)):
+        return high[0], high[1], ("tier: low, but hunters_per_slice_low and bughunter_tokens_per_slice_low are not "
+                                  "both whole numbers above 0 in rebuild.yaml: the high budget applies")
+    return hunters, tokens, "tier: low"
 
 
 def _cost(sid, contracts):
@@ -413,6 +474,11 @@ def _boundary(sid, args=()):
     except (OSError, ValueError) as e:
         print(f"Boundary {sid}: not run: plan/fix-rounds/{sid}.json cannot be read ({e}).")
         return 2
+    # Every step from the open suite on needs the build; a dead one would turn each test into a failure to route.
+    down = holdout.answers(os.environ["ACCEPT_BASE_URL"]) if os.environ.get("ACCEPT_BASE_URL") else None
+    if down:
+        print(f"Boundary {sid}: not run: {down}. Start the slice build (or fix ACCEPT_BASE_URL), then run it again.")
+        return 2
 
     rec_path = os.path.join("plan", "lane-plans", f"{sid}.yaml")
     lanes = []
@@ -449,16 +515,28 @@ def _boundary(sid, args=()):
     # Printed whatever it is: when sources.yaml leaves the reference's address empty, reference_target() has
     # nothing to compare, and this line is how a person sees which build the suite hit.
     print(f"  target: {os.environ.get('ACCEPT_BASE_URL') or '(ACCEPT_BASE_URL not set)'}")
-    open_green, lines = _open_suite(sid, contracts, cpy, closed)
+    open_green, lines, down = _open_suite(sid, contracts, cpy, closed)
     print("\n".join(lines) or "  all green")
+    if down:
+        print(f"\nStopped after the open suite: the build stopped answering ({down}). Start it and run the boundary "
+              f"again; nothing it skipped is a finding.")
+        return 2
     if stop("the open suite"):
         return 2
     print("\n== 2. hidden suite")
-    hidden_green, lines = _hidden_suite(sid, contracts, repos, closed)
+    hidden_green, lines, down = _hidden_suite(sid, contracts, repos, closed)
     print("\n".join(lines) or "  none hidden in this slice")
+    if down:
+        print(f"\nStopped after the hidden suite: {down}. Start the build and run the boundary again.")
+        return 2
     if stop("the hidden suite"):
         return 2
     print("\n== 3. equivalence")
+    # Asked again: replay's red traces are findings, and a build that died after the suites would make every one red.
+    down = holdout.answers(os.environ["ACCEPT_BASE_URL"]) if os.environ.get("ACCEPT_BASE_URL") else None
+    if down:
+        print(f"\nStopped before equivalence: {holdout.DOWN} ({down}). Start it and run the boundary again.")
+        return 2
     r = _run("equiv.py", "status")
     if "DOES NOT APPLY" in r.stdout:
         print("  does not apply here (equiv.py status says why)")
@@ -491,8 +569,9 @@ def _boundary(sid, args=()):
     if st.get("hunted"):
         print(f"  ran (recorded {st['hunted']}); its findings are in parity/findings/{sid}/")
     else:
-        budget = _budget("bughunter_tokens_per_slice") or "<slice budget>"
-        hunters = _budget("hunters_per_slice")
+        hunters, budget, tier = _hunt_budget(sid)
+        budget = budget or "<slice budget>"
+        print(f"  {tier}")
         print(f"  not run yet. Run it (Playwright in the code repo: add browser mode), then record it:\n"
               f"    /bug-hunter:hunt --oracle docs/ --target <the slice build> --reference <the reference> "
               f"--format finding-v1 --out parity/findings/{sid}/ --yes --budget {budget}{' --max ' + hunters if hunters else ''} "
