@@ -104,7 +104,7 @@ Slice *order* is a logged decision (`sequence.py reorder --reason`); what is *in
 
 ## 4. G5 — the slice loop
 
-1. **Step 0** (`lane_plan.py step0 <Sn>`): every criterion of the slice has a level 2 test or rspec's recorded reason; otherwise `rspec:verify --only <features>`.
+1. **Step 0** (`lane_plan.py step0 <Sn>`): every criterion of the slice has a level 2 test or rspec's recorded reason; otherwise the `rspec:verify --only <criterion IDs>` it prints.
 2. **Lanes** (`lane_plan.py <Sn> <lane> --features …`): each an sdlc feature whose ACs cite criterion IDs, with its open tests and a lock copy in the code repo. Code repos come from `scaffold-repo`, never by hand.
 3. **Spec questions**: a lane that finds a criterion wrong asks with sdlc's `state.py question`; the slice's questions are batched for `rspec:amend` (the user approves an MVP `then`), re-verified, and the lanes refreshed.
 4. **Recorded tests are read-only**: a committed file under `docs/acceptance/` changes only after `flows.py unlock --acceptance --reason` — loosening an assertion to make a build pass is a logged human decision.

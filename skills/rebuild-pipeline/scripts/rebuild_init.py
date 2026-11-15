@@ -386,6 +386,12 @@ budgets:
   bughunter_tokens_per_slice: 1200000  # bug-hunter --budget, in its preview units (fresh tokens): 6 hunters x B0's
                              # worst case of 100k each plus 5 verifiers x 20k. B0's processed tokens, cache reads
                              # included, ran 3-18x the preview, so expect the bill in those terms to be larger.
+  hunters_per_slice_low: 2   # the same for a slice named in low_tier_slices
+  bughunter_tokens_per_slice_low: 400000
+  low_tier_slices: []        # slices with no sensitive surface get the low budget, e.g. [S2, S7]. Keep high (leave
+                             # out) any slice touching access control, sign-in or tokens, money or tenant lifecycle,
+                             # the public API, data moving in or out or past role visibility, or untrusted input.
+                             # A slice not named here gets the high budget, so a missing tag never cuts checking.
   fix_rounds: 2              # route.py fix rounds per slice before the user decides (as sdlc's Review)
 '''
 

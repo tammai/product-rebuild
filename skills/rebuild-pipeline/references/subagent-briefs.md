@@ -27,6 +27,19 @@ or scratchpad dumps, keep every tool result under ~20K characters, read each fil
 agent file. Add them to a brief only for an agent that is not `lane-worker` (a helper a lane spawns, or a fork),
 since nothing else delivers them.
 
+## Keep agents short (measured on the CRM rebuild, 2026-11)
+
+Cache reads, not fresh tokens, made up most of the bill: one long-lived agent ran 247 steps at about 250k context per
+step. So:
+- One agent per unit of work small enough to finish in a few dozen steps: a lane, a feature, one disputed
+  criterion. Never one agent per module.
+- A brief points at files by path and says which part to read. It never pastes a file, a log or an earlier
+  agent's report.
+- Two failed attempts at the same thing go to a fresh agent that gets only the artifacts (the test, the failure
+  output), never to a third attempt in the same context.
+- Claude Code gives these agents no turn cap a brief can rely on. Put the step budget in the brief ("stop and
+  report after about 40 steps").
+
 ## The build-lane brief (G5)
 
 `lane-worker`'s agent file carries the standing rules, so they are not pasted into each brief (a rule that lives

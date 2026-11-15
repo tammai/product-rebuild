@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import http.client
 import json
 import math
 import os
@@ -52,6 +53,8 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 
 SPEC = "docs"
 BUNDLE = os.path.join(SPEC, "acceptance")
@@ -500,6 +503,28 @@ def _decoded(msg, at):
         return None
 
 
+# Runners that reach the build through ACCEPT_BASE_URL. When one of their runs fails, answers() is asked again: on
+# 2026-11-13 Docker died mid-sweep and 181 runs were logged as failures of a build that was simply down (refused,
+# reset, closed or timed out, in any runner's wording), so a failure while the build does not answer is `not run`
+# and the rest of the run is skipped. boundary.py's open suite applies the same rule.
+LIVE_RUNNERS = ("http", "playwright")
+DOWN = "the build stopped answering"  # the report's `down` field holds it; boundary.py stops on that field
+# A proxy in front of a dead app answers for it with these: the app is gone, so they count as no answer.
+GATEWAY_DOWN = (502, 503, 504)
+
+
+def answers(url):
+    """None when url gives an HTTP answer of the build's own (a 401 or 500 still means it is up), else why not."""
+    try:
+        # run-http's own request timeout, so a slow first page is not taken for a dead build
+        with urllib.request.urlopen(urllib.request.Request(url, method="GET"), timeout=30):
+            return None
+    except urllib.error.HTTPError as e:
+        return f"{url} answers {e.code} from a gateway" if e.code in GATEWAY_DOWN else None
+    except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as e:
+        return f"nothing answers at {url} ({getattr(e, 'reason', None) or e})"
+
+
 def observed(msg):
     """(result, observed, pointer, value) from a run-http failure message: what the build did, never what the test
     wanted. The value is decoded as the JSON document it is, at the offset contracts.py puts it, because a regex
@@ -563,14 +588,24 @@ PLAYWRIGHT_CONFIG = """module.exports = {{ testDir: {test_dir}, outputDir: {out}
 """
 
 
+def integrity(entry, hold):
+    """Why a hidden test must not run (missing, or changed since gate-4), checked even while the build is down so an
+    outage never hides it; None when it may run."""
+    path = bundle_path(hold, entry.get("path"))
+    if not path or not os.path.exists(path):
+        return "the hidden test file is not in the holdout repo"
+    if entry.get("sha256") and sha256_file(path) != entry["sha256"]:
+        return "the hidden test changed since gate-4 locked the manifest"
+    return None
+
+
 def run_one(entry, hold, args):
     """(result, observed, pointer, value) for one hidden test."""
     path = bundle_path(hold, entry.get("path"))
     runner = entry.get("runner")
-    if not path or not os.path.exists(path):
-        return "not run", "the hidden test file is not in the holdout repo", None, None
-    if entry.get("sha256") and sha256_file(path) != entry["sha256"]:
-        return "not run", "the hidden test changed since gate-4 locked the manifest", None, None
+    bad = integrity(entry, hold)
+    if bad:
+        return "not run", bad, None, None
     withheld = "the runner's output is withheld because it quotes the test"
     if runner == "http":
         cpy = contracts_py(args)
@@ -645,11 +680,29 @@ def cmd_run(args):
     except ImportError:
         departures = None
     rank = {"not run": 0, "fail": 1, "explained": 2, "pass": 3}
+    url = os.environ.get("ACCEPT_BASE_URL")
+    down = answers(url) if url else None
+    down = f"{DOWN} before the first test: {down}" if down else None
     for c in (rec.get("slices") or {}).get(sid, []):
         worst = None
         for entry in by_crit.get(c) or [None]:
-            result, obs, ptr, value = run_one(entry, hold, args) if entry else (
-                "not run", "not in the workbench manifest", None, None)
+            live = bool(entry) and entry.get("runner") in LIVE_RUNNERS
+            bad = integrity(entry, hold) if entry else None
+            if not entry:
+                result, obs, ptr, value = "not run", "not in the workbench manifest", None, None
+            elif bad:
+                result, obs, ptr, value = "not run", bad, None, None
+            elif down and live:
+                result, obs, ptr, value = "not run", f"skipped: {down}", None, None
+            else:
+                result, obs, ptr, value = run_one(entry, hold, args)
+                if url and live and result != "pass":
+                    why = answers(url)
+                    if why:
+                        # Named: when the build dies at the same test again after a restart, that test crashes it,
+                        # which is a build defect for a person to route, not an outage.
+                        down = f"{DOWN} at {c}: {why}"
+                        result, obs, ptr, value = "not run", down, None, None
             did = departures.explained_by(c, entry.get("runner"), ptr, value) if departures and result == "fail" else None
             if did:  # 05 P6 step 2: a failure a decided departure's match rule covers is explained
                 result, obs = "explained", f"explained by {did}: {obs}"
@@ -659,7 +712,7 @@ def cmd_run(args):
     out_dir = os.path.join("parity", "holdout")
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, f"{sid}.json"), "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(json.dumps({"slice": sid, "results": results}, indent=2, ensure_ascii=False) + "\n")
+        fh.write(json.dumps({"slice": sid, "results": results, "down": down}, indent=2, ensure_ascii=False) + "\n")
     lines = [f"# Hidden suite, {sid}", "", "Per criterion; a failure says what the build did, never what the test wants.",
              "", "| Criterion | Result | Observed |", "|---|---|---|"]
     lines += [f"| {x['criterion']} | {x['result']} | {x['observed'].replace('|', '/')} |" for x in results]

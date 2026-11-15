@@ -205,8 +205,8 @@ if ONLY in (None, "step0"):
     r = lane_plan("step0", "S1")
     check("slice 1 passes step 0: every criterion has a level 2 test or rspec's reason", r.returncode == 0, r.stdout + r.stderr)
     r = lane_plan("step0", "S2")
-    check("slice 2 fails step 0, naming the criterion and the rspec:verify run",
-          r.returncode == 1 and "F-PRJ-01.AC1" in r.stdout + r.stderr and "rspec:verify --only F-PRJ-01" in r.stdout + r.stderr,
+    check("slice 2 fails step 0, naming the criterion and an rspec:verify run of that criterion only",
+          r.returncode == 1 and "F-PRJ-01.AC1" in r.stdout + r.stderr and "rspec:verify --only F-PRJ-01.AC1, then step 0 again" in r.stdout + r.stderr,
           r.stdout + r.stderr)
     os.replace(os.path.join(wb, "docs", "criteria.lock.json"), os.path.join(wb, "docs", "criteria.lock.off"))
     r = lane_plan("step0", "S1")

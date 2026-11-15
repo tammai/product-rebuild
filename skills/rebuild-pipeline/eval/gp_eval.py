@@ -219,6 +219,40 @@ if ONLY in (None, "budgets"):
     r = script(wb, "route.py", "S1")
     check("route.py's round cap is budgets.fix_rounds", r.returncode == 1 and "1 fix round" in r.stderr, r.stdout + r.stderr)
 
+if ONLY in (None, "tiers"):
+    print("\n# bug-hunter budget by slice risk tier (AC-001, AC-002)")
+    proj, wb = project("tiers")
+    y = read(wb, "rebuild.yaml")
+    check("a scaffolded rebuild.yaml holds the low tier's budget and an empty low list",
+          all(re.search(rf"^  {k}", y, re.M) for k in ("hunters_per_slice_low: 2", "bughunter_tokens_per_slice_low: 400000",
+                                                          r"low_tier_slices: \[\]")), y)
+    w(wb, "rebuild.yaml", y.replace("low_tier_slices: []", "low_tier_slices: [S1]"))
+    r = script(wb, "boundary.py", "S1")
+    check("a low-tier slice's bug-hunter command carries the low hunters and budget",
+          "--max 2" in r.stdout and "--budget 400000" in r.stdout, r.stdout[-900:])
+    w(wb, "rebuild.yaml", y.replace("low_tier_slices: []", "low_tier_slices: [S2]"))
+    r = script(wb, "boundary.py", "S1")
+    check("a slice the low list does not name gets the high budget",
+          "--max 6" in r.stdout and "--budget 1200000" in r.stdout, r.stdout[-900:])
+    w(wb, "rebuild.yaml", y.replace("low_tier_slices: []", "low_tier_slices:\n    - S01"))
+    r = script(wb, "boundary.py", "S1")
+    check("a block list naming S01 puts S1 in the low tier", "--max 2" in r.stdout and "tier: low" in r.stdout, r.stdout[-900:])
+    w(wb, "rebuild.yaml", y.replace("low_tier_slices: []", "low_tier_slices:\n    # agreed with the user\n    - S1")
+                          .replace("hunters_per_slice_low: 2", 'hunters_per_slice_low: "2"'))
+    r = script(wb, "boundary.py", "S1")
+    check("a comment inside the block list and a quoted low budget still give S1 the low tier",
+          '--max 2 ' in r.stdout and "tier: low" in r.stdout, r.stdout[-900:])
+    w(wb, "rebuild.yaml", y.replace("low_tier_slices: []", "low_tier_slices: [S1]").replace("hunters_per_slice_low: 2",
+                                                                                          "hunters_per_slice_low: 0"))
+    r = script(wb, "boundary.py", "S1")
+    check("a low budget of 0 is not used: the high budget applies and the tier line says why",
+          "--max 6" in r.stdout and "whole numbers above 0" in r.stdout, r.stdout[-900:])
+    w(wb, "rebuild.yaml", "budgets:\n  parallel_lanes: 3\n  hunters_per_slice: 6\n  bughunter_tokens_per_slice: 1200000\n"
+                          "  fix_rounds: 2\n")
+    r = script(wb, "boundary.py", "S1")
+    check("a 3.1.0 rebuild.yaml with no tier keys keeps 6 hunters and 1.2M",
+          "--max 6" in r.stdout and "--budget 1200000" in r.stdout, r.stdout[-900:])
+
 if ONLY in (None, "cost"):
     print("\n# each slice's cost beside its quality figures (AC-025)")
     proj, wb = project("cost")

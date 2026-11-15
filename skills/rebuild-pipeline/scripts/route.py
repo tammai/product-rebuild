@@ -43,6 +43,7 @@ ROUND_CAP = 2  # rebuild.yaml budgets.fix_rounds overrides it (05 P9)
 
 
 def round_cap():
+    # The budgets-block regex is copied in lane_plan.lane_cap and boundary._budgets_block: change all three together.
     p = "rebuild.yaml"
     block = re.search(r"^budgets:[ \t]*\n((?:(?:[ \t]+.*)?\n)*)", read_text(p) + "\n", re.M) if os.path.exists(p) else None
     m = block and re.search(r"^[ \t]+fix_rounds:[ \t]*(\d+)", block.group(1), re.M)

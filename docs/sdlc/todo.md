@@ -2,6 +2,9 @@
 
 ## Open
 
+- [ ] lane_plan.py:618 (a lane refused on step 0) still says `rspec:verify --only <features>`; name the criterion IDs as step 0 now does, together with rspec's amend.py (R2-9), so one amend re-records one criterion, not the feature; feature 2026-11-15-m-g5-cost-tiers (2026-11-15)
+- [ ] R2-7: evals for the health guard's other paths: JUnit open results still reported after an outage (CR-3), maestro or a missing manifest entry not skipped (CR-5), the exposure refusal winning over a dead target (CR-6), a failing Playwright hidden test triggering the re-check (CR-2); eval/g6_eval.py, feature 2026-11-15-m-g5-cost-tiers (2026-11-15)
+- [ ] R2-8 / CR-11: one shared health probe for holdout.answers and preflight._probe (they disagree on a 500), ideally fed by a structured transport-error signal from contracts' run-http instead of message text; R2-12: boundary.py and holdout.py run each probe once per run; feature 2026-11-15-m-g5-cost-tiers (2026-11-15)
 
 - [ ] reference_guard.py writes no log, but 06-rollout's E2E pass condition names guard logs: either log each denial (append-only, in the workbench's logs/) or change 06 to name transcript evidence — E2E-1 uses transcript evidence through its harness guard_check.py meanwhile; feature 2026-11-08-l-product-rebuild-3 (2026-11-09)
 - [ ] CR-1: protect departures appended after Gate 1 as well (record each later entry, e.g. on append, so editing or removing one fails validate.py), today only the entries present at the gate-1 lock are protected — the user shipped 3.0.0 with the spec's literal rule (05 Gate 1 row, "records the IDs present at its lock"); skills/rebuild-pipeline/scripts/departures.py, feature 2026-11-09-m-departures-append-known-gap (2026-11-09)

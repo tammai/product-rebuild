@@ -401,14 +401,17 @@ def _step0(args):
     if not missing:
         print(f"{slice_id} step 0: every criterion has a level 2 test or rspec's reason for staying at level 1.")
         return 0
-    feats = ",".join(dict.fromkeys(c["feature"] for c in missing))
+    # Criterion IDs, not features: rspec 0.13.0's --only records just these, where a feature re-recorded every
+    # criterion it has, level 2 ones included (the CRM's verify paid for that per slice).
+    ids = ",".join(c["id"] for c in missing)
     print(f"{slice_id} step 0: {len(missing)} criteria have no level 2 test and no recorded reason:\n" +
           "\n".join(f"  {c['id']} (level {c.get('level')})" for c in missing) +
-          f"\nRun rspec:verify --only {feats}, then step 0 again.", file=sys.stderr)
+          f"\nRun rspec:verify --only {ids}, then step 0 again.", file=sys.stderr)
     return 1
 
 
 def lane_cap():
+    # The budgets-block regex is copied in route.round_cap and boundary._budgets_block: change all three together.
     p = "rebuild.yaml"
     block = re.search(r"^budgets:[ \t]*\n((?:(?:[ \t]+.*)?\n)*)", _read_text(p) + "\n", re.M) if os.path.exists(p) else None
     m = block and re.search(r"^[ \t]+parallel_lanes:[ \t]*(\d+)", block.group(1), re.M)

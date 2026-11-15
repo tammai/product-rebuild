@@ -16,7 +16,7 @@ step 1 registers it. Read that file now if no code repo exists yet.
 0. **Step 0: every criterion of the slice has a recorded test or rspec's reason.**
    `python3 scripts/lane_plan.py step0 <Sn>` names each criterion with neither a level 2 test in
    `docs/acceptance/` nor rspec's recorded reason for level 1 (`unrecordable`, `read-only reference`);
-   run `rspec:verify --only <features>` for them and check again. `lane_plan.py` opens no lane of a slice
+   run the `rspec:verify --only <criterion IDs>` it prints (rspec 0.13.0 records just those) and check again. `lane_plan.py` opens no lane of a slice
    that fails it. A test recorded against the reference before the build exists is what makes the suite
    a parity suite: one written after the rebuild agrees with whatever got built.
 
