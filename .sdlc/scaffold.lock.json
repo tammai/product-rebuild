@@ -38,6 +38,81 @@
       "class": "generated",
       "sha256": "012503c22f1f36ca4f92c7d7656889e427596ab7451815e1e4dc59ac9b73e29a",
       "template": "templates/project/rules/ui.md"
+    },
+    ".claude/hookify/sdlc-console-log.md": {
+      "class": "seeded",
+      "sha256": "75ddf4fc5e106d0df2d5c1902544332cb1c35646152df3f94b4c9041482a834e",
+      "template": "templates/project/hookify/sdlc-console-log.md"
+    },
+    ".claude/hookify/sdlc-dangerous-rm.md": {
+      "class": "seeded",
+      "sha256": "0b2bcb23948e669f6abdeba8dead63b3bb4a73b2a32377e312d58ae8a9a47aee",
+      "template": "templates/project/hookify/sdlc-dangerous-rm.md"
+    },
+    ".claude/hookify/sdlc-focused-tests.md": {
+      "class": "seeded",
+      "sha256": "937cba76d9c4096283ba71c39cfe32791f50b424c3c0617f833e768eacf587bf",
+      "template": "templates/project/hookify/sdlc-focused-tests.md"
+    },
+    ".claude/hookify/sdlc-force-push-main.md": {
+      "class": "seeded",
+      "sha256": "6ef9de76ad0eaa7e985980ac77a23862981f78568adc8939c4c7a670226b6ed9",
+      "template": "templates/project/hookify/sdlc-force-push-main.md"
+    },
+    ".claude/hookify/sdlc-history-comments.md": {
+      "class": "seeded",
+      "sha256": "97c4777a5a222ee5365717a0b083c2368a225ef9378422bc3c87dee568f16240",
+      "template": "templates/project/hookify/sdlc-history-comments.md"
+    },
+    ".claude/hookify/sdlc-long-doc-comments.md": {
+      "class": "seeded",
+      "sha256": "72b3cff3bea6f3bc00ad5a7b6c04d7afcccf0f4ccf1e0535504b3e290ad8ae92",
+      "template": "templates/project/hookify/sdlc-long-doc-comments.md"
+    },
+    ".claude/hookify/sdlc-narration-comments.md": {
+      "class": "seeded",
+      "sha256": "209e97bd490cf7acc327ce26c6ada550a63376ef50264e8dde54026a49e930ee",
+      "template": "templates/project/hookify/sdlc-narration-comments.md"
+    },
+    ".claude/hookify/sdlc-protect-guardrails-bash.md": {
+      "class": "seeded",
+      "sha256": "6faa4edfedac5b8fc658988c2dc36811bf4cda5e4ccb02ddf8d09340004a464d",
+      "template": "templates/project/hookify/sdlc-protect-guardrails-bash.md"
+    },
+    ".claude/hookify/sdlc-protect-guardrails-file.md": {
+      "class": "seeded",
+      "sha256": "f1531350f6da1c48d8743a67c0dd86141a0af7a5b5cef6d1e17ce540bc3afdfa",
+      "template": "templates/project/hookify/sdlc-protect-guardrails-file.md"
+    },
+    ".claude/hookify/sdlc-reset-hard.md": {
+      "class": "seeded",
+      "sha256": "b31a319c922e9acefb369328b3e031f308882220f702d613db73c316c6e5eb74",
+      "template": "templates/project/hookify/sdlc-reset-hard.md"
+    },
+    ".claude/hookify/sdlc-secret-values-bash.md": {
+      "class": "seeded",
+      "sha256": "dd2aff3218e97d8f098e1239de0b313123ae60993b355c0df6a571167dff4735",
+      "template": "templates/project/hookify/sdlc-secret-values-bash.md"
+    },
+    ".claude/hookify/sdlc-secret-values.md": {
+      "class": "seeded",
+      "sha256": "79642ca6dd4ad88277c628cae5e46a4a73a3e08aa1fedef4da1ff914730aceea",
+      "template": "templates/project/hookify/sdlc-secret-values.md"
+    },
+    ".claude/hookify/sdlc-sensitive-files.md": {
+      "class": "seeded",
+      "sha256": "13995ed7006bc4c0a417076deb78bf673650c29c681ee13026f889fc88da7f05",
+      "template": "templates/project/hookify/sdlc-sensitive-files.md"
+    },
+    ".claude/hookify/sdlc-suppressions.md": {
+      "class": "seeded",
+      "sha256": "debaed36546d04c3336c71e31ce3e59ca0a40202e8bf440bf876fa66fa957e03",
+      "template": "templates/project/hookify/sdlc-suppressions.md"
+    },
+    ".claude/hookify/sdlc-ui-hardcoded-values.md": {
+      "class": "seeded",
+      "sha256": "d7f4d41d1230d4c7b1b6de2b58597556b9783ab160ba8cf2471a79e8e9934cd2",
+      "template": "templates/project/hookify/sdlc-ui-hardcoded-values.md"
     }
   },
   "merged": {
