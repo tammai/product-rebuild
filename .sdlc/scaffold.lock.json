@@ -1,5 +1,5 @@
 {
-  "scaffold_version": "3.2.1",
+  "scaffold_version": "3.6.1",
   "hosts": [
     "claude-code"
   ],
@@ -134,7 +134,10 @@
     ]
   },
   "migrations": {
-    "applied": [],
+    "applied": [
+      "3.5.0-accept-keys",
+      "3.6.0-deploy-target"
+    ],
     "skipped": {}
   },
   "setup": {
