@@ -12,5 +12,10 @@
     "typecheck": null,
     "build": null
   },
-  "prd": "README.md"
+  "prd": "README.md",
+  "deploy": {
+    "target": "none",
+    "environments": [],
+    "runbook": "knowledge/runbooks/deploy.md"
+  }
 }

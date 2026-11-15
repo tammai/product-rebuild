@@ -5,7 +5,7 @@ paths:
   - "**/test_*.py"
   - "**/*_test.{py,go}"
 ---
-<!-- Managed by the sdlc plugin v3.2.1; regenerated on upgrade. Change paths via "areas.tests" in .sdlc/config.json. -->
+<!-- Managed by the sdlc plugin v3.6.1; regenerated on upgrade. Change paths via "areas.tests" in .sdlc/config.json. -->
 # Tests (sdlc policy)
 
 - Write the failing test first and watch it fail for the right reason (`sdlc:test-driven-development`).
