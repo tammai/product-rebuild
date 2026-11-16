@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-11-16
+
+Recorded tests can be proven on the reference through an adapter when the rebuild's contract is not the reference's own API (issue #9 item 6). Requires rspec 0.14.0 and bug-hunter 0.5.3.
+
 ### Added
 
 - **Contract-shaped tests through a reference adapter, step 2** ([#9](https://github.com/tammai/product-rebuild/issues/9)
