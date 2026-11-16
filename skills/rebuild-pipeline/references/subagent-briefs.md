@@ -40,6 +40,18 @@ step. So:
 - Claude Code gives these agents no turn cap a brief can rely on. Put the step budget in the brief ("stop and
   report after about 40 steps").
 
+## The reference adapter (after Gate 3, before verify)
+
+Only when `sources.yaml` says `reference.adapter: required`. It's an sdlc feature in the workbench (`/sdlc:start`, files under `adapter/`), built against `docs/openapi.json` as rspec:tech wrote it (Gate 4 locks it with the tests). The brief names, as paths: the contract, `docs/domain.md`, the reference's API docs (`sources.docs`), the plugin's `docs/specs/contract-shaped-tests/design.md`, and these rules:
+
+- **A pass-through.** Each contract operation the MVP criteria use maps to calls on the running reference, at the URL in the variable `rspec.json` `reference.run.base_url_env` names (the adapter is started with the user's environment). Every response comes from those calls in that request. It keeps no state, cache or stub of its own.
+- **When it can't map an operation,** it answers 501, and the criterion is `unrecordable "adapter: …"` until the mapping is added.
+- **When the reference doesn't answer,** it returns 502, so rspec's `verify_run.py` stops as `not run` instead of logging failures.
+- **The request log**, `parity/adapter/requests.jsonl`. It stays git-ignored (`parity/adapter/` in `.gitignore`; an older workbench adds the line itself, and Gate 4 names it until it does): it names every recorded request, the hidden tests' too, and Gate 4 refuses a committed one. Each time the adapter starts, it appends `{"start": "<ISO 8601 with a timezone, e.g. …Z>"}`, then one JSON line per request served: `method`, `path`, `status`, `reference_calls` (how many calls it made to the reference). No bodies, headers or tokens. `python3 scripts/adapter.py audit` checks every run started since the adapter's last commit (each restart during verify is a run): it fails on any response other than 501-504 with `reference_calls: 0`. Gate 4 refuses until that audit passes, and while any open (not hidden) MVP level-2 HTTP criterion has no passing run since that commit (after an adapter fix, re-record what it touches). It records the result in its lock.
+- **Its own tests** run against the live reference, one per operation. Its own URL goes in the variable `rspec.json` `reference.run.adapter.base_url_env` names (e.g. `ACCEPT_ADAPTER_URL`, never `ACCEPT_BASE_URL`).
+
+Commit and merge the adapter before verify. Any later commit under `adapter/` (even a README, an amend or a squash-merge) means re-recording every open HTTP criterion. Hidden criteria aren't re-checked, because their tests can't be re-recorded after the split, so don't change the adapter between the split and the first Gate 4 lock. Gate 4 hashes the files git tracks under `adapter/` (keep build output git-ignored there). A fix after the lock (a judge's `adapter:` verdict at a later step 0) needs a Gate 4 reopen, then a re-verify of the criteria it touches.
+
 ## The build-lane brief (G5)
 
 `lane-worker`'s agent file carries the standing rules, so they are not pasted into each brief (a rule that lives

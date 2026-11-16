@@ -66,7 +66,10 @@ SPEC = "docs"
 # written once at scaffold time, so this is how a path added by a later release reaches a
 # workbench scaffolded earlier. gate-3's adr/ holds the vendored playbook and its scaffold manifest
 # (the stack every code repo is created from); 3.0 release candidates scaffolded gate-3 without it.
-REQUIRED_PROTECTS = {"gate-3": ["adr/"]}
+REQUIRED_PROTECTS = {"gate-3": ["adr/"],
+                     # The reference adapter the recorded tests were proven through: changing it after
+                     # Gate 4 would change what "proven on the reference" meant (contract-shaped tests design).
+                     "gate-4": ["adapter/"]}
 # The reverse: paths an earlier scaffold put under a gate that it no longer hashes, dropped at lock time.
 # Each path maps to the reason printed when it is dropped.
 RETIRED_PROTECTS = {"gate-1": {"docs/departures.yaml": "the departures registry is append-only from the gate-1 "
@@ -341,20 +344,22 @@ def _lock_gate2_checks(gid):
     return None
 
 
-def posture():
-    """sources.yaml reference.posture, resolved as validate.py and the reference guard resolve it
-    (empty: own-code for kind own-code, else observe; an unknown value counts as strict).
-    Line-parsed, like them; change the three together."""
+def reference_field(key):
+    """One field of sources.yaml's `reference:` block, line-parsed like validate.py and the reference guard."""
     try:
         text = read_text("sources.yaml") + "\n"
     except OSError:
         text = ""
     block = re.search(r"^reference:[ \t]*\n((?:(?:[ \t]+.*)?\n)*)", text, re.M)
+    f = block and re.search(rf"^[ \t]+{key}:[ \t]*(.*)$", block.group(1), re.M)
+    return re.split(r"\s+#", f.group(1))[0].strip().strip("\"'") if f else ""
 
-    def field(key):
-        f = block and re.search(rf"^[ \t]+{key}:[ \t]*(.*)$", block.group(1), re.M)
-        return re.split(r"\s+#", f.group(1))[0].strip().strip("\"'") if f else ""
 
+def posture():
+    """sources.yaml reference.posture, resolved as validate.py and the reference guard resolve it
+    (empty: own-code for kind own-code, else observe; an unknown value counts as strict).
+    Line-parsed, like them; change the three together."""
+    field = reference_field
     p = field("posture")
     if not p:
         return "own-code" if field("kind") == "own-code" else "observe"
@@ -364,7 +369,120 @@ def posture():
 LEVEL2_FLOOR = 0.9  # 05 P2: MVP criteria at level 2 before Gate 4 locks, for observe/own-code
 
 
+def _git_paths(*args):
+    """Paths git lists with -z (unquoted, whatever the characters), or None when git can't answer."""
+    try:
+        return [p for p in _git(["ls-files", "-z", *args]).stdout.split("\0") if p]
+    except Exception:
+        return None
+
+
+def adapter_files():
+    """The adapter source Gate 4 hashes: the files git tracks under adapter/, so ignored build output
+    (__pycache__, node_modules) never enters a lock every clone would then fail. None when adapter/ exists and
+    git can't list it: the lock refuses rather than hash the wrong set."""
+    if not os.path.isdir("adapter"):
+        return []
+    tracked = _git_paths("--", "adapter")
+    return None if tracked is None else sorted(tracked)
+
+
+def _unproven_http(since):
+    """MVP level-2 HTTP criteria (open ones: hidden tests' runs live in the holdout repo) with no passing run in
+    docs/verify/runs.jsonl at or after `since`, i.e. none proven through the adapter version being locked."""
+    import adapter
+    try:
+        rows = json.loads(read_text(_join(SPEC, "criteria.lock.json"))).get("criteria") or []
+        hidden = set((json.loads(read_text(_join("plan", "holdout.json"))) or {}).get("hidden") or [])
+    except (OSError, ValueError, AttributeError):
+        return None
+    want = {c.get("id") for c in rows if isinstance(c, dict) and c.get("priority") == "MVP" and c.get("level") == 2
+            and str(c.get("test") or "").startswith("acceptance/http/") and c.get("id") not in hidden}
+    try:
+        lines = read_text(_join(SPEC, "verify", "runs.jsonl")).splitlines()
+    except OSError:
+        lines = []
+    for line in lines:
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        t = adapter.parse_time(r.get("ts")) if isinstance(r, dict) else None
+        if t and t >= since and r.get("runner") == "http" and r.get("result") == "pass":
+            want.discard(r.get("criterion"))
+    return sorted(want)
+
+
+def _adapter_problem():
+    """(why Gate 4 can't lock yet, or None; the lock line recording the audit). With reference.adapter: required,
+    Gate 4 pins tests proven through the adapter, so the adapter must be committed, set in rspec.json, and its
+    audit must pass on a run of the version being locked. Fails closed on a value it does not know."""
+    if not os.path.exists("sources.yaml"):
+        return "sources.yaml is missing, so whether the tests went through an adapter is unknown.", ""
+    need = reference_field("adapter")
+    if need not in ("", "none", "required"):
+        return f"sources.yaml reference.adapter is {need!r}: it must be required or none (python3 scripts/validate.py).", ""
+    if need != "required":
+        return None, ""
+    try:
+        run = (json.loads(read_text(_join(SPEC, "rspec.json"))).get("reference") or {}).get("run") or {}
+    except (OSError, ValueError, AttributeError):
+        run = {}
+    if not isinstance(run, dict) or not isinstance(run.get("adapter"), dict):
+        return (f"sources.yaml says reference.adapter: required, but {SPEC}/rspec.json sets no reference.run.adapter, "
+                f"so rspec:verify recorded against the reference's own API. Set it, re-verify, then lock."), ""
+    if run.get("kind") == "none":
+        return (f"sources.yaml says reference.adapter: required, but {SPEC}/rspec.json reference.run.kind is "
+                f"{run.get('kind')!r}: an adapter needs a running reference to call."), ""
+    files = adapter_files()
+    if files is None:
+        return "git cannot list adapter/, so the adapter's source cannot be hashed.", ""
+    if not files:
+        return "sources.yaml says reference.adapter: required, but adapter/ holds no committed file to lock.", ""
+    try:
+        import adapter
+    except ImportError:
+        return "scripts/adapter.py is missing from the workbench, so the adapter's audit cannot run.", ""
+    # The log names every recorded request, the hidden tests' too, and lanes hold this repo. Checked before the
+    # dirty-tree check, which would otherwise tell the user to commit an un-ignored log.
+    why_log = "it names every recorded request, the hidden tests' too, and lanes hold this repo"
+    if _git_paths("--", "parity/adapter"):
+        return f"{adapter.LOG} is committed ({why_log}). Run git rm --cached on it, then lock.", ""
+    try:
+        ignored = subprocess.run(["git", "check-ignore", "-q", adapter.LOG], capture_output=True).returncode == 0
+    except OSError:
+        ignored = False
+    if not ignored:
+        return f"{adapter.LOG} is not git-ignored ({why_log}). Add the line parity/adapter/ to .gitignore.", ""
+    since = adapter.last_change()
+    if since is None:
+        return "git cannot say when adapter/ was last committed, so the audit cannot tell its runs apart.", ""
+    code, lines = adapter.audit(adapter.LOG, since)
+    if code != 0:
+        return "the adapter's audit does not pass:\n" + "\n".join(lines), ""
+    if not os.path.exists(_join("plan", "holdout.json")):
+        return ("no holdout split yet (plan/holdout.json). Run python3 scripts/holdout.py split first; it draws "
+                "the hidden tests this lock records."), ""
+    unproven = _unproven_http(since)
+    if unproven is None:
+        return f"{SPEC}/criteria.lock.json or plan/holdout.json cannot be read.", ""
+    if unproven:
+        return (f"{len(unproven)} level-2 HTTP criteria have no passing run since the adapter's last commit "
+                f"({since.isoformat()}), so they were proven through another version: {', '.join(unproven[:10])}. "
+                f"Re-record them with rspec:verify --only <IDs>."), ""
+    return None, f"adapter_audit: {yaml_str(lines[0])}\n"
+
+
 def _lock_gate4_checks(gid, argv):
+    why, audit_line = _adapter_problem()
+    if why:
+        print(f"Cannot lock {gid}: {why}", file=sys.stderr)
+        return 1, ""
+    rc, extra = _lock_gate4_level2_checks(gid, argv)
+    return rc, extra + audit_line
+
+
+def _lock_gate4_level2_checks(gid, argv):
     # Level 2 means a test recorded against the running reference (contracts C3); below it a
     # criterion's test was written from the spec, so the builder's tests agree with the spec and
     # nothing says the spec agrees with the product. Under `strict` the spec side may not run
@@ -633,7 +751,10 @@ def cmd_lock(gid, lock, argv):
             print(f"Dropping from {gid} protects: {p} (this plugin version no longer hashes it: "
                   f"{RETIRED_PROTECTS[gid][p]}).")
 
-    hashes = [f"  {f}: {sha(f)}" for p in protects for f in files_under(p)]
+    if "adapter/" in protects and adapter_files() is None:
+        print(f"Cannot lock {gid}: git cannot list adapter/, so the adapter's source cannot be hashed.", file=sys.stderr)
+        return 1
+    hashes = [f"  {f}: {sha(f)}" for p in protects for f in (adapter_files() if p == "adapter/" else files_under(p))]
     if not hashes:
         print(f"Nothing to lock: no files under {', '.join(protects)}", file=sys.stderr)
         return 1

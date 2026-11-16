@@ -2,7 +2,7 @@
 """gates_rspec.py (eval) — 3.0.0, spec 05 P2: do the gates lock rspec's artifacts, in rspec's order,
 and does `gate.py status` read rspec's own progress instead of guessing it?
 
-  python3 skills/rebuild-pipeline/eval/gates_rspec.py [order|scaffold|level2|progress]
+  python3 skills/rebuild-pipeline/eval/gates_rspec.py [order|scaffold|level2|adapter|progress]
 
 WHY IT EXISTS. In 3.0 rspec writes the spec and the tests, and the gates are the only record that a
 person approved them. A gate that locks the wrong files, or locks before rspec's own check of the
@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."))
 SCRIPTS = os.path.join(ROOT, "skills", "rebuild-pipeline", "scripts")
@@ -226,6 +227,110 @@ if ONLY in (None, "level2"):
     r = gate(wb, "lock", "gate-4", "--by", "Eval")
     check("own-code: 90% locks with no reason asked", r.returncode == 0 and "level2_waiver" not in lock_text(wb, "gate-4"),
           r.stdout + r.stderr)
+
+if ONLY in (None, "adapter"):
+    print("\n# a reference adapter at Gate 4 (contract-shaped tests, design points 1-3)")
+    wb = workbench("adapter")
+    through_gate2(wb)
+    contracts(wb, [2] * 10, "observe")
+    src = os.path.join(wb, "sources.yaml")
+
+    def sources_adapter(value):
+        text = open(src, encoding="utf-8").read()
+        with open(src, "w", encoding="utf-8", newline="\n") as f:
+            f.write(re.sub(r'^(  adapter:)[ \t]*"[^"]*"', rf'\1 "{value}"', text, count=1, flags=re.M))
+
+    def audit(*a):
+        return run([sys.executable, os.path.join("scripts", "adapter.py"), "audit", *a], wb)
+
+    sources_adapter("sometimes")
+    r = run([sys.executable, os.path.join("scripts", "validate.py")], wb)
+    check("validate.py refuses a reference.adapter that is not required or none",
+          r.returncode == 1 and "reference.adapter" in r.stdout + r.stderr, r.stdout[-600:] + r.stderr)
+    sources_adapter("Required")
+    commit(wb)
+    r = gate(wb, "lock", "gate-4", "--by", "Eval")
+    check("gate-4 refuses a reference.adapter it does not know, rather than reading it as none",
+          r.returncode == 1 and "reference.adapter" in r.stderr, r.stdout + r.stderr)
+    sources_adapter("required")
+    commit(wb)
+    r = gate(wb, "lock", "gate-4", "--by", "Eval")
+    check("adapter required: gate-4 refuses while rspec.json sets no reference.run.adapter",
+          r.returncode == 1 and "reference.run.adapter" in r.stderr, r.stdout + r.stderr)
+    cfg = json.loads(open(os.path.join(wb, "docs", "rspec.json"), encoding="utf-8").read())
+    cfg["reference"]["run"]["adapter"] = {"start": "python3 adapter/server.py", "base_url_env": "ACCEPT_ADAPTER_URL"}
+    w(wb, "docs/rspec.json", json.dumps(cfg))
+    w(wb, "adapter/server.py", "# the pass-through adapter\n")
+    w(wb, "adapter/.gitignore", "__pycache__/\n")
+    w(wb, "adapter/__pycache__/server.cpython.pyc", "build output\n")
+    commit(wb)
+    r = audit()
+    check("adapter.py audit with no request log is not run, never a pass", r.returncode == 2 and "not run" in r.stdout + r.stderr,
+          r.stdout + r.stderr)
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 5))
+    later = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 6))
+    log = "parity/adapter/requests.jsonl"
+    backed = '{"method": "GET", "path": "/api/companies", "status": 200, "reference_calls": 2}\n'
+    # Three runs: one before the adapter's last commit (another version), then two of this version, the
+    # first restarted mid-verify. Every run of this version is audited, not only the latest.
+    w(wb, log, '{"start": "2000-01-01T00:00:00Z"}\n'
+               '{"method": "GET", "path": "/api/old", "status": 200, "reference_calls": 0}\n'
+               f'{{"start": "{now}", "pid": 41}}\n' + backed +
+               '{"method": "GET", "path": "/api/people/7", "status": 200, "reference_calls": 0}\n'
+               '{"method": "GET", "path": "/api/people/8", "status": 501, "reference_calls": 0}\n'
+               '{"method": "GET", "path": "/api/people/9", "status": 502, "reference_calls": 0}\n'
+               f'{{"start": "{later}"}}\n' + backed)
+    r = audit()
+    check("audit reads every run since the adapter's last commit and fails on a response no reference call backs, "
+          "naming it; a 501 for an unmapped operation, a gateway 502 and an older version's run are not findings",
+          r.returncode == 1 and "/api/people/7" in r.stdout and not any(p in r.stdout for p in ("/api/old", "/people/8", "/people/9")),
+          r.stdout + r.stderr)
+    r = gate(wb, "lock", "gate-4", "--by", "Eval")
+    check("…and gate-4 refuses while the audit fails", r.returncode == 1 and "/api/people/7" in r.stderr, r.stdout + r.stderr)
+    w(wb, log, '{"start": "2000-01-01T00:00:00Z"}\n' + backed)
+    r = gate(wb, "lock", "gate-4", "--by", "Eval")
+    check("gate-4 refuses a request log with no run since the adapter's last commit", r.returncode == 1 and "since" in r.stderr,
+          r.stdout + r.stderr)
+    w(wb, log, f'{{"start": "{now}"}}\n' + backed + '{"start": "2026-11-16T12:00:00"}\n' + backed)
+    r = gate(wb, "lock", "gate-4", "--by", "Eval")
+    check("a start with no timezone after a run of this version is refused with one line, not a traceback",
+          r.returncode == 1 and "timezone" in r.stderr and "Traceback" not in r.stderr, r.stdout + r.stderr)
+    # An older version's malformed lines, before this version's first run, never block the gate.
+    w(wb, log, '{"start": "2026-01-01T00:00:00"}\nnot json\n' + f'{{"start": "{now}"}}\n' + backed)
+    r = audit()
+    check("an older version's malformed lines before this version's first run are skipped", r.returncode == 0,
+          r.stdout + r.stderr)
+    runs = "docs/verify/runs.jsonl"
+    w(wb, runs, "".join(json.dumps({"ts": "2000-01-01T00:00:00Z", "criterion": f"F-ISS-01.AC{i}", "runner": "http",
+                                    "result": "pass"}) + "\n" for i in range(1, 11)))
+    commit(wb)
+    r = gate(wb, "lock", "gate-4", "--by", "Eval")
+    check("gate-4 refuses while a level-2 HTTP criterion has no passing run through this adapter version, naming it",
+          r.returncode == 1 and "F-ISS-01.AC" in r.stderr and "since" in r.stderr, r.stdout + r.stderr)
+    w(wb, runs, "".join(json.dumps({"ts": now, "criterion": f"F-ISS-01.AC{i}", "runner": "http", "result": "pass"}) + "\n"
+                        for i in range(1, 11)))
+    commit(wb)
+    ignore = open(os.path.join(wb, ".gitignore"), encoding="utf-8").read()
+    w(wb, ".gitignore", ignore.replace("parity/adapter/\n", ""))
+    r = gate(wb, "lock", "gate-4", "--by", "Eval")
+    check("gate-4 refuses while the request log is not git-ignored, naming the line to add (before the dirty-tree "
+          "check could tell the user to commit it)", r.returncode == 1 and "parity/adapter/" in r.stderr and ".gitignore" in r.stderr,
+          r.stdout + r.stderr)
+    w(wb, ".gitignore", ignore)
+    run(["git", "add", "-f", log], wb)
+    run(["git", "commit", "-qm", "log"], wb)
+    r = gate(wb, "lock", "gate-4", "--by", "Eval")
+    check("gate-4 refuses a request log committed to the workbench (it names the hidden tests' paths)",
+          r.returncode == 1 and "requests.jsonl" in r.stderr and "git" in r.stderr, r.stdout + r.stderr)
+    run(["git", "rm", "-q", "--cached", log], wb)
+    run(["git", "commit", "-qm", "untrack log"], wb)
+    r = gate(wb, "lock", "gate-4", "--by", "Eval")
+    lock4 = lock_text(wb, "gate-4")
+    check("with the adapter set and its audit passing, gate-4 locks, hashes only the adapter's tracked source, "
+          "and records the audit",
+          r.returncode == 0 and "  - adapter/" in lock4 and re.search(r"(?m)^  adapter/server\.py: [0-9a-f]{64}$", lock4)
+          and "__pycache__" not in lock4 and "adapter_audit:" in lock4 and "scaffolded before" not in r.stdout,
+          r.stdout + r.stderr + lock4)
 
 if ONLY in (None, "progress"):
     print("\n# rspec's progress (AC-013)")

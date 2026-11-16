@@ -30,6 +30,10 @@
         "list_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
       }
     },
+    "adapter_audit": {
+      "description": "gate-4 with reference.adapter: required: adapter.py audit's result for the request log the lock was cut on.",
+      "type": "string"
+    },
     "level2_waiver": {
       "type": "object",
       "required": ["share", "floor", "posture", "reason", "by", "at"],
