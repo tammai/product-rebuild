@@ -38,7 +38,7 @@ SCRIPTS = [
     "sequence.py", "slice_review.py", "acsuite.py", "routing.py",
     "preflight.py", "upgrade.py", "equiv.py", "lanes_check.py",
     "lane_plan.py", "run_phases.py", "boundary.py",
-    "holdout.py", "departures.py", "route.py", "gp.py", "cost.py",
+    "holdout.py", "departures.py", "route.py", "gp.py", "cost.py", "adapter.py",
     # The YAML and JSON-schema readers every checking script imports, and the PyYAML they sit on.
     "yamlio.py", "schemacheck.py",
 ]
@@ -167,7 +167,7 @@ def main(argv=None):
         ("gate-3", "Architecture lock", ["docs/decisions/", "adr/"]),
         ("gate-2", "Slice-plan lock", ["docs/build-plan.md"]),
         ("gate-4", "Contract lock", ["docs/openapi.json", "docs/schemas/", "docs/criteria.lock.json",
-                                     "docs/acceptance/manifest.json"]),
+                                     "docs/acceptance/manifest.json", "adapter/"]),
         ("gate-5", "Prod-ready lock", ["docs/production-readiness.md", "parity/gp/nfr-evidence.md"]),
     ]
     for gid, title, protects in gates:
@@ -190,6 +190,8 @@ def main(argv=None):
     # both together): rspec:verify records the whole bundle, and a commit before the split would put the
     # hidden share into the history every lane holds as a submodule.
     write(".gitignore", "__pycache__/\n*.pyc\nparity/flows/.unlocked.yaml\nparity/equiv/.unlocked.yaml\ndocs/acceptance/.unlocked.yaml\n"
+          "# The reference adapter's request log names every recorded request, the hidden tests' too (gate.py).\n"
+          "parity/adapter/\n"
           "# The bundle stays out of git until holdout.py split (05 P4): its hidden share must never be in\n"
           "# this repo's history, which every lane holds as a submodule. The split removes these lines.\n"
           "docs/acceptance/\ndocs/verify/runs.jsonl\n")
@@ -237,6 +239,9 @@ reference:
   # never the hidden tests: hooks/scripts/reference_guard.py denies both. Which posture a licence
   # allows is the user's call at G0.
   posture: ""         # strict | observe | own-code; empty: own-code for kind own-code, else observe
+  # Set after Gate 3: required when the locked contract is not the reference's own API (REST over its
+  # GraphQL), so the recorded tests are proven through an adapter (the plugin's docs/specs/contract-shaped-tests/design.md).
+  adapter: ""         # required | none; empty: none
   upstream: ""        # active | frozen — frozen turns off G6's upstream re-mine
   # How the reference runs on this machine, in one place. Moving its port in the Kutt rebuild
   # meant editing three places that had to agree by hand.

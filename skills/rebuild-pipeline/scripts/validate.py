@@ -357,6 +357,10 @@ def main(argv=None):
                                  f"may read a reference you do not own. Confirm the licence allows it (G0).")
         else:
             ok(f"sources.yaml (reference.posture: {posture or ('own-code' if kind == 'own-code' else 'observe')})")
+        # gate.py reads it to decide whether Gate 4 needs the adapter; a typo would silently mean none.
+        if ref_field("adapter") not in ("", "none", "required"):
+            fail("sources.yaml", f"reference.adapter is {ref_field('adapter')!r}: it must be required or none "
+                                 f"(or empty: none)")
 
     # ---------------------------------------------------------------------------
     # adr/ — the vendored playbook and its scaffold manifest (no ADRs: those are rspec's

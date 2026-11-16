@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Contract-shaped tests through a reference adapter, step 2** ([#9](https://github.com/tammai/product-rebuild/issues/9)
+  item 6; design `docs/specs/contract-shaped-tests/design.md`). When the locked contract isn't the reference's own
+  API, `sources.yaml` `reference.adapter: required` (validated: `required` or `none`) has the recorded tests proven
+  through an adapter. The adapter is built as an sdlc feature in `adapter/` (brief in `references/subagent-briefs.md`).
+  The adapter keeps a git-ignored request log, `parity/adapter/requests.jsonl`: a start line each time it starts,
+  then one line per request with its count of reference calls. `scripts/adapter.py audit` checks every run since
+  the adapter's last commit. It fails on any response given without calling the reference; a 501 for an unmapped
+  operation and a 502-504 count as declining, since they can only fail a test. It reports `not run` with no log or
+  nothing answered from the reference. Gate 4 refuses while:
+  - `rspec.json` sets no `reference.run.adapter`;
+  - the log is committed or not git-ignored;
+  - the audit fails;
+  - an open (not hidden) level-2 HTTP criterion has no passing run through this adapter version.
+
+  Gate 4 records the audit's result, and hashes only the files git tracks under `adapter/`, which it always
+  protects. Needs rspec with `reference.run.adapter` (tammai/rspec#20).
+  **Known gap:** hidden criteria aren't re-checked against the adapter version, since their tests can't be
+  re-recorded once split. Commit and merge the adapter before verify, and don't change it between the holdout
+  split and the first Gate 4 lock.
+
 ### Fixed
 
 - **Contracts 1.3.1: the departures check accepts `equiv-trace:<name>`.** `check_departures` refused the rule
