@@ -1,6 +1,6 @@
 # Contract-shaped recorded tests, proven through a reference adapter
 
-Status: proposed, 2026-11-16. Answers issue #9 item 6; direction chosen by the user ("contract tests + adapter").
+Status: approved, 2026-11-16 (build order below; rspec first). Answers issue #9 item 6; direction chosen by the user ("contract tests + adapter").
 
 ## The problem
 
@@ -58,7 +58,8 @@ at every boundary.
 - **UI (Playwright) criteria.** The rebuild's UI isn't the reference's UI either, so routes and selectors differ.
   An adapter can't map a page. Options: tests written against accessible roles and text, recorded against the
   reference and run against the build, with routes taken from the locked UI map; or keep the departure plus
-  builder tests for UI. To decide separately.
+  builder tests for UI. **Decided 2026-11-16 (the user):** UI criteria keep a departure plus builder tests (sdlc's
+  `departure D-nnn` AC row beside a builder test, sdlc#68) for now. Role and text-based UI tests are a later design.
 - **Writes the reference can't express.** A contract operation with no reference equivalent becomes an
   `unrecordable` criterion with a builder test, as today's level 1.
 
