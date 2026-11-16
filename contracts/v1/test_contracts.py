@@ -1,4 +1,4 @@
-# contracts-version: 1.3.0
+# contracts-version: 1.3.1
 """test_contracts.py — unit tests for contracts.py, one class per contract (C1–C7) plus the YAML subset.
 
   python3 contracts/v1/test_contracts.py                 # all
@@ -483,6 +483,15 @@ class TestC5Departures(unittest.TestCase):
         both = DEPARTURES_EXAMPLE + "  status: proposed\n"
         self.assertTrue(has(errors(self.check(both)), "proposed departure has no decided_by"))
 
+    def test_equiv_trace_rule_accepted_and_never_matches(self):
+        trace = DEPARTURES_EXAMPLE.replace('pointer: /key, rule: "regex:^[A-Z]{2,4}-\\\\d+$"',
+                                           'rule: "equiv-trace:invoices-total"')
+        self.assertNotEqual(trace, DEPARTURES_EXAMPLE)
+        self.assertEqual(self.check(trace), [])
+        self.assertFalse(C._rule_ok("equiv-trace:invoices-total", "equiv-trace:invoices-total", {}))
+        self.assertTrue(has(errors(self.check(trace.replace("equiv-trace:invoices-total", "equiv-trace:"))),
+                            "unknown rule equiv-trace:"))
+
     def test_fields(self):
         self.assertTrue(has(errors(self.check(DEPARTURES_EXAMPLE.replace("kind: simplification", "kind: whim"))), "kind"))
         self.assertTrue(has(errors(self.check(DEPARTURES_EXAMPLE.replace("id: D-004", "id: D4"))), "id"))
@@ -558,13 +567,13 @@ class TestC6Finding(unittest.TestCase):
                                                                     "result": "not run: spec question"})))
         self.assertTrue(has(errors(C.check_finding(make_finding(source="Bug Hunter"))), "source"))
 
-    def test_version_is_1_3_0(self):
-        self.assertEqual(C.VERSION, "1.3.0")
+    def test_version_is_1_3_1(self):
+        self.assertEqual(C.VERSION, "1.3.1")
         for name in sorted(os.listdir(HERE)):
             path = os.path.join(HERE, name)
             if os.path.isfile(path) and name != "MANIFEST" and C.header_for(name):
                 with open(path, encoding="utf-8") as f:
-                    self.assertIn("contracts-version: 1.3.0", f.read(300), name)
+                    self.assertIn("contracts-version: 1.3.1", f.read(300), name)
 
 
 COST = "\n".join([

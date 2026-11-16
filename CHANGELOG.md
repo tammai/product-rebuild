@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Contracts 1.3.1: the departures check accepts `equiv-trace:<name>`.** `check_departures` refused the rule
+  `equiv.py accept` writes, so bug-hunter's `/hunt --oracle` stopped on a workbench with an accepted equivalence
+  trace ([tammai/bug-hunter#36](https://github.com/tammai/bug-hunter/issues/36)). The rule (name non-empty) is now
+  valid in C5 and never matches a replayed value; HTTP replay steps don't accept it. rspec, sdlc and bug-hunter
+  re-vendor 1.3.1 in their own changes.
+
 ## [3.2.1] - 2026-11-16
 
 Fixes from running G5 and G6 for slice S2 of a rebuild on 3.2.0 ([#9](https://github.com/tammai/product-rebuild/issues/9)).

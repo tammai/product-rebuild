@@ -1,4 +1,4 @@
-<!-- contracts-version: 1.3.0 -->
+<!-- contracts-version: 1.3.1 -->
 # Shared contracts v1
 
 The normative part of the shared-contracts spec, used by rspec, sdlc, bug-hunter and product-rebuild. `contracts.py` in this folder checks every rule. Sections C1–C7 are copied from the spec unchanged. "Settled in v1" fixes the details the spec left open.
@@ -154,7 +154,7 @@ Details the spec left open, fixed here so every consumer reads them the same way
 | `manifest.json` | `{"contracts": "1.x.y", "tests": [<entry>…]}`. A runner's files live in its folder: `http/*.yaml`, `e2e/*.spec.ts`, `mobile/*.yaml`, `cli/*.yaml`. |
 | Account variables | `ACCEPT_ACCOUNT_<NAME>` holds one header line, `Name: value` (`Authorization: Bearer …` or `Cookie: sid=…`). |
 | No URL or secret | `bundle` fails on any `scheme://` and on a bearer token or an `Authorization`, `Cookie`, `password`, `api_key` or `secret` key with a value in any bundle file. |
-| Match rules | `uuid`, `int`, `iso8601`, `same-as:<capture>`, and `regex:<pattern>` (C5 uses it). `same-as` and `{capture}` in a path name only an earlier capture. |
+| Match rules | `uuid`, `int`, `iso8601`, `same-as:<capture>`, and `regex:<pattern>` (C5 uses it). C5 also accepts `equiv-trace:<name>`, which ties a departure to an accepted equivalence trace and never matches a replayed value. `same-as` and `{capture}` in a path name only an earlier capture. |
 | Seeds | A seed file listed by an HTTP test uses the replay format without `criterion` (`steps:` only); `run-http` runs it first. |
 | Must never break | Each line carries an `MNB-<n>` ID and names `test: …` or `check: …`. |
 | Departure status | `proposed` or `accepted`; omitted means `accepted` (C5's example has none). An accepted entry needs `decided_by`; a proposed entry has none, prints `blocked:` and exits 1. |
