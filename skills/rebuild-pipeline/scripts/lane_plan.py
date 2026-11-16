@@ -456,6 +456,35 @@ def bundle_path(base, rel):
     return p if real == real_base or real.startswith(real_base.rstrip(os.sep) + os.sep) else None
 
 
+IMPORT = re.compile(r"""(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)['"](\.{1,2}/[^'"]+)['"]""")
+CODE = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
+
+
+def support_files(paths, hidden_paths):
+    """(bundle-relative paths the specs import by relative path, transitively, or None; why not, or None).
+    A rebuild's copied specs once could not even load: they import `./_ws-support`, which was left behind.
+    Refuses an import that leaves the bundle, resolves to no file, or is a hidden test."""
+    found, todo = set(), [p for p in paths if p.endswith(CODE)]
+    while todo:
+        rel = todo.pop()
+        for spec in IMPORT.findall(_read_text(os.path.join(SPEC_BUNDLE, rel))):
+            target = os.path.normpath(os.path.join(os.path.dirname(rel), spec)).replace(os.sep, "/")
+            if target.startswith("../") or target == "..":
+                return None, f"{rel} imports {spec}, which leaves the acceptance bundle, so nothing is copied."
+            hit = next((c for c in [target] + [target + e for e in CODE + (".json",)]
+                        + [f"{target}/index{e}" for e in CODE]
+                        if bundle_path(SPEC_BUNDLE, c) and os.path.isfile(os.path.join(SPEC_BUNDLE, c))), None)
+            if not hit:
+                return None, f"{rel} imports {spec}, which is not in the acceptance bundle, so nothing is copied."
+            if hit in hidden_paths:
+                return None, f"{rel} imports {spec}, a hidden test, so nothing is copied."
+            if hit not in found and hit not in paths:
+                found.add(hit)
+                if hit.endswith(CODE):
+                    todo.append(hit)
+    return sorted(found), None
+
+
 def copy_to_lane(worktree, criteria, wb_path):
     """Write the lane's open bundle and lock copy, or return why not (nothing written then)."""
     manifest = _json(os.path.join(SPEC_BUNDLE, "manifest.json"))
@@ -472,12 +501,17 @@ def copy_to_lane(worktree, criteria, wb_path):
     if bad:
         return ("these tests differ from the sha256 the workbench manifest records, so they are not copied: "
                 + ", ".join(bad) + ". A recorded test changes only through rspec:amend.")
+    hidden_paths = {os.path.normpath(str(t.get("path"))).replace(os.sep, "/") for t in tests
+                    if t.get("criterion") in hidden or t.get("visibility", "open") != "open"}
+    support, why = support_files([os.path.normpath(t["path"]).replace(os.sep, "/") for t in mine], hidden_paths)
+    if why:
+        return why
     if os.path.isdir(dest):
         shutil.rmtree(dest)
-    for t in mine:
-        out = os.path.join(dest, t["path"])
+    for rel in [t["path"] for t in mine] + support:
+        out = os.path.join(dest, rel)
         os.makedirs(os.path.dirname(out), exist_ok=True)
-        shutil.copyfile(os.path.join(SPEC_BUNDLE, t["path"]), out)
+        shutil.copyfile(os.path.join(SPEC_BUNDLE, rel), out)
     if os.path.isdir(os.path.join(SPEC_BUNDLE, "seed")):
         shutil.copytree(os.path.join(SPEC_BUNDLE, "seed"), os.path.join(dest, "seed"))
     lane_manifest = dict(manifest, tests=mine)
@@ -675,6 +709,8 @@ def _write_rspec_lane(args):
                         "--build", "inline: this lane, one subagent; the orchestrator runs Review",
                         "--handoff", f"rspec criteria of {', '.join(features)} (workbench {commit})", *tasks,
                         *(["--criteria", *cited] if cited else []))
+        if cited:  # sdlc's verify.py asks for each cited criterion's lock hash, which only cite records
+            _state_py(sdlc, worktree, "cite", feature, *cited)
         state_rel = (out.get("event") or {}).get("state") or f".sdlc/state/{feature}.md"
         build = (stage_numbers(_read_text(os.path.join(worktree, state_rel))) or {}).get("Build")
         if build is None:

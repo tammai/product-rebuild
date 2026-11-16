@@ -149,6 +149,10 @@ if ONLY in (None, "lane", "questions"):
     check("sdlc's state.py new gets the criteria as --criteria",
           "--criteria" in new and new[new.index("--criteria") + 1:new.index("--criteria") + 4]
           == ["F-ISS-01.AC1", "F-ISS-01.AC2", "F-ISS-01.AC3"], new)
+    after_new = calls[calls.index(new) + 1:] if new in calls else []
+    cite = next((c for c in after_new if "cite" in c), [])
+    check("…then state.py cite records every cited criterion",
+          cite[cite.index("cite") + 2:] == ["F-ISS-01.AC1", "F-ISS-01.AC2", "F-ISS-01.AC3"] if cite else False, calls)
     m = json.loads(read(lane, "acceptance", "manifest.json"))
     check("the lane's manifest lists only its open tests", sorted(t["criterion"] for t in m["tests"])
           == ["F-ISS-01.AC1", "F-ISS-01.AC2"], m)
@@ -172,7 +176,26 @@ if ONLY in (None, "lane", "questions"):
     r = lane_plan("refresh", "S1", "api")
     check("a manifest path that leaves the bundle is refused, nothing copied",
           r.returncode == 1 and "leave" in r.stderr and read(lane, "acceptance", "http", "F-ISS-01.AC2.yaml") == good, r.stderr)
+    # A recorded Playwright spec imports support modules rspec wrote beside it, one of them through another.
+    spec = "import { test } from '@playwright/test';\nimport { login } from './_iss-support';\ntest('AC2', login);\n"
+    w(wb, "docs/acceptance/e2e/F-ISS-01.AC2.spec.ts", spec)
+    w(wb, "docs/acceptance/e2e/_iss-support.ts", "export { login } from '../lib/_auth.js';\n")
+    w(wb, "docs/acceptance/lib/_auth.js", "exports.login = () => {};\n")
+    w(wb, "docs/acceptance/manifest.json", manifest.replace('"http/F-ISS-01.AC2.yaml"', '"e2e/F-ISS-01.AC2.spec.ts"')
+      .replace(hashlib.sha256(good.encode()).hexdigest(), hashlib.sha256(spec.encode()).hexdigest()))
+    r = lane_plan("refresh", "S1", "api")
+    check("the support modules an open spec imports are copied with it, one imported through another",
+          r.returncode == 0 and os.path.exists(os.path.join(lane, "acceptance", "e2e", "_iss-support.ts"))
+          and os.path.exists(os.path.join(lane, "acceptance", "lib", "_auth.js")), r.stdout + r.stderr)
+    w(wb, "docs/acceptance/e2e/_iss-support.ts", "export { login } from '../../../p-holdout/e2e/F-ISS-01.AC3.spec.ts';\n")
+    r = lane_plan("refresh", "S1", "api")
+    check("an import that leaves the bundle is refused, nothing copied",
+          r.returncode == 1 and "_iss-support.ts" in r.stderr
+          and read(lane, "acceptance", "e2e", "_iss-support.ts") == "export { login } from '../lib/_auth.js';\n", r.stderr)
+    for rel in ("e2e/F-ISS-01.AC2.spec.ts", "e2e/_iss-support.ts", "lib/_auth.js"):
+        os.remove(os.path.join(wb, "docs", "acceptance", *rel.split("/")))
     w(wb, "docs/acceptance/manifest.json", manifest)
+    lane_plan("refresh", "S1", "api")
     w(wb, "rebuild.yaml", "budgets:\n  parallel_lanes: 1\n")
     commit(wb)
     run(["git", "worktree", "add", "-q", "-b", "slice/S1-web", os.path.join(proj, "app-web")], app)

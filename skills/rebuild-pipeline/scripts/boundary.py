@@ -252,13 +252,19 @@ def _open_suite(sid, contracts, cpy, closed):
             if state == "flaky":
                 lines.append(f"  {cid}: failed in the lanes' run, passed on its re-run: flaky, not a finding")
                 continue
+            failure = f"its {runner} test failed twice in the lanes' runs ({where})"
+            # The JUnit keeps no field or value, so only a rule on the runner (regex:) can cover it. Without this
+            # check a rebuild's route.py dropped the finding as explained while the boundary still held the slice.
+            did = route.departure_for({"criterion": cid}, runner, None, failure) if state == "failed" else None
+            if did:
+                lines.append(f"  {cid}: fails twice, explained by {did}")
+                continue
             green = False
             if state is None:
                 lines.append(f"  {cid}: not run: no joint-run JUnit in the workbench's parity/ holds a {runner} case "
                              f"naming it (the orchestrator's joint run writes parity/<date>-ac.xml)")
             elif state == "failed":
-                fid, new = _write_finding(folder, "g6-open", cid, f"its {runner} test failed twice in the lanes' runs "
-                                          f"({where})", path, contracts, closed, runner)
+                fid, new = _write_finding(folder, "g6-open", cid, failure, path, contracts, closed, runner)
                 lines.append(f"  {cid}: fails in the lanes' run and its re-run -> {'new' if new else 'open'} finding {fid}")
             else:
                 lines.append(f"  {cid}: {state} in {where}: re-run the failed specs (the orchestrator: lanes_check.py stamp --rerun)")

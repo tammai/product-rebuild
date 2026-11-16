@@ -14,7 +14,7 @@
     "features": {
       "description": "Feature id -> status. Overrides `status:` in matrix/features.yaml (gate-1). `descoped` is a user ruling that this rebuild will not build the feature: it leaves the coverage denominator, and validate.py requires its reason under `feature_notes:`. It is progress-only on purpose — the matrix records the reference, which still has the feature.",
       "type": "object",
-      "propertyNames": { "pattern": "^F-[A-Z0-9]+-[0-9]{3}$" },
+      "propertyNames": { "pattern": "^F-[A-Z0-9]+-[0-9]{2,}$" },
       "additionalProperties": {
         "enum": ["planned", "covered", "partial", "missing", "upstream-candidate", "descoped"]
       }
@@ -22,7 +22,7 @@
     "feature_notes": {
       "description": "Feature id -> one-line remark carried into the parity report. Required for every `descoped` feature: the reason, and who ruled it.",
       "type": "object",
-      "propertyNames": { "pattern": "^F-[A-Z0-9]+-[0-9]{3}$" },
+      "propertyNames": { "pattern": "^F-[A-Z0-9]+-[0-9]{2,}$" },
       "additionalProperties": { "type": "string", "minLength": 1 }
     },
     "runbook_amended": {

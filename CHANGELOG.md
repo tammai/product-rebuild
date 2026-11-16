@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.1] - 2026-11-16
+
+Fixes from running G5 and G6 for slice S2 of a rebuild on 3.2.0 ([#9](https://github.com/tammai/product-rebuild/issues/9)).
+With these, a slice whose Playwright tests fail for a reason a departure covers can pass its boundary.
+
+### Fixed
+
+- **A decided departure now explains an open Playwright failure at the boundary.** `boundary.py` already checked
+  departures for HTTP tests, but not for JUnit ones. `route.py` dropped the finding as explained, yet the boundary
+  kept saying the open suite was not green, so the slice could never pass. A JUnit result has no field or value,
+  so a rule on its runner (`{runner: playwright, rule: "regex:..."}`) is what covers it.
+- **Departure match rules are now bug-hunter's.** `departures.py` accepted `any`, which bug-hunter refuses, and
+  `/hunt --oracle` stopped on it. `departures.append` now refuses any rule outside `uuid`, `int`, `iso8601` and
+  `regex:<pattern>` (plus the workbench's own `equiv-trace:<name>`), and `validate.py` names one written by hand.
+  `any` no longer matches anything: write `regex:.*` instead. bug-hunter still refuses `equiv-trace:<name>`,
+  which `equiv.py accept` writes, so a workbench with an accepted equivalence trace still stops `/hunt --oracle`
+  until bug-hunter accepts it.
+- **A lane gets the support modules its specs import.** `lane_plan.py` copied only the files the manifest lists,
+  so a spec importing `./_ws-support` could not even load in the lane. It now copies every file a copied spec
+  imports by relative path, and their imports in turn. An import that leaves the bundle, resolves to no file or
+  is a hidden test refuses the copy.
+- **`lane_plan.py` runs sdlc's `state.py cite`** after `state.py new`, so `verify.py` no longer asks the lane for it.
+- **`plan/progress.yaml` takes rspec's two-digit feature IDs** (`F-WS-08`). The schema wanted three digits, so no
+  feature's progress could be recorded, and every shipped slice was warned as having none.
+
 ## [3.2.0] - 2026-11-15
 
 Cuts G5's cost. The CRM rebuild measured 763M tokens before its first slice, 71% of it in rspec verify. Its 184
