@@ -421,7 +421,7 @@ def main(argv=None):
 
     # The departures registry is append-only from the gate-1 lock rather than hashed (05 P2).
     import departures
-    for problem in departures.record_problems():
+    for problem in departures.record_problems() + departures.rule_problems():
         fail(departures.PATH, problem)
 
     print(f"\n{failures} failure(s)." if failures else "\nAll artifacts valid.")

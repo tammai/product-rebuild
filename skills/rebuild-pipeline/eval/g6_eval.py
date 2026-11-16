@@ -320,6 +320,24 @@ if ONLY in (None, "boundary"):
       '<testsuite><testcase classname="e2e" name="F-ISS-03.AC1 shows the total"/></testsuite>\n')
     rc, out = boundary()
     check("…read from the joint run's JUnit in the workbench's parity/, a passing case for it lets the boundary pass", rc == 0 and "PASS" in out, out)
+    day = time.strftime('%Y-%m-%d')
+    passing_ac = read(wb, "parity", f"{day}-ac.xml")
+    failing = ('<testsuite><testcase classname="e2e" name="F-ISS-03.AC1 shows the total">'
+               '<failure message="no /graphql here"/></testcase></testsuite>\n')
+    w(wb, f"parity/{day}-ac.xml", failing)
+    w(wb, f"parity/{day}-ac-rerun.xml", failing)
+    no_departures = read(wb, "docs", "departures.yaml")
+    w(wb, "docs/departures.yaml", '- id: D-001\n  kind: deliberate-change\n  criteria: [F-ISS-03.AC1]\n'
+      '  summary: the e2e test drives the reference API\n  match:\n    - {runner: playwright, rule: "regex:.*"}\n'
+      '  decided_by: Eval\n')
+    rc, out = boundary()
+    g6_open = [p for p in glob.glob(os.path.join(wb, "parity", "findings", "S1", "*.json"))
+               if json.loads(read(p)).get("criterion") == "F-ISS-03.AC1"]
+    check("a Playwright test failing twice that a decided departure explains is no finding, and the boundary passes",
+          rc == 0 and "F-ISS-03.AC1: fails twice, explained by D-001" in out and not g6_open, out)
+    w(wb, f"parity/{day}-ac.xml", passing_ac)
+    os.remove(os.path.join(wb, "parity", f"{day}-ac-rerun.xml"))
+    w(wb, "docs/departures.yaml", no_departures)
     good = read(wb, "plan", "slice-reviews", "S1.md")
     first = re.findall(r"(?m)^- (F-[A-Z0-9-]+): agree$", good)[0]
     w(wb, "plan/slice-reviews/S1.md", good.replace(f"- {first}: agree", f"- {first}: differs: total is off (class: build-defect, severity: high)"))
@@ -486,6 +504,20 @@ if ONLY in (None, "departures"):
     check("under a gate-1 lock that still hashes the registry (rc.1), adding a departure is refused, naming the reopen",
           r.returncode == 1 and "reopen" in r.stderr and read(wb, "docs", "departures.yaml") == dep, r.stdout + r.stderr)
     w(wb, "locks/gate-1.yaml", lock_now)
+    probe_any = ("import sys; sys.path.insert(0, 'scripts'); import departures\ntry:\n"
+                 "    departures.append('simplification', 'x', 'Eval', criteria=['F-ISS-03.AC1'],"
+                 " match=[{'runner': 'http', 'rule': 'any'}])\n    print('APPENDED')\n"
+                 "except ValueError as e:\n    print('REFUSED', e)\n")
+    r = run([sys.executable, "-c", probe_any], wb)
+    check("departures.append refuses a match rule bug-hunter refuses (any), writing nothing",
+          r.stdout.startswith("REFUSED") and "any" in r.stdout and read(wb, "docs", "departures.yaml") == dep,
+          r.stdout + r.stderr)
+    w(wb, "docs/departures.yaml", dep + "- id: D-005\n  kind: simplification\n  summary: x\n  match:\n"
+                                        "    - {runner: http, rule: any}\n  decided_by: Eval\n")
+    v = script(wb, "validate.py")
+    check("validate.py names a hand-written departure whose match rule bug-hunter refuses",
+          v.returncode == 1 and "D-005" in v.stdout + v.stderr and "any" in v.stdout + v.stderr, v.stdout[-900:] + v.stderr)
+    w(wb, "docs/departures.yaml", dep)
 
 if ONLY in (None, "remine"):
     print("\n# the upstream re-mine: due every 30 days, done through rspec (docs/MIGRATION-3.md)")

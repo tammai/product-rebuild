@@ -11,8 +11,10 @@ gate.py's Gate 5 check, plus bug-hunter (which reads the YAML itself).
 
 WHAT EXPLAINS A DIFFERENCE. Only a decided departure: one with `decided_by`, not `status: proposed` (C5: autopilot
 may propose, never decide; a proposed entry blocks the gate that reads it), and only when one of its `match` rules
-matches the observed difference (`{runner, pointer, rule}`; rules `regex:<re>`, `uuid`, `int`, `iso8601`, `any`;
-an HTTP status is pointer `status`). Its `criteria`, when given, scope the rules to those criteria. A departure
+matches the observed difference (`{runner, pointer, rule}`; rules `regex:<re>`, `uuid`, `int`, `iso8601`; an HTTP
+status is pointer `status`). bug-hunter reads this file too and stops `/hunt --oracle` on a rule outside its own
+list, so rule_problem() holds the workbench to that list: a rebuild once wrote `any`, which only this module
+understood (`regex:.*` says the same). Its `criteria`, when given, scope the rules to those criteria. A departure
 with `match: []` is human-only (C5): it explains a criterion it names only when that criterion is Drop in
 criteria.lock.json, never a failure of a live one. Round 1 of the 3.0 review found a criterion-only departure for
 "keys use 2-4 letters" also explaining an HTTP 500 on that criterion. An equivalence trace is explained by the rule
@@ -134,10 +136,35 @@ def explains(cid, runner, pointer, value, root="."):
     return None
 
 
+def rule_problem(rule):
+    """Why bug-hunter's contracts.py would refuse this departure match rule, or None. Its list is copied here, not
+    imported (another plugin): change both together. `equiv-trace:<name>` is the workbench's own (equiv.py)."""
+    rule = str(rule)
+    if rule in ("uuid", "int", "iso8601") or re.fullmatch(r"equiv-trace:.+", rule):
+        return None
+    if rule.startswith("regex:"):
+        try:
+            re.compile(rule[len("regex:"):])
+            return None
+        except re.error as e:
+            return f"rule {rule} is not a valid regex ({e})"
+    return f"unknown rule {rule} (uuid, int, iso8601, regex:<pattern>; `regex:.*` matches anything)"
+
+
+def rule_problems(root="."):
+    """One line per match rule in the registry that rule_problem() refuses. An unreadable registry gives none here:
+    record_problems() reports that."""
+    try:
+        entries = load(root)
+    except Exception:  # whatever yamlio raises; record_problems() names it
+        return []
+    return [f"{d.get('id')} match {k}: {why}" for d in entries if isinstance(d, dict)
+            for k, m in enumerate(d.get("match") or [], 1) if isinstance(m, dict)
+            for why in [rule_problem(m.get("rule", ""))] if why]
+
+
 def _rule_ok(rule, value):
     s = "" if value is None else str(value)
-    if rule == "any":
-        return True
     if rule == "uuid":
         return bool(UUID.match(s))
     if rule == "int":
@@ -249,6 +276,10 @@ def append(kind, summary, decided_by, criteria=(), features=(), match=(), root="
         raise ValueError(f"kind must be one of {', '.join(KINDS)}")
     if not decided_by or not str(decided_by).strip():
         raise ValueError("a departure needs decided_by: who decided it (contracts C5)")
+    bad = [p for p in (rule_problem(m.get("rule", "")) if isinstance(m, dict) else "a match entry is not a mapping"
+                       for m in match) if p]
+    if bad:
+        raise ValueError("; ".join(bad))
     ok, why = gate1_allows_append(root)
     if not ok:
         raise ValueError(why)

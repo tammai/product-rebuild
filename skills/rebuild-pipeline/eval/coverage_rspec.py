@@ -109,6 +109,12 @@ if ONLY in (None, "reports"):
     check("…lists the Drop under Descoped and build-plan.md's slices under Slice progress",
           "- F-AB-03 Gamma" in rep.split("## Descoped")[-1] and "- S1 one: done" in rep and "- S4 four: pending" in rep,
           rep[-700:])
+    w(wb, "plan/progress.yaml", "slices:\n  S1: done\nfeatures:\n  F-AB-01: covered\n  F-AB-02: descoped\n"
+                                "feature_notes:\n  F-AB-02: not built, ruled by Eval\n")
+    v = script(wb, "validate.py")
+    check("validate.py accepts rspec's two-digit feature IDs in plan/progress.yaml",
+          "ok   plan/progress.yaml" in v.stdout, v.stdout[-900:] + v.stderr)
+    w(wb, "plan/progress.yaml", "slices:\n  S1: done\nfeatures:\n  F-AB-01: covered\n")
     check("under posture observe (the third-party default) equivalence is not reported as not applying",
           "Does not apply" not in rep, rep[:900])
     w(wb, "sources.yaml", "reference:\n  kind: third-party\n  posture: strict\n")
