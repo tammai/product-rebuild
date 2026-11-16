@@ -1,4 +1,4 @@
-# contracts-version: 1.3.0
+# contracts-version: 1.3.1
 """contracts.py — validators for the shared contracts v1 (C1–C7 in CONTRACTS.md), stdlib only.
 
   python3 contracts.py id F-ISS-01.AC2 [--profile rspec|sdlc-s|sdlc-m|sdlc-l]
@@ -38,7 +38,7 @@ import urllib.request
 from xml.sax.saxutils import escape, quoteattr
 
 # Must equal the version in MANIFEST and in every header; vendor-check compares them.
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # ---------------------------------------------------------------- YAML subset
@@ -977,6 +977,10 @@ def check_departures(data):
         for cid in d.get("criteria", []):
             issues += [(s, "%s: %s" % (did, m)) for s, m in check_id(cid, "rspec")]
         for k, m in enumerate(d.get("match") or [], 1):
+            # product-rebuild's equiv.py ties a departure to an accepted equivalence trace this way;
+            # no HTTP value satisfies it (_rule_ok), so it never matches a replay.
+            if m["rule"].startswith("equiv-trace:") and m["rule"] != "equiv-trace:":
+                continue
             problem = _rule_problem(m["rule"], set())
             if problem:
                 issues.append(("error", "%s match %d: %s" % (did, k, problem)))
