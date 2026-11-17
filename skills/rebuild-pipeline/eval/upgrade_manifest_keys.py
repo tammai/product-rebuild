@@ -14,6 +14,7 @@ Windows (.sdlc/baseline.md), which would hide whether this case passes.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -73,6 +74,18 @@ with open(MANIFEST, "w", encoding="utf-8", newline="\n") as fh:
 out = upgrade()
 check("…and with backslash keys, as an older upgrade.py wrote them on Windows",
       listed(out, "LOCALLY MODIFIED", "flows.py") and not listed(out, "UNKNOWN PROVENANCE", "flows.py"), out)
+
+# The Kanso CRM workbench held both keys for one file: the 3.2.0 hash under `/`, the newer one an older --apply
+# wrote under `\`. Whichever came later in the JSON won; here the stale `/` entry comes last.
+with open(os.path.join(wb, "scripts", "flows.py"), "rb") as fh:
+    current = hashlib.sha256(fh.read()).hexdigest()
+mf["files"] = {"scripts\\flows.py": current, "scripts/flows.py": "0" * 64,
+               **{k: v for k, v in mf["files"].items() if k != "scripts\\flows.py"}}
+with open(MANIFEST, "w", encoding="utf-8", newline="\n") as fh:
+    json.dump(mf, fh, indent=2)
+out = upgrade()
+check("with both key forms for one file, the backslash one (only an older --apply wrote it) is the record",
+      listed(out, "STALE", "flows.py") and not listed(out, "LOCALLY MODIFIED", "flows.py"), out)
 
 upgrade("--keep", "scripts/flows.py")
 with open(MANIFEST, encoding="utf-8") as fh:

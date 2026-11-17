@@ -18,7 +18,8 @@ guard still blocks a plain push when a later command on the same line has its ow
   with backslash paths, while rebuild_init.py writes them with forward slashes. Every file edited in a workbench
   was refused as UNKNOWN PROVENANCE instead of LOCALLY MODIFIED, so local patches and old copies looked alike.
   Keys are now compared and written with `/`, and backslash keys an earlier `--apply` or `--keep` wrote are read
-  as the same file.
+  as the same file. When a manifest holds both forms for one file, the backslash entry wins: only that older
+  writer made it, after the forward-slash one, so it is the newer record.
 - **A fix lane opens for a defect in a feature an earlier slice built.** `lane_plan.py <Sn> … --fix` refused any
   finding outside slice `<Sn>`'s own features ("not in S3 of build-plan.md"), even though route.py had routed it
   there. It now accepts features of `<Sn>` and every earlier slice. A feature of a later slice is still refused.

@@ -97,6 +97,17 @@ def _key(rel):
     return rel.replace("\\", "/")
 
 
+def _fold(keyed):
+    """Manifest entries keyed with "/". A file with both forms keeps its backslash entry, whatever the JSON order:
+    only an older --apply or --keep on Windows wrote one, after rebuild_init wrote the "/" one, so it is the newer
+    record (the Kanso CRM workbench held the 3.2.0 hash under "/" and the 3.2.1 one under "\\")."""
+    out = {}
+    for k, v in (keyed or {}).items():
+        if "\\" in k or _key(k) not in out:
+            out[_key(k)] = v
+    return out
+
+
 def _iso_now():
     t = datetime.now(timezone.utc)
     return t.strftime("%Y-%m-%dT%H:%M:%S.") + f"{t.microsecond // 1000:03d}Z"
@@ -297,8 +308,8 @@ def main(argv=None):
     except Exception:
         manifest = None
     mf = manifest if isinstance(manifest, dict) else {}
-    baseline = {_key(k): v for k, v in (mf.get("files") or {}).items()}
-    kept = {_key(k): v for k, v in (mf.get("kept") or {}).items()}
+    baseline = _fold(mf.get("files"))
+    kept = _fold(mf.get("kept"))
 
     # --- classify --------------------------------------------------------------------------
     rows = []
