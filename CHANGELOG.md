@@ -14,6 +14,11 @@ guard still blocks a plain push when a later command on the same line has its ow
 (`git push origin main; rm -f x.log`), so put the `rm -f` in its own call
 ([#16](https://github.com/tammai/product-rebuild/issues/16)).
 
+**Upgrading a Windows workbench from 3.2.1 or earlier:** its own `scripts/upgrade.py` is the copy with the
+key bug, so it still refuses the files it would replace. Run the plugin's copy once from the workbench root,
+`python3 <plugin>/skills/rebuild-pipeline/scripts/upgrade.py`, then `--apply`; later upgrades use the workbench's
+own copy again.
+
 ### Fixed
 
 - **`upgrade.py` tells a local edit from unknown provenance on Windows.** It looked up `locks/tooling.json` keys
