@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.1] - 2026-11-17
+
 Fixes from the Kanso CRM rebuild's slices S1–S4, each worked around by hand on every slice. Not fixed yet: the Bash
 guard still blocks a plain push when a later command on the same line has its own `-f`
 (`git push origin main; rm -f x.log`), so put the `rm -f` in its own call
