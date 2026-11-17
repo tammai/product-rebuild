@@ -90,6 +90,13 @@ def _join(*parts):
     return os.path.normpath(os.path.join(*parts)) if parts else "."
 
 
+def _key(rel):
+    # locks/tooling.json keys are forward-slash paths, as rebuild_init.py writes them; `rel` is native. On
+    # Windows a native lookup missed every key, so each local edit read as unknown provenance, and the
+    # backslash keys --apply and --keep then wrote are folded back here when a manifest is read.
+    return rel.replace("\\", "/")
+
+
 def _iso_now():
     t = datetime.now(timezone.utc)
     return t.strftime("%Y-%m-%dT%H:%M:%S.") + f"{t.microsecond // 1000:03d}Z"
@@ -153,7 +160,7 @@ def main(argv=None):
 
     # Paths the user names, in the manifest's form. `rel` is built with join(), so the manifest holds
     # `scripts\gate.py` on Windows and `--force scripts/gate.py` was refused as "not a vendored
-    # file". Keys stay native rather than moving to "/" so an existing Windows manifest still matches.
+    # file". The manifest itself is keyed with "/" (_key), whatever the platform.
     def native(p):
         return _join(*[x for x in re.split(r"[\\/]", p) if x])
 
@@ -290,8 +297,8 @@ def main(argv=None):
     except Exception:
         manifest = None
     mf = manifest if isinstance(manifest, dict) else {}
-    baseline = mf.get("files") or {}
-    kept = mf.get("kept") or {}
+    baseline = {_key(k): v for k, v in (mf.get("files") or {}).items()}
+    kept = {_key(k): v for k, v in (mf.get("kept") or {}).items()}
 
     # --- classify --------------------------------------------------------------------------
     rows = []
@@ -311,11 +318,11 @@ def main(argv=None):
         # `kept` is checked FIRST and against the live hash: a file the human chose to keep, still
         # exactly as they left it, is its own state. Edited again since the decision, it drops back
         # to `modified` — the decision covered that version of the file, not the path forever.
-        if kept.get(rel) in mine:
+        if kept.get(_key(rel)) in mine:
             row["state"] = "kept"
             rows.append(row)
             continue
-        recorded = baseline.get(rel)
+        recorded = baseline.get(_key(rel))
         if not recorded:
             row["state"] = "unknown"
         elif recorded in mine:
@@ -550,7 +557,7 @@ def main(argv=None):
         next_kept = dict(kept)
         # The LF hash, so the decision survives the file being re-checked-out as CRLF.
         for w in want:
-            next_kept[w] = lf_sha(w)
+            next_kept[_key(w)] = lf_sha(w)
         write_manifest({**mf, "comment": MANIFEST_COMMENT,
                         "plugin_version": mf.get("plugin_version") or plugin_version,
                         "updated": _iso_now(), "files": baseline, "kept": next_kept})
@@ -650,10 +657,10 @@ def main(argv=None):
     # worse than no refusal at all, which is why `--keep` exists as the explicit way to settle one.
     files = dict(baseline)
     for r in copied:
-        files[r["rel"]] = r["srcHash"]
+        files[_key(r["rel"])] = r["srcHash"]
     for v in vendored:
         if not os.path.exists(v["rel"]):
-            files.pop(v["rel"], None)
+            files.pop(_key(v["rel"]), None)
     write_manifest({"comment": MANIFEST_COMMENT, "plugin_version": plugin_version,
                     "updated": _iso_now(), "files": files, "kept": kept})
 
