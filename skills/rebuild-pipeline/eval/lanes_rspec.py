@@ -196,6 +196,48 @@ if ONLY in (None, "lane", "questions"):
         os.remove(os.path.join(wb, "docs", "acceptance", *rel.split("/")))
     w(wb, "docs/acceptance/manifest.json", manifest)
     lane_plan("refresh", "S1", "api")
+    check("a refresh drops the lane's own earlier copy of a test the bundle moved",
+          not os.path.exists(os.path.join(lane, "acceptance", "e2e", "F-ISS-01.AC2.spec.ts")))
+    # Every lane of a slice gets the open tests of every feature up to that slice, so the specs earlier lanes
+    # committed come back unchanged and its diff shows none of them deleted (Kanso CRM S3). Nothing else in the
+    # folder survives: a hidden test's file, a stale copy and an old seed file all go.
+    w(lane, "acceptance/http/F-ISS-01.AC3.yaml", "criterion: F-ISS-01.AC3\n")
+    w(lane, "acceptance/seed/renamed-away.yaml", "steps: []\n")
+    r = lane_plan("refresh", "S1", "api")
+    check("a refresh removes a hidden test's file from the lane",
+          r.returncode == 0 and not os.path.exists(os.path.join(lane, "acceptance", "http", "F-ISS-01.AC3.yaml")), r.stdout + r.stderr)
+    check("…and a seed file the bundle no longer has",
+          not os.path.exists(os.path.join(lane, "acceptance", "seed", "renamed-away.yaml"))
+          and os.path.exists(os.path.join(lane, "acceptance", "seed", "base.yaml")))
+    web2 = os.path.join(proj, "app-web2")
+    run(["git", "worktree", "add", "-q", "-b", "slice/S1-web2", web2], app)
+    LOCK["criteria"][1]["priority"] = "Drop"  # F-ISS-01.AC2, out of scope since it was recorded
+    w(wb, "docs/criteria.lock.json", json.dumps(LOCK, indent=2))
+    r = lane_plan("S1", "web2", "--worktree", "../app-web2", "--features", "F-ISS-02", "--approved-by", "Eval")
+    LOCK["criteria"][1]["priority"] = "MVP"
+    w(wb, "docs/criteria.lock.json", json.dumps(LOCK, indent=2))
+    lm = json.loads(read(web2, "acceptance", "manifest.json")) if r.returncode == 0 else {"tests": []}
+    check("a lane's acceptance/ also holds the open tests of the other features up to its slice, unchanged, but not a Drop criterion's",
+          r.returncode == 0 and os.path.exists(os.path.join(web2, "acceptance", "http", "F-ISS-01.AC1.yaml"))
+          and read(web2, "acceptance", "http", "F-ISS-01.AC1.yaml") == read(wb, "docs", "acceptance", "http", "F-ISS-01.AC1.yaml")
+          and sorted(t["criterion"] for t in lm["tests"]) == ["F-ISS-01.AC1"]
+          and not os.path.exists(os.path.join(web2, "acceptance", "http", "F-ISS-01.AC2.yaml")), r.stdout + r.stderr + json.dumps(lm))
+    recp = os.path.join(wb, "plan", "lane-plans", "S1.yaml")
+    rec = json.loads(re.sub(r"^#.*\n", "", read(recp), flags=re.M))
+    rec["lanes"].pop("web2", None)  # holds the lane cap the checks below count
+    w(wb, "plan/lane-plans/S1.yaml", "# eval\n" + json.dumps(rec))
+    # A test file that is also a hidden criterion's test cannot be copied for the open one.
+    hidden_body = "criterion: F-ISS-01.AC3\n"
+    w(wb, "docs/acceptance/http/F-ISS-01.AC3.yaml", hidden_body)
+    w(wb, "docs/acceptance/manifest.json", manifest.replace('"http/F-ISS-01.AC2.yaml"', '"http/F-ISS-01.AC3.yaml"')
+      .replace(hashlib.sha256(good.encode()).hexdigest(), hashlib.sha256(hidden_body.encode()).hexdigest()))
+    r = lane_plan("refresh", "S1", "api")
+    check("an open test whose file is a hidden criterion's is refused, nothing copied",
+          r.returncode == 1 and "also a hidden criterion's test" in r.stderr and not os.path.exists(os.path.join(lane, "acceptance", "http", "F-ISS-01.AC3.yaml")),
+          r.stdout + r.stderr)
+    os.remove(os.path.join(wb, "docs", "acceptance", "http", "F-ISS-01.AC3.yaml"))
+    w(wb, "docs/acceptance/manifest.json", manifest)
+    lane_plan("refresh", "S1", "api")
     w(wb, "rebuild.yaml", "budgets:\n  parallel_lanes: 1\n")
     commit(wb)
     run(["git", "worktree", "add", "-q", "-b", "slice/S1-web", os.path.join(proj, "app-web")], app)

@@ -263,6 +263,22 @@ if ONLY in (None, "route", "fix"):
         r = script(wb, "lane_plan.py", "S1", "fix-r1-x", "--worktree", "../app-x", "--fix", "1", "--findings", "BH-0002",
                    "--approved-by", "Eval")
         check("a finding round 1 did not route to sdlc is refused", r.returncode == 1 and "BH-0002" in r.stderr, r.stdout + r.stderr)
+        # A later slice's hunt finds a defect in a feature an earlier slice built (Kanso CRM S3 and S4): the fix lane
+        # is the later slice's. A feature of a slice not built yet is still refused.
+        w(wb, "docs/build-plan.md", read(wb, "docs", "build-plan.md")
+          + "\n## Slice 2: projects\n\n| 1 | F-PRJ-01 d |\n\n## Slice 3: later\n\n| 1 | F-PRJ-02 e |\n")
+        for f in (finding("BH-0101", "build-defect", "F-ISS-03.AC1"), dict(finding("BH-0102", "build-defect"), feature="F-PRJ-02")):
+            w(wb, f"parity/findings/S2/{f['id']}.json", json.dumps(f, indent=2))
+        commit(wb)
+        r = script(wb, "route.py", "S2")
+        check("eval setup: route.py routes S2's findings", r.returncode == 0, r.stdout + r.stderr)
+        run(["git", "worktree", "add", "-q", "-b", "slice/S2-fix-r1-f-iss-03", os.path.join(proj, "app-fix2")], app)
+        r = script(wb, "lane_plan.py", "S2", "fix-r1-f-iss-03", "--worktree", "../app-fix2", "--fix", "1",
+                   "--findings", "BH-0101", "--approved-by", "Eval")
+        check("a fix lane opens for a finding in a feature an earlier slice built", r.returncode == 0, r.stdout + r.stderr)
+        r = script(wb, "lane_plan.py", "S2", "fix-r1-f-prj-02", "--worktree", "../app-fix3", "--fix", "1",
+                   "--findings", "BH-0102", "--approved-by", "Eval")
+        check("…and is refused for a feature of a later slice", r.returncode == 1 and "F-PRJ-02" in r.stderr, r.stdout + r.stderr)
 
 if ONLY in (None, "boundary"):
     print("\n# the G6 sequence (AC-019)")

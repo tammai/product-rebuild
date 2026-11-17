@@ -331,8 +331,9 @@ def _archive(args):
 # In 3.0 rspec writes the criteria and records the tests, in the workbench (`docs/`). sdlc 3.5 builds
 # spec-backed only from what is inside the code repo: config `spec_lock` (a path in the repo, whose
 # `spec` it resolves against the repo) and `acceptance/manifest.json`. The code repo holds the
-# workbench as a submodule, so this copies, per lane: the lane's OPEN tests, byte-identical and each
-# checked against the workbench manifest's sha256, with a manifest of only those entries; and the lock,
+# workbench as a submodule, so this copies, per lane: the OPEN tests of every feature up to the lane's
+# slice (its own and the ones earlier lanes committed), byte-identical and each checked against the
+# workbench manifest's sha256, with a manifest of those entries; and the lock,
 # its `spec` rewritten to the submodule's `docs`. Hidden tests never reach a lane by construction: they
 # are not in the workbench bundle any more, and the lock copy names no test for them.
 
@@ -485,38 +486,61 @@ def support_files(paths, hidden_paths):
     return sorted(found), None
 
 
-def copy_to_lane(worktree, criteria, wb_path):
-    """Write the lane's open bundle and lock copy, or return why not (nothing written then)."""
+def _norm(p):
+    return os.path.normpath(str(p)).replace(os.sep, "/")
+
+
+def copy_to_lane(worktree, criteria, wb_path, slice_id):
+    """Write the lane's open bundle and lock copy, or return why not (nothing written then). Returns the lane's
+    own tests; the folder also holds the open tests of every feature up to `slice_id`."""
     manifest = _json(os.path.join(SPEC_BUNDLE, "manifest.json"))
     tests = manifest.get("tests") or []
+    lock = _json(SPEC_LOCK)
     # The split's record, not the manifest's visibility, says what is hidden: the manifest is rebuilt by rspec.
     hidden = set(_json(HOLDOUT_RECORD).get("hidden") or []) if os.path.exists(HOLDOUT_RECORD) else set()
-    mine = [t for t in tests if t.get("criterion") in criteria and t.get("criterion") not in hidden and t.get("visibility", "open") == "open"]
+    # The folder is rebuilt whole, from every feature up to this slice, not only the lane's: earlier lanes committed
+    # theirs to the code repo, and a lane that copied only its own showed them all deleted in its diff (the Kanso
+    # CRM rebuild's S3). Rebuilt whole, nothing stale survives in it: no hidden test, moved test or old seed file.
+    # Parallel lanes of a slice copied from the same workbench commit write the same folder, so they merge cleanly.
+    upto = int(slice_id[1:])
+    feats = {f for s, fs in slice_features().items() if int(s[1:]) <= upto for f in fs}
+    carried = {c.get("id") for c in lock.get("criteria") or [] if c.get("feature") in feats and c.get("priority") != "Drop"}
+    is_open = [t for t in tests if t.get("criterion") not in hidden and t.get("visibility", "open") == "open"]
+    mine = [t for t in is_open if t.get("criterion") in criteria]
+    copy = [t for t in is_open if t.get("criterion") in criteria or t.get("criterion") in carried]
     dest = os.path.join(worktree, "acceptance")
-    stray = [str(t.get("path")) for t in mine if not bundle_path(SPEC_BUNDLE, t.get("path")) or not bundle_path(dest, t.get("path"))]
+    stray = [str(t.get("path")) for t in copy if not bundle_path(SPEC_BUNDLE, t.get("path")) or not bundle_path(dest, t.get("path"))]
     if stray:
         return f"these manifest paths leave the acceptance bundle, so nothing is copied: {', '.join(stray)}."
-    bad = [f"{t['path']} (manifest {t.get('sha256', '?')[:12]}…)" for t in mine
+    bad = [f"{t['path']} (manifest {t.get('sha256', '?')[:12]}…)" for t in copy
            if not os.path.exists(os.path.join(SPEC_BUNDLE, t["path"])) or _sha(os.path.join(SPEC_BUNDLE, t["path"])) != t.get("sha256")]
     if bad:
         return ("these tests differ from the sha256 the workbench manifest records, so they are not copied: "
                 + ", ".join(bad) + ". A recorded test changes only through rspec:amend.")
-    hidden_paths = {os.path.normpath(str(t.get("path"))).replace(os.sep, "/") for t in tests
+    hidden_paths = {_norm(t.get("path")) for t in tests
                     if t.get("criterion") in hidden or t.get("visibility", "open") != "open"}
-    support, why = support_files([os.path.normpath(t["path"]).replace(os.sep, "/") for t in mine], hidden_paths)
+    # The lock's path too (with or without a leading ./, either slash): the manifest is rebuilt by rspec, so it is
+    # not the only record of where a hidden test is.
+    for c in lock.get("criteria") or []:
+        p = re.sub(r"^(\./)+", "", str(c.get("test") or "").replace("\\", "/"))
+        if c.get("id") in hidden and p.startswith("acceptance/"):
+            hidden_paths.add(_norm(p[len("acceptance/"):]))
+    shared = sorted({_norm(t["path"]) for t in copy} & hidden_paths)
+    if shared:
+        return f"these open tests are also a hidden criterion's test, so nothing is copied: {', '.join(shared)}."
+    support, why = support_files([_norm(t["path"]) for t in copy], hidden_paths)
     if why:
         return why
     if os.path.isdir(dest):
         shutil.rmtree(dest)
-    for rel in [t["path"] for t in mine] + support:
+    for rel in [t["path"] for t in copy] + support:
         out = os.path.join(dest, rel)
         os.makedirs(os.path.dirname(out), exist_ok=True)
         shutil.copyfile(os.path.join(SPEC_BUNDLE, rel), out)
     if os.path.isdir(os.path.join(SPEC_BUNDLE, "seed")):
         shutil.copytree(os.path.join(SPEC_BUNDLE, "seed"), os.path.join(dest, "seed"))
-    lane_manifest = dict(manifest, tests=mine)
+    lane_manifest = dict(manifest, tests=copy)
     _write_text(os.path.join(dest, "manifest.json"), json.dumps(lane_manifest, indent=2, ensure_ascii=False) + "\n")
-    lock = _json(SPEC_LOCK)
     open_ids = {t["criterion"] for t in tests if t.get("visibility", "open") == "open"}
     for c in lock.get("criteria") or []:
         if c.get("id") not in open_ids:
@@ -634,10 +658,19 @@ def _write_rspec_lane(args):
                "the build did that the reference does not. Fill in only the Test and Run cells still `TBD`.")
     else:
         features = [f.strip() for f in _opt(args, "--features").split(",") if f.strip()]
-    in_slice = slice_features().get(slice_id) or []
+    slices = slice_features()
+    if fix:
+        # A later slice's hunt finds defects in features earlier slices built (the Kanso CRM rebuild's S3 and S4),
+        # and route.py routes them to this slice. A later slice's feature has no code to fix yet, so it stays
+        # refused; slices are built in number order, so a lower number is taken as built.
+        upto = int(slice_id[1:])
+        in_slice = [f for s, fs in slices.items() if int(s[1:]) <= upto for f in fs]
+        where = f"{slice_id} or an earlier slice"
+    else:
+        in_slice, where = slices.get(slice_id) or [], slice_id
     stray = [f for f in features if f not in in_slice]
     if stray:
-        return die(f"not in {slice_id} of {SPEC}/build-plan.md: {', '.join(stray)}.")
+        return die(f"not in {where} of {SPEC}/build-plan.md: {', '.join(stray)}.")
     # The split checks this too, but it runs before Gate 4, when repos.yaml usually lists no code repo yet.
     import holdout
     exposed = holdout.exposure(holdout.holdout_dir())
@@ -689,7 +722,7 @@ def _write_rspec_lane(args):
     except (subprocess.CalledProcessError, OSError):
         return die("the workbench is not a git repository, so there is no commit for the approval to point at.")
     approver = (_opt(args, "--approved-by") or "").strip() or "(no --approved-by)"
-    copied = copy_to_lane(worktree, set(cited), wb_path)
+    copied = copy_to_lane(worktree, set(cited), wb_path, slice_id)
     if isinstance(copied, str):
         return die(copied)
     tests = copied[1]
@@ -758,7 +791,7 @@ def _refresh(args):
         return _die("lane-plan", err)
     if changed:
         print(f"the hidden entries a re-verify dropped are back in {holdout.MANIFEST}; commit it and {holdout.RECORD}.")
-    copied = copy_to_lane(lrec["worktree"], set(lrec["criteria_ids"]), lrec["workbench_path"])
+    copied = copy_to_lane(lrec["worktree"], set(lrec["criteria_ids"]), lrec["workbench_path"], slice_id)
     if isinstance(copied, str):
         return _die("lane-plan", copied)
     print(f"refreshed {slice_id} {lane}: {len(copied[1])} open tests and {LANE_LOCK}. In the lane, `state.py questions "

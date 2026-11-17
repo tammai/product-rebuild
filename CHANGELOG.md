@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Fixes from the Kanso CRM rebuild's slices S1–S4, each worked around by hand on every slice. Not fixed yet: the Bash
+guard still blocks a plain push when a later command on the same line has its own `-f`
+(`git push origin main; rm -f x.log`), so put the `rm -f` in its own call
+([#16](https://github.com/tammai/product-rebuild/issues/16)).
+
+### Fixed
+
+- **`upgrade.py` tells a local edit from unknown provenance on Windows.** It looked up `locks/tooling.json` keys
+  with backslash paths, while rebuild_init.py writes them with forward slashes. Every file edited in a workbench
+  was refused as UNKNOWN PROVENANCE instead of LOCALLY MODIFIED, so local patches and old copies looked alike.
+  Keys are now compared and written with `/`, and backslash keys an earlier `--apply` or `--keep` wrote are read
+  as the same file.
+- **A fix lane opens for a defect in a feature an earlier slice built.** `lane_plan.py <Sn> … --fix` refused any
+  finding outside slice `<Sn>`'s own features ("not in S3 of build-plan.md"), even though route.py had routed it
+  there. It now accepts features of `<Sn>` and every earlier slice. A feature of a later slice is still refused.
+- **A lane's `acceptance/` keeps the specs earlier lanes committed.** `lane_plan.py` rebuilt the folder from the
+  lane's own tests only, so each lane's diff showed every earlier spec deleted. It now rebuilds it from the open
+  tests of every feature up to the lane's slice, so earlier specs come back unchanged. Parallel lanes in a slice
+  write the same manifest. Hidden tests are still never copied, and an open test whose file is also a hidden
+  criterion's test is now refused.
+
 ## [3.3.0] - 2026-11-16
 
 Recorded tests can be proven on the reference through an adapter when the rebuild's contract is not the reference's own API (issue #9 item 6). Requires rspec 0.14.0 and bug-hunter 0.5.3.
